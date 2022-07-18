@@ -23,7 +23,7 @@ I was inspired by the data structure discussed in the MSFragger paper, and decid
 ### Performance
 
 Raw data extracted using RawConverter to MS2 format
-Test data from [http://proteomecentral.proteomexchange.org/cgi/GetDataset?ID=PXD001928](PXD001928) (Yeast_XP_Tricine_trypsin_147.ms2)
+Test data from [PXD001928](http://proteomecentral.proteomexchange.org/cgi/GetDataset?ID=PXD001928) (Yeast_XP_Tricine_trypsin_147.ms2)
 
 On my 6-year old 4-core desktop:
 

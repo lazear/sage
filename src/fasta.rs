@@ -124,3 +124,58 @@ impl Trypsin {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Trypsin;
+
+    #[test]
+    fn digest() {
+        let trypsin = Trypsin::new(false, false);
+        let sequence = "MADEEKLPPGWEKRMSRSSGRVYYFNHITNASQWERPSGN";
+        let expected = vec![
+            "MADEEK",
+            "LPPGWEK",
+            "R",
+            "MSR",
+            "SSGR",
+            "VYYFNHITNASQWERPSGN",
+        ];
+        // assert_eq!(super::digest(sequence, false), expected);
+        assert_eq!(
+            trypsin
+                .digest("".into(), sequence.into())
+                .into_iter()
+                .map(|d| d.sequence)
+                .collect::<Vec<_>>(),
+            expected
+        );
+    }
+
+    #[test]
+    fn digest_missed_cleavage() {
+        let trypsin = Trypsin::new(false, true);
+        let sequence = "MADEEKLPPGWEKRMSRSSGRVYYFNHITNASQWERPSGN";
+        let expected = vec![
+            "MADEEK",
+            "LPPGWEK",
+            "MADEEKLPPGWEK",
+            "R",
+            "LPPGWEKR",
+            "MSR",
+            "RMSR",
+            "SSGR",
+            "MSRSSGR",
+            "VYYFNHITNASQWERPSGN",
+            "SSGRVYYFNHITNASQWERPSGN",
+        ];
+        assert_eq!(
+            trypsin
+                .digest("".into(), sequence.into())
+                .into_iter()
+                .map(|d| d.sequence)
+                .collect::<Vec<_>>(),
+            expected
+        );
+    }
+}
