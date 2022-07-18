@@ -23,7 +23,6 @@ pub const FRAGMENT_BUCKET_SIZE: usize = 8196;
 pub struct PeptideIx(u32);
 
 #[derive(Copy, Clone)]
-#[repr(C)]
 pub struct Theoretical {
     pub peptide_index: PeptideIx,
     pub precursor_mz: f32,
@@ -32,15 +31,9 @@ pub struct Theoretical {
     pub charge: u8,
 }
 
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub(crate) struct FragmentPage {
-    pub(crate) fragments: [Theoretical; FRAGMENT_BUCKET_SIZE],
-}
-
 pub struct IndexedDatabase {
     pub(crate) peptides: Vec<TargetDecoy>,
-    pub(crate) pages: Vec<FragmentPage>,
+    pub fragments: Vec<Theoretical>,
     pub(crate) min_value: Vec<f32>,
     pub fragment_min_mz: f32,
     pub fragment_max_mz: f32,
@@ -75,7 +68,6 @@ impl IndexedDatabase {
                     true => TargetDecoy::Decoy(peptide),
                     false => TargetDecoy::Target(peptide),
                 }
-                // [TargetDecoy::Target(peptide), TargetDecoy::Decoy(reversed)]
             })
             .collect::<Vec<TargetDecoy>>();
 
@@ -107,30 +99,20 @@ impl IndexedDatabase {
 
         fragments.sort_by(|a, b| a.fragment_mz.total_cmp(&b.fragment_mz));
 
-        let (pages, min_value): (Vec<FragmentPage>, Vec<f32>) = fragments
-            .par_chunks(FRAGMENT_BUCKET_SIZE)
+        let min_value = fragments
+            .par_chunks_mut(FRAGMENT_BUCKET_SIZE)
             .map(|chunk| {
-                let default = Theoretical {
-                    peptide_index: PeptideIx(0),
-                    precursor_mz: f32::MAX,
-                    fragment_mz: f32::MAX,
-                    kind: Kind::B,
-                    charge: u8::MAX,
-                };
-
-                let mut array = [default; FRAGMENT_BUCKET_SIZE];
-                array[..chunk.len().min(FRAGMENT_BUCKET_SIZE)].copy_from_slice(chunk);
-                array.sort_by(|a, b| a.precursor_mz.total_cmp(&b.precursor_mz));
-                let m = array
-                    .iter()
-                    .fold(f32::MAX, |acc, frag| acc.min(frag.fragment_mz));
-                (FragmentPage { fragments: array }, m)
+                // There should always be at least one item in the chunk!
+                //  we know the chunk is already sorted by fragment_mz too, so this is minimum value
+                let min = chunk[0].fragment_mz;
+                chunk.sort_by(|a, b| a.precursor_mz.total_cmp(&b.precursor_mz));
+                min
             })
-            .unzip();
+            .collect::<Vec<_>>();
 
         Ok(Self {
             peptides: target_decoys,
-            pages,
+            fragments,
             min_value,
             fragment_max_mz,
             fragment_min_mz,
@@ -152,7 +134,7 @@ impl IndexedDatabase {
     }
 
     pub fn size(&self) -> usize {
-        self.pages.len() * FRAGMENT_BUCKET_SIZE
+        self.fragments.len()
     }
 }
 
@@ -175,28 +157,30 @@ impl<'d, 'q> IndexedQuery<'d, 'q> {
     pub fn page_search(&self, fragment_mz: f32) -> impl Iterator<Item = &Theoretical> {
         let (fragment_lo, fragment_hi) = self.fragment_tol.bounds(fragment_mz);
 
-        let range = binary_search_slice(&self.db.min_value, |f| *f, fragment_lo, fragment_hi);
+        let (left_idx, right_idx) =
+            binary_search_slice(&self.db.min_value, |m| *m, fragment_lo, fragment_hi);
 
-        self.db.pages[range].iter().flat_map(move |page| {
-            let (left, right) = self.precursor_tol.bounds(self.query.precursor_mz - PROTON);
-            let range = binary_search_slice(&page.fragments, |frag| frag.precursor_mz, left, right);
-            page.fragments[range].iter().filter(move |frag| {
-                frag.precursor_mz >= left
-                    && frag.precursor_mz <= right
-                    && frag.fragment_mz >= fragment_lo
-                    && frag.fragment_mz <= fragment_hi
-            })
+        let left_idx = left_idx * FRAGMENT_BUCKET_SIZE;
+        // last chunk not guaranted to be modulo bucket size
+        let right_idx = (right_idx * FRAGMENT_BUCKET_SIZE).min(self.db.fragments.len());
+
+        let (left, right) = self.precursor_tol.bounds(self.query.precursor_mz - PROTON);
+
+        let slice = &&self.db.fragments[left_idx..right_idx];
+
+        let (inner_left, inner_right) =
+            binary_search_slice(&slice, |frag| frag.precursor_mz, left, right);
+        slice[inner_left..inner_right].iter().filter(move |frag| {
+            frag.precursor_mz >= left
+                && frag.precursor_mz <= right
+                && frag.fragment_mz >= fragment_lo
+                && frag.fragment_mz <= fragment_hi
         })
     }
 }
 
 #[inline]
-pub fn binary_search_slice<T, F>(
-    slice: &[T],
-    key: F,
-    left: f32,
-    right: f32,
-) -> std::ops::Range<usize>
+pub fn binary_search_slice<T, F>(slice: &[T], key: F, left: f32, right: f32) -> (usize, usize)
 where
     F: Fn(&T) -> f32,
 {
@@ -213,6 +197,5 @@ where
     let right_idx = match slice.binary_search_by(|a| key(a).total_cmp(&right)) {
         Ok(idx) | Err(idx) => idx.min(slice.len().saturating_sub(1)),
     };
-
-    left_idx..right_idx
+    (left_idx, right_idx)
 }
