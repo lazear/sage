@@ -54,6 +54,7 @@ pub enum Modification {
     Carbamidomethyl,
     Oxidation,
     Acetylation,
+    Tmt11Plex,
 }
 
 impl Mass for Modification {
@@ -62,6 +63,7 @@ impl Mass for Modification {
             Modification::Carbamidomethyl => 57.021464,
             Modification::Oxidation => 15.994915,
             Modification::Acetylation => 42.010565,
+            Modification::Tmt11Plex => 229.162932,
         }
     }
 }
