@@ -1,8 +1,11 @@
 # Proteomics Database in a Weekend!
+<p align="center">
+<img src="https://upload.wikimedia.org/wikipedia/commons/7/70/Carina_Nebula_by_Harel_Boren_%28151851961%2C_modified%29.jpg" width="450px" />
+</p>
 
 I wanted to see how far I could take a proteomics search engine in ~1000 lines of code, and spending only one weekend on it. 
 
-I was inspired by the data structure discussed in the MSFragger paper, and decided to implement a version of it in Rust
+I was inspired by the elegant data structure discussed in the [MSFragger paper](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5409104/), and decided to implement a version of it in Rust
  
 ### Features
 
