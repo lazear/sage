@@ -1,0 +1,9 @@
+/target
+Cargo.lock
+
+*.pin
+*.txt
+*.csv
+*.json
+*.ms2
+*.fasta
