@@ -19,7 +19,7 @@ impl Fasta {
             if line.is_empty() {
                 continue;
             }
-            if line.starts_with('>') {
+            if let Some(id) = line.strip_prefix('>') {
                 if !s.is_empty() {
                     if last_id.starts_with("Reverse") {
                         s.clear();
@@ -27,10 +27,8 @@ impl Fasta {
                     }
                     let acc = last_id.split('|').nth(1).unwrap().into();
                     map.insert(acc, std::mem::take(&mut s));
-                    last_id = &line[1..];
-                } else {
-                    last_id = &line[1..];
                 }
+                last_id = id;
             } else {
                 s.push_str(line);
             }
@@ -42,7 +40,9 @@ impl Fasta {
 
 pub struct Trypsin {
     reverse: bool,
-    miss_cleavage: bool,
+    miss_cleavage: u8,
+    min_len: usize,
+    max_len: usize,
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -59,68 +59,64 @@ impl<'s> std::hash::Hash for Digest<'s> {
 }
 
 impl Trypsin {
-    fn inner<'f>(
-        &self,
-        protein: &'f str,
-        sequence: &str,
-        reversed: bool,
-        peptides: &mut Vec<Digest<'f>>,
-    ) {
+    fn inner<'s>(&self, sequence: &'s str) -> Vec<&'s str> {
+        let mut digests = Vec::new();
         let mut left = 0;
-        let mut left_ = 0;
         for (right, ch) in sequence.chars().enumerate() {
             match ch {
                 'K' | 'R' => {
                     if right + 1 < sequence.len() && sequence[right + 1..].starts_with('P') {
                         continue;
                     }
-                    peptides.push(Digest {
-                        protein,
-                        sequence: sequence[left..=right].to_string(),
-                        reversed,
-                    });
-                    if left_ != left && self.miss_cleavage {
-                        peptides.push(Digest {
-                            protein,
-                            sequence: sequence[left_..=right].to_string(),
-                            reversed,
-                        });
-                    }
-                    left_ = left;
+                    digests.push(&sequence[left..=right]);
                     left = right + 1;
                 }
                 _ => (),
             }
         }
-        peptides.push(Digest {
-            protein,
-            sequence: sequence[left..].to_string(),
-            reversed,
-        });
-        if left_ != left && self.miss_cleavage {
-            peptides.push(Digest {
-                protein,
-                sequence: sequence[left_..].to_string(),
-                reversed,
-            });
+        digests.push(&sequence[left..]);
+        digests
+    }
+
+    fn digest_one_dir<'f>(
+        &self,
+        protein: &'f str,
+        sequence: &str,
+        reversed: bool,
+        digests: &mut Vec<Digest<'f>>,
+    ) {
+        let peptides = self.inner(sequence);
+        for cleavage in 1..=(1 + self.miss_cleavage) {
+            for win in peptides.windows(cleavage as usize) {
+                let len: usize = win.iter().map(|w| w.len()).sum();
+                if len >= self.min_len && len <= self.max_len {
+                    let sequence = win.concat();
+                    digests.push(Digest {
+                        protein,
+                        sequence,
+                        reversed,
+                    })
+                }
+            }
         }
     }
 
     pub fn digest<'f>(&self, protein: &'f str, sequence: &str) -> Vec<Digest<'f>> {
-        let mut peptides = Vec::new();
-        self.inner(protein, sequence, false, &mut peptides);
-        if self.reverse {
-            let reverse = sequence.chars().rev().collect::<String>();
-            self.inner(protein, &reverse, true, &mut peptides);
-        }
+        let mut digests = Vec::new();
+        self.digest_one_dir(protein, sequence, false, &mut digests);
 
-        peptides
+        if self.reverse {
+            self.digest_one_dir(protein, sequence, true, &mut digests);
+        }
+        digests
     }
 
-    pub fn new(reverse: bool, miss_cleavage: bool) -> Self {
+    pub fn new(reverse: bool, miss_cleavage: u8, min_len: usize, max_len: usize) -> Self {
         Self {
             reverse,
             miss_cleavage,
+            max_len,
+            min_len,
         }
     }
 }
@@ -131,16 +127,9 @@ mod tests {
 
     #[test]
     fn digest() {
-        let trypsin = Trypsin::new(false, false);
+        let trypsin = Trypsin::new(false, 0, 2, 50);
         let sequence = "MADEEKLPPGWEKRMSRSSGRVYYFNHITNASQWERPSGN";
-        let expected = vec![
-            "MADEEK",
-            "LPPGWEK",
-            "R",
-            "MSR",
-            "SSGR",
-            "VYYFNHITNASQWERPSGN",
-        ];
+        let expected = vec!["MADEEK", "LPPGWEK", "MSR", "SSGR", "VYYFNHITNASQWERPSGN"];
         // assert_eq!(super::digest(sequence, false), expected);
         assert_eq!(
             trypsin
@@ -154,19 +143,19 @@ mod tests {
 
     #[test]
     fn digest_missed_cleavage() {
-        let trypsin = Trypsin::new(false, true);
+        let trypsin = Trypsin::new(false, 1, 0, 50);
         let sequence = "MADEEKLPPGWEKRMSRSSGRVYYFNHITNASQWERPSGN";
         let expected = vec![
             "MADEEK",
             "LPPGWEK",
-            "MADEEKLPPGWEK",
             "R",
-            "LPPGWEKR",
             "MSR",
-            "RMSR",
             "SSGR",
-            "MSRSSGR",
             "VYYFNHITNASQWERPSGN",
+            "MADEEKLPPGWEK",
+            "LPPGWEKR",
+            "RMSR",
+            "MSRSSGR",
             "SSGRVYYFNHITNASQWERPSGN",
         ];
         assert_eq!(

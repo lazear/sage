@@ -1,5 +1,4 @@
 use crate::fasta::Trypsin;
-use crate::mass::Residue;
 use crate::peptide::{Peptide, TargetDecoy};
 use crate::spectrum::ProcessedSpectrum;
 use crate::{
@@ -13,11 +12,8 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::hash::Hash;
 
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::{
-    collections::{HashMap, HashSet},
-    path::Path,
-};
 
 #[derive(Deserialize)]
 pub struct Builder {
@@ -92,15 +88,16 @@ impl Parameters {
     pub fn build(self) -> Result<IndexedDatabase, Box<dyn std::error::Error>> {
         let fasta = Fasta::open(self.fasta)?;
 
-        let trypsin = Trypsin::new(self.decoy, self.missed_cleavages > 0);
+        let trypsin = Trypsin::new(
+            self.decoy,
+            self.missed_cleavages,
+            self.peptide_min_len,
+            self.peptide_max_len,
+        );
         let peptides = fasta
             .proteins
             .par_iter()
             .flat_map(|(protein, sequence)| trypsin.digest(protein, sequence))
-            .filter(|dig| {
-                dig.sequence.len() >= self.peptide_min_len
-                    && dig.sequence.len() <= self.peptide_max_len
-            })
             .collect::<HashSet<_>>();
 
         let mut target_decoys = peptides
@@ -242,7 +239,7 @@ impl<'d, 'q> IndexedQuery<'d, 'q> {
         let slice = &&self.db.fragments[left_idx..right_idx];
 
         let (inner_left, inner_right) =
-            binary_search_slice(&slice, |frag| frag.precursor_mz, left, right);
+            binary_search_slice(slice, |frag| frag.precursor_mz, left, right);
         slice[inner_left..inner_right].iter().filter(move |frag| {
             frag.precursor_mz >= left
                 && frag.precursor_mz <= right
