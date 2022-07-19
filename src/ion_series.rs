@@ -78,9 +78,8 @@ mod test {
             let mut monoisotopic = H2O;
 
             for c in s.chars() {
-                let r = Residue::try_from(c)?;
-                monoisotopic += r.monoisotopic();
-                sequence.push(r);
+                monoisotopic += c.monoisotopic();
+                sequence.push(Residue::Just(c));
             }
             Ok(Peptide {
                 protein: String::default(),

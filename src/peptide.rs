@@ -1,6 +1,6 @@
 use crate::{
     fasta::Digest,
-    mass::{Mass, Residue, H2O},
+    mass::{Mass, Residue, H2O, VALID_AA},
 };
 
 #[derive(Debug, Clone)]
@@ -40,28 +40,28 @@ pub struct Peptide {
 impl Peptide {
     pub fn set_nterm_mod(&mut self, m: f32) {
         if let Some(resi) = self.sequence.first_mut() {
-            *resi = Residue::Mod(Box::new(resi.clone()), m);
-            self.monoisotopic += m;
+            // Don't overwrite an already modified amino acid!
+            match *resi {
+                Residue::Just(c) => {
+                    self.monoisotopic += m;
+                    *resi = Residue::Mod(c, m);
+                }
+                _ => {}
+            };
         }
     }
 
-    pub fn static_mod(&mut self, target: &Residue, m: f32) {
+    pub fn static_mod(&mut self, target: char, m: f32) {
         for resi in self.sequence.iter_mut() {
-            if resi == target {
-                *resi = Residue::Mod(Box::new(resi.clone()), m);
-                self.monoisotopic += m;
+            // Don't overwrite an already modified amino acid!
+            match resi {
+                Residue::Just(c) if *c == target => {
+                    self.monoisotopic += m;
+                    *resi = Residue::Mod(target, m);
+                }
+                _ => {}
             }
         }
-    }
-
-    pub fn variable_mod(&self, target: &Residue, m: f32) -> Vec<Peptide> {
-        let mut v = Vec::new();
-        if self.sequence.contains(target) {
-            let mut modded = self.clone();
-            modded.static_mod(target, m);
-            v.push(modded);
-        }
-        v
     }
 }
 
@@ -73,9 +73,11 @@ impl<'a> TryFrom<&Digest<'a>> for Peptide {
         let mut monoisotopic = H2O;
 
         for c in value.sequence.chars() {
-            let r = Residue::try_from(c)?;
-            monoisotopic += r.monoisotopic();
-            sequence.push(r);
+            if !VALID_AA.contains(&c) {
+                return Err(c);
+            }
+            monoisotopic += c.monoisotopic();
+            sequence.push(Residue::Just(c));
         }
 
         Ok(Peptide {

@@ -1,3 +1,5 @@
+use std::fmt::Write;
+
 use serde::Serialize;
 
 pub const H2O: f32 = 18.010565;
@@ -28,114 +30,71 @@ pub trait Mass {
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Serialize)]
 pub enum Residue {
-    Ala,
-    Arg,
-    Asn,
-    Asp,
-    Cys,
-    Glu,
-    Gln,
-    Gly,
-    His,
-    Ile,
-    Leu,
-    Lys,
-    Met,
-    Phe,
-    Pro,
-    Ser,
-    Thr,
-    Trp,
-    Tyr,
-    Val,
-    Mod(Box<Residue>, f32),
+    // Standard amino acid residue
+    Just(char),
+    // Amino acid residue with a mass modification
+    Mod(char, f32),
 }
 
 impl Mass for Residue {
     fn monoisotopic(&self) -> f32 {
-        use Residue::*;
         match self {
-            Ala => 71.037_12,
-            Arg => 156.101_1,
-            Asn => 114.042_93,
-            Asp => 115.026_94,
-            Cys => 103.009_186,
-            Glu => 129.042_59,
-            Gln => 128.058_58,
-            Gly => 57.021_465,
-            His => 137.058_91,
-            Ile => 113.084_06,
-            Leu => 113.084_06,
-            Lys => 128.094_96,
-            Met => 131.040_48,
-            Phe => 147.068_42,
-            Pro => 97.052_765,
-            Ser => 87.032_03,
-            Thr => 101.047_676,
-            Trp => 186.079_32,
-            Tyr => 163.063_32,
-            Val => 99.068_41,
-            Mod(resi, mass) => resi.monoisotopic() + mass,
+            Residue::Just(c) => c.monoisotopic(),
+            Residue::Mod(c, m) => c.monoisotopic() + m,
         }
     }
 }
 
-impl TryFrom<char> for Residue {
-    type Error = char;
-    fn try_from(value: char) -> Result<Self, Self::Error> {
-        use Residue::*;
-        let r = match value {
-            'A' => Ala,
-            'R' => Arg,
-            'N' => Asn,
-            'D' => Asp,
-            'C' => Cys,
-            'E' => Glu,
-            'Q' => Gln,
-            'G' => Gly,
-            'H' => His,
-            'I' => Ile,
-            'L' => Leu,
-            'K' => Lys,
-            'M' => Met,
-            'F' => Phe,
-            'P' => Pro,
-            'S' => Ser,
-            'T' => Thr,
-            'W' => Trp,
-            'Y' => Tyr,
-            'V' => Val,
-            _ => return Err(value),
-        };
-        Ok(r)
+pub const VALID_AA: [char; 20] = [
+    'A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W',
+    'Y',
+];
+
+impl Mass for char {
+    fn monoisotopic(&self) -> f32 {
+        match self {
+            'A' => 71.037_12,
+            'R' => 156.101_1,
+            'N' => 114.042_93,
+            'D' => 115.026_94,
+            'C' => 103.009_186,
+            'E' => 129.042_59,
+            'Q' => 128.058_58,
+            'G' => 57.021_465,
+            'H' => 137.058_91,
+            'I' => 113.084_06,
+            'L' => 113.084_06,
+            'K' => 128.094_96,
+            'M' => 131.040_48,
+            'F' => 147.068_42,
+            'P' => 97.052_765,
+            'S' => 87.032_03,
+            'T' => 101.047_676,
+            'W' => 186.079_32,
+            'Y' => 163.063_32,
+            'V' => 99.068_41,
+            _ => unreachable!("BUG: invalid amino acid"),
+        }
     }
 }
 
 impl std::fmt::Display for Residue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use Residue::*;
         match self {
-            Ala => write!(f, "A"),
-            Arg => write!(f, "R"),
-            Asn => write!(f, "N"),
-            Asp => write!(f, "D"),
-            Cys => write!(f, "C"),
-            Glu => write!(f, "E"),
-            Gln => write!(f, "Q"),
-            Gly => write!(f, "G"),
-            His => write!(f, "H"),
-            Ile => write!(f, "I"),
-            Leu => write!(f, "L"),
-            Lys => write!(f, "K"),
-            Met => write!(f, "M"),
-            Phe => write!(f, "F"),
-            Pro => write!(f, "P"),
-            Ser => write!(f, "S"),
-            Thr => write!(f, "T"),
-            Trp => write!(f, "W"),
-            Tyr => write!(f, "Y"),
-            Val => write!(f, "V"),
-            Mod(r, m) => write!(f, "{}({})", r, m),
+            Residue::Just(c) => f.write_char(*c),
+            Residue::Mod(c, m) => write!(f, "{}({})", c, m),
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::{Mass, VALID_AA};
+
+    #[test]
+    fn smoke() {
+        for ch in VALID_AA {
+            assert!(ch.monoisotopic() > 0.0);
         }
     }
 }

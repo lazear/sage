@@ -46,19 +46,16 @@ pub struct Builder {
 impl Builder {
     pub fn make_parameters(self) -> Parameters {
         let bucket_size = self.bucket_size.unwrap_or(8192).next_power_of_two();
-        let mut static_mods = Vec::new();
+        let mut static_mods = HashMap::new();
         if let Some(map) = self.static_mods {
             for (ch, mass) in map {
-                match Residue::try_from(ch) {
-                    Ok(resi) => {
-                        static_mods.push((resi, mass));
-                    }
-                    Err(ch) => {
-                        error!(
-                            "invalid residue: {}, proceeding without this static mod",
-                            ch
-                        );
-                    }
+                if crate::mass::VALID_AA.contains(&ch) {
+                    static_mods.insert(ch, mass);
+                } else {
+                    error!(
+                        "invalid residue: {}, proceeding without this static mod",
+                        ch
+                    );
                 }
             }
         }
@@ -87,7 +84,7 @@ pub struct Parameters {
     decoy: bool,
     missed_cleavages: u8,
     n_term_mod: Option<f32>,
-    static_mods: Vec<(Residue, f32)>,
+    static_mods: HashMap<char, f32>,
     pub fasta: PathBuf,
 }
 
@@ -110,12 +107,13 @@ impl Parameters {
             .par_iter()
             .filter_map(|f| Peptide::try_from(f).ok().map(|pep| (f, pep)))
             .map(|(digest, mut peptide)| {
-                for (resi, mass) in &self.static_mods {
-                    peptide.static_mod(&resi, *mass);
-                }
-
+                // First modification we apply takes priority
                 if let Some(m) = self.n_term_mod {
                     peptide.set_nterm_mod(m);
+                }
+
+                for (resi, mass) in &self.static_mods {
+                    peptide.static_mod(*resi, *mass);
                 }
 
                 match digest.reversed {
