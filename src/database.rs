@@ -7,7 +7,7 @@ use crate::{
     mass::{Tolerance, PROTON},
 };
 
-use log::{error, info, warn};
+use log::error;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::hash::Hash;
@@ -16,26 +16,27 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 #[derive(Deserialize)]
+/// Parameters used for generating the fragment database
 pub struct Builder {
-    // This parameter allows tuning of the internal search structure
+    /// This parameter allows tuning of the internal search structure
     bucket_size: Option<usize>,
-    // Minimum fragment m/z that will be stored in the database
+    /// Minimum fragment m/z that will be stored in the database
     fragment_min_mz: Option<f32>,
-    // Maximum fragment m/z that will be stored in the database
+    /// Maximum fragment m/z that will be stored in the database
     fragment_max_mz: Option<f32>,
-    // Minimum peptide length that will be fragmented
+    /// Minimum peptide length that will be fragmented
     peptide_min_len: Option<usize>,
-    // Maximum peptide length that will be fragmented
+    /// Maximum peptide length that will be fragmented
     peptide_max_len: Option<usize>,
-    // Use target-decoy
+    /// Use target-decoy
     decoy: Option<bool>,
-    // How many missed cleavages to use
+    /// How many missed cleavages to use
     missed_cleavages: Option<u8>,
-    // Static modification to add to the N-terminus of a peptide
+    /// Static modification to add to the N-terminus of a peptide
     n_term_mod: Option<f32>,
-    // Static modifications to add to matching amino acids
+    /// Static modifications to add to matching amino acids
     static_mods: Option<HashMap<char, f32>>,
-    // Fasta database
+    /// Fasta database
     fasta: PathBuf,
 }
 
@@ -94,12 +95,19 @@ impl Parameters {
             self.peptide_min_len,
             self.peptide_max_len,
         );
+
+        // Generate all tryptic peptide sequences, including reversed (decoy)
+        // and missed cleavages, if applicable.
+        //
+        // Then, collect in a HashSet so that we only keep unique tryptic peptides
         let peptides = fasta
             .proteins
             .par_iter()
             .flat_map(|(protein, sequence)| trypsin.digest(protein, sequence))
             .collect::<HashSet<_>>();
 
+        // From our set of unique peptide sequence, apply any modifications
+        // and convert to [`TargetDecoy`] enum
         let mut target_decoys = peptides
             .par_iter()
             .filter_map(|f| Peptide::try_from(f).ok().map(|pep| (f, pep)))
@@ -109,10 +117,12 @@ impl Parameters {
                     peptide.set_nterm_mod(m);
                 }
 
+                // Apply any relevant static modifications
                 for (resi, mass) in &self.static_mods {
                     peptide.static_mod(*resi, *mass);
                 }
 
+                // If this is a reversed digest, annotate it as a Decoy
                 match digest.reversed {
                     true => TargetDecoy::Decoy(peptide),
                     false => TargetDecoy::Target(peptide),
@@ -120,13 +130,18 @@ impl Parameters {
             })
             .collect::<Vec<TargetDecoy>>();
 
-        // Sort by precursor neutral mass
         target_decoys.sort_by(|a, b| a.neutral().total_cmp(&b.neutral()));
 
         let mut fragments = Vec::new();
 
+        // Finally, perform in silico digest for our target sequences
+        // Note that multiple charge states are actually handled by the
+        // [`SpectrumProcessor`], so we don't annotate charge states anywhere
+        // else - we used to though, and could always revert to that - but it
+        // saves a ton of memory to not generate 3-4x as many theoretical fragments
         for (idx, peptide) in target_decoys.iter().enumerate() {
-            // for charge in 1..4 {
+            // Generate both B and Y ions, then filter down to make sure that
+            // theoretical fragments are within the search space
             for kind in [Kind::B, Kind::Y] {
                 fragments.extend(
                     IonSeries::new(peptide.peptide(), kind)
@@ -142,10 +157,44 @@ impl Parameters {
                         }),
                 );
             }
-            // }
         }
 
+        // Sort all of our theoretical fragments by m/z, from low to high
         fragments.sort_by(|a, b| a.fragment_mz.total_cmp(&b.fragment_mz));
+
+        // Now, we bucket all of our theoretical fragments, and within each bucket
+        // sort by precursor m/z - and save the minimum *fragment* m/z in a separate
+        // vector so that we can perform an efficient binary search to reduce
+        // the number of in silico fragments we evaluate
+        //
+        // Imagine our theoretical fragments look like this
+        //
+        // Fragment        A      B       C       D       E       F       G       H
+        // Fragment m/z [ 1.0    1.2     1.3     2.5     2.5     2.6     3.5     4.0 ]
+        // Parent m/z   [ 500    439     291     800     142     515     517     232 ]
+        //
+        // If we apply a bucket size of 4 we will end up with the following:
+        //
+        // Fragment        C      B       A       D       E       H       F       G
+        // Fragment m/z [ 1.3    1.2     1.0     2.5     2.5     4.0     3.5     2.6 ]
+        // Parent m/z   [ 291    439     500     800     142     232     515     517 ]
+        //              |___________________________|   |____________________________|
+        //               Bucket 1: min m/z 1.0          Bucket 2: min m/z 2.5
+        //
+        // * Example query: Fragment m/z 1.3 - 1.9 & Precursor m/z: 450 - 900
+        // 1) Perform a binary search to narrow down our window to Bucket 1 only
+        //      * Bucket 2 has a min m/z outside of our query range - nothing here can match
+        //
+        // Fragment        C      B       A       D
+        // Fragment m/z [ 1.3    1.2     1.0     2.5
+        // Parent m/z   [ 291    439     500     800
+        //                            |_____________|
+        //                                    ^
+        //                                    |
+        // Window with matching precursors ___|
+
+        // and within Bucket 1, we can perform another binary search to find fragments
+        // matching our desired precursor m/z tolerance
 
         let min_value = fragments
             .par_chunks_mut(self.bucket_size)
@@ -187,6 +236,10 @@ pub struct IndexedDatabase {
 }
 
 impl IndexedDatabase {
+    /// Create a new [`IndexedQuery`] for a specific [`ProcessedSpectrum`]
+    ///
+    /// All matches returned by the query will be within the specified tolerance
+    /// parameters
     pub fn query<'d, 'q>(
         &'d self,
         query: &'q ProcessedSpectrum,
@@ -222,48 +275,97 @@ pub struct IndexedQuery<'d, 'q> {
 }
 
 impl<'d, 'q> IndexedQuery<'d, 'q> {
+    /// Search for a specified `fragment_mz` within the database
     pub fn page_search(&self, fragment_mz: f32) -> impl Iterator<Item = &Theoretical> {
         let (fragment_lo, fragment_hi) = self.fragment_tol.bounds(fragment_mz);
+        let (precursor_lo, precursor_hi) =
+            self.precursor_tol.bounds(self.query.precursor_mz - PROTON);
 
+        // Locate the left and right page indices that contain matching fragments
+        // Note that we need to multiply by `bucket_size` to transform these into
+        // indices that can be used with `self.db.fragments`
         let (left_idx, right_idx) =
             binary_search_slice(&self.db.min_value, |m| *m, fragment_lo, fragment_hi);
-
         let left_idx = left_idx * self.db.bucket_size;
-        // last chunk not guaranted to be modulo bucket size
+
+        // Last chunk not guaranted to be modulo bucket size, make sure we don't
+        // accidentally go out of bounds!
         let right_idx = (right_idx * self.db.bucket_size).min(self.db.fragments.len());
 
-        let (left, right) = self.precursor_tol.bounds(self.query.precursor_mz - PROTON);
-
+        // Narrow down into our region of interest, then perform another binary
+        // search to further refine down to the slice of matching precursor mzs
         let slice = &&self.db.fragments[left_idx..right_idx];
-
         let (inner_left, inner_right) =
-            binary_search_slice(slice, |frag| frag.precursor_mz, left, right);
+            binary_search_slice(slice, |frag| frag.precursor_mz, precursor_lo, precursor_hi);
+
+        // Finally, filter down our slice into exact matches only
         slice[inner_left..inner_right].iter().filter(move |frag| {
-            frag.precursor_mz >= left
-                && frag.precursor_mz <= right
+            frag.precursor_mz >= precursor_lo
+                && frag.precursor_mz <= precursor_hi
                 && frag.fragment_mz >= fragment_lo
                 && frag.fragment_mz <= fragment_hi
         })
     }
 }
 
+/// Return the widest `left` and `right` indices into a `slice` (sorted by the
+/// function `key`) such that all values between `low` and `high` are
+/// contained in `slice[left..right]`
+///
+/// # Invariants
+///
+/// * `slice[left] < low || left == 0`
+/// * `slice[right] > high || right == slice.len() - 1`
+/// * `0 <= left <= right < slice.len()`
 #[inline]
-pub fn binary_search_slice<T, F>(slice: &[T], key: F, left: f32, right: f32) -> (usize, usize)
+pub fn binary_search_slice<T, F>(slice: &[T], key: F, low: f32, high: f32) -> (usize, usize)
 where
     F: Fn(&T) -> f32,
 {
-    let left_idx = match slice.binary_search_by(|a| key(a).total_cmp(&left)) {
+    let left_idx = match slice.binary_search_by(|a| key(a).total_cmp(&low)) {
         Ok(idx) | Err(idx) => {
             let mut idx = idx.saturating_sub(1);
-            while idx > 0 && key(&slice[idx]) >= left {
+            while idx > 0 && key(&slice[idx]) >= low {
                 idx -= 1;
             }
             idx
         }
     };
 
-    let right_idx = match slice[left_idx..].binary_search_by(|a| key(a).total_cmp(&right)) {
+    let right_idx = match slice[left_idx..].binary_search_by(|a| key(a).total_cmp(&high)) {
         Ok(idx) | Err(idx) => (left_idx + idx).min(slice.len().saturating_sub(1)),
     };
     (left_idx, right_idx)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn binary_search_slice_smoke() {
+        // Make sure that our query returns the maximal set of indices
+        let data = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0];
+        let bounds = binary_search_slice(&data, |x| *x, 1.75, 3.25);
+        assert_eq!(bounds, (1, 5));
+        assert!(data[bounds.0] <= 1.75);
+        assert!(data[bounds.1] > 3.25);
+        assert_eq!(&data[bounds.0..bounds.1], &[1.5, 2.0, 2.5, 3.0]);
+
+        let bounds = binary_search_slice(&data, |x| *x, 0.0, 5.0);
+        assert_eq!(bounds, (0, data.len() - 1));
+    }
+
+    #[test]
+    fn binary_search_slice_run() {
+        // Make sure that our query returns the maximal set of indices
+        let data = [1.0, 1.5, 1.5, 1.5, 1.5, 2.0, 2.5, 3.0, 3.0, 3.5, 4.0];
+        let (left, right) = binary_search_slice(&data, |x| *x, 1.5, 3.25);
+        assert!(data[left] < 1.5);
+        assert!(data[right] > 3.25);
+        assert_eq!(
+            &data[left..right],
+            &[1.0, 1.5, 1.5, 1.5, 1.5, 2.0, 2.5, 3.0, 3.0]
+        );
+    }
 }

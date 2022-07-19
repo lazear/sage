@@ -42,6 +42,8 @@ pub struct Percolator<'db> {
 }
 
 impl Score {
+    /// Calculate the X!Tandem hyperscore
+    /// * `fact_table` is a precomputed vector of factorials
     fn hyperscore(&self, fact_table: &[f32]) -> f32 {
         let i = (self.summed_b + 1.0) * (self.summed_y + 1.0);
         let m = fact_table[(self.matched_b as usize).min(fact_table.len() - 1)]
@@ -89,15 +91,16 @@ impl<'db> Scorer<'db> {
         }
     }
 
+    /// Score a single [`ProcessedSpectrum`] against the database
     pub fn score<'s>(&self, query: &ProcessedSpectrum) -> Vec<Percolator<'db>> {
         let mut scores: HashMap<PeptideIx, Score> = HashMap::new();
+
+        // Create a new `IndexedQuery`
         let candidates = self
             .db
             .query(query, self.search.precursor_tol, self.search.fragment_tol);
 
         for (idx, fragment_mz) in query.mz.iter().enumerate() {
-            // for charge in 1..=query.charge.min(self.search.max_fragment_charge) {
-            // let fragment_mz = (fragment_mz * charge as f32) - (charge as f32 * PROTON);
             for frag in candidates.page_search(*fragment_mz) {
                 let mut sc = scores
                     .entry(frag.peptide_index)
@@ -115,12 +118,11 @@ impl<'db> Scorer<'db> {
                     }
                 }
             }
-            // }
         }
 
+        // Now that we have processed all candidates, calculate the hyperscore
         let mut scores = scores
             .into_values()
-            .filter(|sc| sc.matched_b + sc.matched_y > 0)
             .map(|mut sc| {
                 sc.hyperlog = sc.hyperscore(&self.factorial);
                 sc
@@ -247,6 +249,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut search = Search::load(path)?;
 
     let db = search.database.clone().build()?;
+
     info!(
         "generated {} fragments in {}ms",
         db.size(),

@@ -7,6 +7,7 @@ pub struct Fasta {
 }
 
 impl Fasta {
+    /// Open and parse a fasta file
     pub fn open<P: AsRef<Path>>(path: P) -> io::Result<Fasta> {
         let buf = std::fs::read_to_string(path)?;
 
@@ -47,8 +48,11 @@ pub struct Trypsin {
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Digest<'s> {
+    /// Parent protein ID
     pub protein: &'s str,
+    /// Tryptic peptide sequence
     pub sequence: String,
+    /// Reversed sequence?
     pub reversed: bool,
 }
 
@@ -87,6 +91,7 @@ impl Trypsin {
     ) {
         let peptides = self.inner(sequence);
         for cleavage in 1..=(1 + self.miss_cleavage) {
+            // Generate missed cleavages
             for win in peptides.windows(cleavage as usize) {
                 let len: usize = win.iter().map(|w| w.len()).sum();
                 if len >= self.min_len && len <= self.max_len {
@@ -101,6 +106,7 @@ impl Trypsin {
         }
     }
 
+    /// Generate a series of tryptic digests for a given `sequence`
     pub fn digest<'f>(&self, protein: &'f str, sequence: &str) -> Vec<Digest<'f>> {
         let mut digests = Vec::new();
         self.digest_one_dir(protein, sequence, false, &mut digests);
@@ -112,6 +118,8 @@ impl Trypsin {
         digests
     }
 
+    /// Create a new [`Trypsin`] struct, which will use the specified parameters
+    /// for all in silico digests
     pub fn new(reverse: bool, miss_cleavage: u8, min_len: usize, max_len: usize) -> Self {
         Self {
             reverse,
