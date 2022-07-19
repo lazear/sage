@@ -167,4 +167,35 @@ mod tests {
             expected
         );
     }
+
+    #[test]
+    fn digest_missed_cleavage_2() {
+        let trypsin = Trypsin::new(false, 2, 0, 50);
+        let sequence = "MADEEKLPPGWEKRMSRSSGRVYYFNHITNASQWERPSGN";
+        let expected = vec![
+            "MADEEK",
+            "LPPGWEK",
+            "R",
+            "MSR",
+            "SSGR",
+            "VYYFNHITNASQWERPSGN",
+            "MADEEKLPPGWEK",
+            "LPPGWEKR",
+            "RMSR",
+            "MSRSSGR",
+            "SSGRVYYFNHITNASQWERPSGN",
+            "MADEEKLPPGWEKR",
+            "LPPGWEKRMSR",
+            "RMSRSSGR",
+            "MSRSSGRVYYFNHITNASQWERPSGN",
+        ];
+        assert_eq!(
+            trypsin
+                .digest("".into(), sequence.into())
+                .into_iter()
+                .map(|d| d.sequence)
+                .collect::<Vec<_>>(),
+            expected
+        );
+    }
 }
