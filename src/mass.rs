@@ -1,12 +1,13 @@
 use std::fmt::Write;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 pub const H2O: f32 = 18.010565;
 pub const PROTON: f32 = 1.007_276_4;
 pub const NH3: f32 = 17.026548;
 
-#[derive(Copy, Clone, Serialize)]
+#[derive(Copy, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Tolerance {
     Ppm(f32),
     Th(f32),

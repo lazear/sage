@@ -1,5 +1,5 @@
 use crate::{
-    mass::{Mass, H2O, PROTON},
+    mass::{Mass, H2O},
     peptide::Peptide,
 };
 
@@ -14,22 +14,19 @@ pub enum Kind {
 pub struct Ion {
     pub kind: Kind,
     pub mz: f32,
-    pub charge: u8,
 }
 
 /// Generate B/Y ions for a candidate peptide under a given charge state
 pub struct IonSeries<'p> {
     pub kind: Kind,
-    pub charge: u8,
     peptide: &'p Peptide,
     idx: usize,
 }
 
 impl<'p> IonSeries<'p> {
-    pub fn new(peptide: &'p Peptide, kind: Kind, charge: u8) -> Self {
+    pub fn new(peptide: &'p Peptide, kind: Kind) -> Self {
         Self {
             kind,
-            charge,
             peptide,
             idx: 1,
         }
@@ -53,12 +50,11 @@ impl<'p> Iterator for IonSeries<'p> {
         if Kind::Y == self.kind {
             neutral += H2O;
         }
-        neutral = (neutral + self.charge as f32 * PROTON) / self.charge as f32;
+        // neutral = (neutral + self.charge as f32 * PROTON) / self.charge as f32;
 
         Some(Ion {
             kind: self.kind,
             mz: neutral,
-            charge: self.charge,
         })
     }
 }
@@ -101,7 +97,7 @@ mod test {
     #[test]
     fn iterate_b_ions() {
         let peptide = "PEPTIDE".parse::<Peptide>().unwrap();
-        let iter = IonSeries::new(&peptide, Kind::B, 1);
+        let iter = IonSeries::new(&peptide, Kind::B);
 
         let expected_mz = vec![
             98.06004, 227.10263, 324.155_4, 425.203_06, 538.287_2, 653.314_1,
@@ -113,7 +109,7 @@ mod test {
     #[test]
     fn iterate_y_ions() {
         let peptide = "PEPTIDE".parse::<Peptide>().unwrap();
-        let iter = IonSeries::new(&peptide, Kind::Y, 1);
+        let iter = IonSeries::new(&peptide, Kind::Y);
 
         let expected_mz = vec![
             703.31447, 574.27188, 477.21912, 376.17144, 263.08737, 148.06043,
@@ -125,7 +121,7 @@ mod test {
     #[test]
     fn iterate_y_ions_2() {
         let peptide = "PEPTIDE".parse::<Peptide>().unwrap();
-        let iter = IonSeries::new(&peptide, Kind::Y, 2);
+        let iter = IonSeries::new(&peptide, Kind::Y);
 
         let expected_mz = vec![
             352.16087, 287.639_6, 239.11319, 188.58935, 132.04732, 74.53385,
@@ -137,7 +133,7 @@ mod test {
     #[test]
     fn decoy() {
         let peptide = "PEPTIDE".parse::<Peptide>().unwrap();
-        let iter = IonSeries::new(&peptide, Kind::Y, 2);
+        let iter = IonSeries::new(&peptide, Kind::Y);
 
         let expected_mz = vec![
             352.16087, 287.639_6, 239.11319, 188.58935, 132.04732, 74.53385,
@@ -146,7 +142,7 @@ mod test {
         check_within(iter, &expected_mz);
 
         let peptide = "EDITPEP".parse::<Peptide>().unwrap();
-        let iter = IonSeries::new(&peptide, Kind::Y, 2);
+        let iter = IonSeries::new(&peptide, Kind::Y);
         let expected_mz = vec![
             336.16596, 278.652_5, 222.110_46, 171.586_62, 123.060237, 58.538_94,
         ];

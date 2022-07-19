@@ -126,24 +126,23 @@ impl Parameters {
         let mut fragments = Vec::new();
 
         for (idx, peptide) in target_decoys.iter().enumerate() {
-            for charge in 1..4 {
-                for kind in [Kind::B, Kind::Y] {
-                    fragments.extend(
-                        IonSeries::new(peptide.peptide(), kind, charge)
-                            .map(|ion| Theoretical {
-                                peptide_index: PeptideIx(idx as u32),
-                                precursor_mz: peptide.neutral(),
-                                fragment_mz: ion.mz,
-                                kind: ion.kind,
-                                charge: ion.charge,
-                            })
-                            .filter(|frag| {
-                                frag.fragment_mz >= self.fragment_min_mz
-                                    && frag.fragment_mz <= self.fragment_max_mz
-                            }),
-                    );
-                }
+            // for charge in 1..4 {
+            for kind in [Kind::B, Kind::Y] {
+                fragments.extend(
+                    IonSeries::new(peptide.peptide(), kind)
+                        .map(|ion| Theoretical {
+                            peptide_index: PeptideIx(idx as u32),
+                            precursor_mz: peptide.neutral(),
+                            fragment_mz: ion.mz,
+                            kind: ion.kind,
+                        })
+                        .filter(|frag| {
+                            frag.fragment_mz >= self.fragment_min_mz
+                                && frag.fragment_mz <= self.fragment_max_mz
+                        }),
+                );
             }
+            // }
         }
 
         fragments.sort_by(|a, b| a.fragment_mz.total_cmp(&b.fragment_mz));
@@ -178,7 +177,6 @@ pub struct Theoretical {
     pub precursor_mz: f32,
     pub fragment_mz: f32,
     pub kind: Kind,
-    pub charge: u8,
 }
 
 pub struct IndexedDatabase {
@@ -264,8 +262,8 @@ where
         }
     };
 
-    let right_idx = match slice.binary_search_by(|a| key(a).total_cmp(&right)) {
-        Ok(idx) | Err(idx) => idx.min(slice.len().saturating_sub(1)),
+    let right_idx = match slice[left_idx..].binary_search_by(|a| key(a).total_cmp(&right)) {
+        Ok(idx) | Err(idx) => (left_idx + idx).min(slice.len().saturating_sub(1)),
     };
     (left_idx, right_idx)
 }

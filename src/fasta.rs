@@ -106,7 +106,8 @@ impl Trypsin {
         self.digest_one_dir(protein, sequence, false, &mut digests);
 
         if self.reverse {
-            self.digest_one_dir(protein, sequence, true, &mut digests);
+            let sequence = sequence.chars().rev().collect::<String>();
+            self.digest_one_dir(protein, &sequence, true, &mut digests);
         }
         digests
     }
