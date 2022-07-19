@@ -1,5 +1,5 @@
 use crate::fasta::Trypsin;
-use crate::mass::{Modification, Residue};
+use crate::mass::Residue;
 use crate::peptide::{Peptide, TargetDecoy};
 use crate::spectrum::ProcessedSpectrum;
 use crate::{
@@ -8,62 +8,116 @@ use crate::{
     mass::{Tolerance, PROTON},
 };
 
+use log::{error, info, warn};
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::hash::Hash;
 
+use std::path::PathBuf;
 use std::{
     collections::{HashMap, HashSet},
     path::Path,
 };
 
-pub const FRAGMENT_BUCKET_SIZE: usize = 8196;
-
-#[derive(Hash, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-#[repr(transparent)]
-pub struct PeptideIx(u32);
-
-#[derive(Copy, Clone)]
-pub struct Theoretical {
-    pub peptide_index: PeptideIx,
-    pub precursor_mz: f32,
-    pub fragment_mz: f32,
-    pub kind: Kind,
-    pub charge: u8,
+#[derive(Deserialize)]
+pub struct Builder {
+    // This parameter allows tuning of the internal search structure
+    bucket_size: Option<usize>,
+    // Minimum fragment m/z that will be stored in the database
+    fragment_min_mz: Option<f32>,
+    // Maximum fragment m/z that will be stored in the database
+    fragment_max_mz: Option<f32>,
+    // Minimum peptide length that will be fragmented
+    peptide_min_len: Option<usize>,
+    // Maximum peptide length that will be fragmented
+    peptide_max_len: Option<usize>,
+    // Use target-decoy
+    decoy: Option<bool>,
+    // How many missed cleavages to use
+    missed_cleavages: Option<u8>,
+    // Static modification to add to the N-terminus of a peptide
+    n_term_mod: Option<f32>,
+    // Static modifications to add to matching amino acids
+    static_mods: Option<HashMap<char, f32>>,
+    // Fasta database
+    fasta: PathBuf,
 }
 
-pub struct IndexedDatabase {
-    pub(crate) peptides: Vec<TargetDecoy>,
-    pub fragments: Vec<Theoretical>,
-    pub(crate) min_value: Vec<f32>,
-    pub fragment_min_mz: f32,
-    pub fragment_max_mz: f32,
+impl Builder {
+    pub fn make_parameters(self) -> Parameters {
+        let bucket_size = self.bucket_size.unwrap_or(8192).next_power_of_two();
+        let mut static_mods = Vec::new();
+        if let Some(map) = self.static_mods {
+            for (ch, mass) in map {
+                match Residue::try_from(ch) {
+                    Ok(resi) => {
+                        static_mods.push((resi, mass));
+                    }
+                    Err(ch) => {
+                        error!(
+                            "invalid residue: {}, proceeding without this static mod",
+                            ch
+                        );
+                    }
+                }
+            }
+        }
+        Parameters {
+            bucket_size,
+            fragment_min_mz: self.fragment_min_mz.unwrap_or(75.0),
+            fragment_max_mz: self.fragment_max_mz.unwrap_or(4000.0),
+            peptide_min_len: self.peptide_min_len.unwrap_or(5),
+            peptide_max_len: self.peptide_max_len.unwrap_or(65),
+            decoy: self.decoy.unwrap_or(true),
+            missed_cleavages: self.missed_cleavages.unwrap_or(0),
+            n_term_mod: self.n_term_mod,
+            static_mods,
+            fasta: self.fasta,
+        }
+    }
 }
 
-impl IndexedDatabase {
-    pub fn new<P: AsRef<Path>>(
-        p: P,
-        static_mods: HashMap<Residue, Modification>,
-        fragment_min_mz: f32,
-        fragment_max_mz: f32,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
-        let fasta = Fasta::open(p)?;
+#[derive(Serialize, Clone, Debug)]
+pub struct Parameters {
+    bucket_size: usize,
+    fragment_min_mz: f32,
+    fragment_max_mz: f32,
+    peptide_min_len: usize,
+    peptide_max_len: usize,
+    decoy: bool,
+    missed_cleavages: u8,
+    n_term_mod: Option<f32>,
+    static_mods: Vec<(Residue, f32)>,
+    pub fasta: PathBuf,
+}
 
-        let trypsin = Trypsin::new(true, true);
+impl Parameters {
+    pub fn build(self) -> Result<IndexedDatabase, Box<dyn std::error::Error>> {
+        let fasta = Fasta::open(self.fasta)?;
+
+        let trypsin = Trypsin::new(self.decoy, self.missed_cleavages > 0);
         let peptides = fasta
             .proteins
             .par_iter()
             .flat_map(|(protein, sequence)| trypsin.digest(protein, sequence))
-            .filter(|dig| dig.sequence.len() >= 7 && dig.sequence.len() <= 50)
+            .filter(|dig| {
+                dig.sequence.len() >= self.peptide_min_len
+                    && dig.sequence.len() <= self.peptide_max_len
+            })
             .collect::<HashSet<_>>();
 
         let mut target_decoys = peptides
             .par_iter()
             .filter_map(|f| Peptide::try_from(f).ok().map(|pep| (f, pep)))
             .map(|(digest, mut peptide)| {
-                for (resi, modi) in &static_mods {
-                    peptide.static_mod(resi, *modi);
+                for (resi, mass) in &self.static_mods {
+                    peptide.static_mod(&resi, *mass);
                 }
-                peptide.set_nterm_mod(Modification::Tmt11Plex);
+
+                if let Some(m) = self.n_term_mod {
+                    peptide.set_nterm_mod(m);
+                }
+
                 match digest.reversed {
                     true => TargetDecoy::Decoy(peptide),
                     false => TargetDecoy::Target(peptide),
@@ -89,8 +143,8 @@ impl IndexedDatabase {
                                 charge: ion.charge,
                             })
                             .filter(|frag| {
-                                frag.fragment_mz >= fragment_min_mz
-                                    && frag.fragment_mz <= fragment_max_mz
+                                frag.fragment_mz >= self.fragment_min_mz
+                                    && frag.fragment_mz <= self.fragment_max_mz
                             }),
                     );
                 }
@@ -100,7 +154,7 @@ impl IndexedDatabase {
         fragments.sort_by(|a, b| a.fragment_mz.total_cmp(&b.fragment_mz));
 
         let min_value = fragments
-            .par_chunks_mut(FRAGMENT_BUCKET_SIZE)
+            .par_chunks_mut(self.bucket_size)
             .map(|chunk| {
                 // There should always be at least one item in the chunk!
                 //  we know the chunk is already sorted by fragment_mz too, so this is minimum value
@@ -110,15 +164,36 @@ impl IndexedDatabase {
             })
             .collect::<Vec<_>>();
 
-        Ok(Self {
+        Ok(IndexedDatabase {
             peptides: target_decoys,
             fragments,
             min_value,
-            fragment_max_mz,
-            fragment_min_mz,
+            bucket_size: self.bucket_size,
         })
     }
+}
 
+#[derive(Hash, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(transparent)]
+pub struct PeptideIx(u32);
+
+#[derive(Copy, Clone)]
+pub struct Theoretical {
+    pub peptide_index: PeptideIx,
+    pub precursor_mz: f32,
+    pub fragment_mz: f32,
+    pub kind: Kind,
+    pub charge: u8,
+}
+
+pub struct IndexedDatabase {
+    pub(crate) peptides: Vec<TargetDecoy>,
+    pub fragments: Vec<Theoretical>,
+    pub(crate) min_value: Vec<f32>,
+    bucket_size: usize,
+}
+
+impl IndexedDatabase {
     pub fn query<'d, 'q>(
         &'d self,
         query: &'q ProcessedSpectrum,
@@ -160,9 +235,9 @@ impl<'d, 'q> IndexedQuery<'d, 'q> {
         let (left_idx, right_idx) =
             binary_search_slice(&self.db.min_value, |m| *m, fragment_lo, fragment_hi);
 
-        let left_idx = left_idx * FRAGMENT_BUCKET_SIZE;
+        let left_idx = left_idx * self.db.bucket_size;
         // last chunk not guaranted to be modulo bucket size
-        let right_idx = (right_idx * FRAGMENT_BUCKET_SIZE).min(self.db.fragments.len());
+        let right_idx = (right_idx * self.db.bucket_size).min(self.db.fragments.len());
 
         let (left, right) = self.precursor_tol.bounds(self.query.precursor_mz - PROTON);
 

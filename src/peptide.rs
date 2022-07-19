@@ -1,6 +1,6 @@
 use crate::{
     fasta::Digest,
-    mass::{Mass, Modification, Residue, H2O},
+    mass::{Mass, Residue, H2O},
 };
 
 #[derive(Debug, Clone)]
@@ -38,23 +38,23 @@ pub struct Peptide {
 }
 
 impl Peptide {
-    pub fn set_nterm_mod(&mut self, m: Modification) {
+    pub fn set_nterm_mod(&mut self, m: f32) {
         if let Some(resi) = self.sequence.first_mut() {
             *resi = Residue::Mod(Box::new(resi.clone()), m);
-            self.monoisotopic += m.monoisotopic();
+            self.monoisotopic += m;
         }
     }
 
-    pub fn static_mod(&mut self, target: &Residue, m: Modification) {
+    pub fn static_mod(&mut self, target: &Residue, m: f32) {
         for resi in self.sequence.iter_mut() {
             if resi == target {
                 *resi = Residue::Mod(Box::new(resi.clone()), m);
-                self.monoisotopic += m.monoisotopic();
+                self.monoisotopic += m;
             }
         }
     }
 
-    pub fn variable_mod(&self, target: &Residue, m: Modification) -> Vec<Peptide> {
+    pub fn variable_mod(&self, target: &Residue, m: f32) -> Vec<Peptide> {
         let mut v = Vec::new();
         if self.sequence.contains(target) {
             let mut modded = self.clone();

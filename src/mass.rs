@@ -1,8 +1,10 @@
+use serde::Serialize;
+
 pub const H2O: f32 = 18.010565;
 pub const PROTON: f32 = 1.007_276_4;
 pub const NH3: f32 = 17.026548;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Serialize)]
 pub enum Tolerance {
     Ppm(f32),
     Th(f32),
@@ -24,7 +26,7 @@ pub trait Mass {
     fn monoisotopic(&self) -> f32;
 }
 
-#[derive(Hash, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Serialize)]
 pub enum Residue {
     Ala,
     Arg,
@@ -46,26 +48,7 @@ pub enum Residue {
     Trp,
     Tyr,
     Val,
-    Mod(Box<Residue>, Modification),
-}
-
-#[derive(Hash, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Modification {
-    Carbamidomethyl,
-    Oxidation,
-    Acetylation,
-    Tmt11Plex,
-}
-
-impl Mass for Modification {
-    fn monoisotopic(&self) -> f32 {
-        match self {
-            Modification::Carbamidomethyl => 57.021464,
-            Modification::Oxidation => 15.994915,
-            Modification::Acetylation => 42.010565,
-            Modification::Tmt11Plex => 229.162932,
-        }
-    }
+    Mod(Box<Residue>, f32),
 }
 
 impl Mass for Residue {
@@ -92,7 +75,7 @@ impl Mass for Residue {
             Trp => 186.079_32,
             Tyr => 163.063_32,
             Val => 99.068_41,
-            Mod(resi, modi) => resi.monoisotopic() + modi.monoisotopic(),
+            Mod(resi, mass) => resi.monoisotopic() + mass,
         }
     }
 }
@@ -152,7 +135,7 @@ impl std::fmt::Display for Residue {
             Trp => write!(f, "W"),
             Tyr => write!(f, "Y"),
             Val => write!(f, "V"),
-            Mod(r, m) => write!(f, "{}({})", r, m.monoisotopic()),
+            Mod(r, m) => write!(f, "{}({})", r, m),
         }
     }
 }

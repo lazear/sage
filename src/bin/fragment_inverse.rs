@@ -1,16 +1,16 @@
 use carina::database::{IndexedDatabase, PeptideIx, Theoretical};
 use carina::ion_series::Kind;
-use carina::mass::{Modification, Residue, Tolerance, PROTON};
+use carina::mass::{Residue, Tolerance, PROTON};
 use carina::peptide::TargetDecoy;
 use carina::spectrum::{read_spectrum, ProcessedSpectrum};
+use clap::{App, Arg, ArgMatches, Command};
 use indicatif::ParallelProgressIterator;
+use log::info;
 use rayon::prelude::*;
 use serde::Serialize;
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::time::{self, Instant};
-
-pub const FRAGMENT_MIN_MZ: f32 = 75.0;
-pub const FRAGMENT_MAX_MZ: f32 = 4000.0;
 
 #[derive(Copy, Clone)]
 pub struct Score {
@@ -192,71 +192,124 @@ impl<'db> Scorer<'db> {
     }
 }
 
+#[derive(Serialize)]
+struct SearchParameters {
+    database: carina::database::Parameters,
+    precursor_tol: Tolerance,
+    fragment_tol: Tolerance,
+    report_psms: usize,
+    ms2_paths: Vec<String>,
+}
+
+impl SearchParameters {
+    pub fn from_args<P: AsRef<Path>>(
+        matches: ArgMatches,
+        save_to: P,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let parameter_path = matches.get_one::<String>("parameters").expect("required");
+        let data = std::fs::read_to_string(parameter_path)?;
+        let builder: carina::database::Builder = serde_json::from_str(&data)?;
+        let params = builder.make_parameters();
+
+        let precursor_tol = Tolerance::Ppm(
+            matches
+                .get_one::<String>("precursor_ppm")
+                .expect("required")
+                .parse::<f32>()?,
+        );
+        let fragment_tol = Tolerance::Ppm(
+            matches
+                .get_one::<String>("fragment_ppm")
+                .expect("required")
+                .parse::<f32>()?,
+        );
+        let report_psms = matches
+            .get_one::<String>("report")
+            .expect("required")
+            .parse::<usize>()?;
+        let ms2_paths = matches
+            .get_many::<String>("spectra")
+            .expect("required")
+            .cloned()
+            .collect();
+
+        let params = SearchParameters {
+            database: params,
+            precursor_tol,
+            fragment_tol,
+            report_psms,
+            ms2_paths,
+        };
+
+        info!("logging search parameters to {:?}", save_to.as_ref());
+        std::fs::write(save_to, serde_json::to_string_pretty(&params)?)?;
+        Ok(params)
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let inst = time::Instant::now();
-    use std::env;
+    let env = env_logger::Env::default().filter_or("CARINA_LOG", "info");
+    env_logger::init_from_env(env);
 
-    let mut args = env::args();
-    let inputs = args.skip(1).collect::<Vec<_>>();
-    let fasta_path = &inputs[0];
+    let start = time::Instant::now();
 
-    let mut static_mods = HashMap::new();
-    static_mods.insert(Residue::Cys, Modification::Carbamidomethyl);
-    static_mods.insert(Residue::Lys, Modification::Tmt11Plex);
+    let matches = Command::new("carina")
+        .author("Michael Lazear <michaellazear92@gmail.com>")
+        .arg(Arg::new("parameters").required(true))
+        .arg(Arg::new("precursor_ppm").required(true))
+        .arg(Arg::new("fragment_ppm").required(true))
+        .arg(Arg::new("report").required(false).default_value("1"))
+        .arg(Arg::new("spectra").multiple_values(true).required(true))
+        .get_matches();
 
-    let db = IndexedDatabase::new(
-        // "UP000002311_559292.fasta",
-        // "UP000005640_9606.fasta",
-        fasta_path,
-        static_mods,
-        FRAGMENT_MIN_MZ,
-        FRAGMENT_MAX_MZ,
-    )?;
+    let search = SearchParameters::from_args(matches, "search.json")?;
 
-    println!(
-        "spent {}ms generating {} fragments",
-        (Instant::now() - inst).as_millis(),
-        db.size()
+    let db = search.database.build()?;
+    info!(
+        "generated {} fragments in {}ms",
+        db.size(),
+        (Instant::now() - start).as_millis()
     );
 
-    for ms2_path in &inputs[1..] {
-        // let mut spectra = read_spectrum("Yeast_XP_Tricine_trypsin_147.ms2")?
-        // let mut spectra = read_spectrum("1_amol_35ms_1.ms2")?
+    for ms2_path in &search.ms2_paths {
         let mut spectra = read_spectrum(ms2_path)?
             .into_iter()
             .map(ProcessedSpectrum::from)
             .collect::<Vec<_>>();
+
+        info!("{:?}: read {} spectra", ms2_path, spectra.len());
         spectra.sort_by(|a, b| a.precursor_mz.total_cmp(&b.precursor_mz));
 
         let scorer = Scorer::new(&db, 1, Tolerance::Ppm(50.0), Tolerance::Ppm(10.0));
-        // let scorer = Scorer::new(&db, 1, Tolerance::Ppm(300.0), Tolerance::Ppm(500.0));
-
         let start = Instant::now();
         let scores: Vec<Percolator> = spectra
             .par_iter()
             .progress()
             .flat_map(|spectra| scorer.score(spectra))
             .collect();
-        let duration = (Instant::now() - start).as_micros() as f64 / spectra.len() as f64;
-        dbg!(duration);
+        let duration = Instant::now() - start;
 
-        // let mut writer = csv::Writer::from_path("results.pin")?;
         let mut writer = csv::WriterBuilder::new()
             .delimiter(b'\t')
-            .from_path(format!("{}.results.pin", ms2_path))?;
+            .from_path(format!("results.pin"))?;
 
         for (idx, mut score) in scores.into_iter().enumerate() {
             score.specid = idx;
             writer.serialize(score)?;
         }
 
-        println!(
-            "total: {}ms\tavg: {:0.2}us/scan\tmatched: {} PSMs",
-            (Instant::now() - inst).as_millis(),
-            duration,
+        info!(
+            "{:?}: processed {} scans in {} ms ({} scans/sec)",
+            ms2_path,
             spectra.len(),
+            duration.as_millis(),
+            spectra.len() as f32 / duration.as_secs_f32()
         );
     }
+    info!(
+        "all searches completed in {:0.2} s",
+        (Instant::now() - start).as_secs_f32()
+    );
 
     Ok(())
 }
