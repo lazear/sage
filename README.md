@@ -1,30 +1,28 @@
 # Proteomics Search Engine in a Weekend!
-<p align="center">
-<img src="https://upload.wikimedia.org/wikipedia/commons/7/70/Carina_Nebula_by_Harel_Boren_%28151851961%2C_modified%29.jpg" width="450px" />
-</p>
+
+<img src="figures/TMT_Panel.png" width="800">
 
 I wanted to see how far I could take a proteomics search engine in ~1000 lines of code, and spending a little more than a weekend on it. 
 
-I was inspired by the elegant data structure discussed in the [MSFragger paper](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5409104/), and decided to implement a version of it in Rust - with great results.
+I was inspired by the elegant data structure discussed in the [MSFragger paper](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5409104/), and decided to implement an (open source) version of it in Rust - with great results.
 
 Carina has excellent performance characteristics (>2x faster and >2x less memory usage than MSFragger), but does not sacrifice code quality or size to do so!
  
 ## Features
 
-- Search by fragment, filter by precursor: memory layout using sorted tables for blazing fast performance (lots of binary searching!)
+- Search by fragment, filter by precursor: blazing fast performance
 - Effortlessly cross-platform
+- Small and simple codebase
 - Configuration by JSON files
-- Internal support for static/variable mods
 - X!Tandem hyperscore function
 - Internal q-value/FDR calculation using a target-decoy competition approach
-- Unsafe free
 - Percolator/mokapot compatible output
-- 
+- Unsafe free
 
 ## Limitations
 
 - Only uses MS2 files
-- Only percolator PIN output
+- Only Percolator PIN output
 - Only outputs 1 protein ID even if the peptide is shared by multiple proteins :)
 - Probably has some calculation errors :)
 
@@ -45,13 +43,10 @@ Data repository: [PXD016766](http://proteomecentral.proteomexchange.org/cgi/GetD
 
 <img src="figures/TMT_IDs.png" width="600">
 
-**And excellent performance relative to other search engines**
+Performance results: (Intel i7-12700KF + 32GB RAM)
 
-<img src="figures/TMT_Panel.png" width="800">
-
-Performance results: (Intel i7-12700KF + 32GB ram)
-
-- Active scanning: ~20,000 scans/s (can be tuned to use more ram and go up to 5x faster!)
+- ~40 seconds to process 12 files, using less than 4GB of RAM
+- Active scanning: ~25,000 scans/s (can be tuned to use more ram and go 5x faster!)
 - Amortized scanning: ~7,000 scans/s (most time used on fragment indexing, IO)
 
 
