@@ -73,8 +73,8 @@ impl Builder {
 #[derive(Serialize, Clone, Debug)]
 pub struct Parameters {
     bucket_size: usize,
-    fragment_min_mz: f32,
-    fragment_max_mz: f32,
+    pub fragment_min_mz: f32,
+    pub fragment_max_mz: f32,
     peptide_min_len: usize,
     peptide_max_len: usize,
     decoy: bool,

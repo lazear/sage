@@ -2,7 +2,7 @@ use carina::database::{IndexedDatabase, PeptideIx, Theoretical};
 use carina::ion_series::Kind;
 use carina::mass::{Tolerance, PROTON};
 use carina::peptide::TargetDecoy;
-use carina::spectrum::{read_spectrum, ProcessedSpectrum};
+use carina::spectrum::{read_spectrum, ProcessedSpectrum, SpectrumProcessor};
 use clap::{Arg, Command};
 use log::info;
 use rayon::prelude::*;
@@ -96,26 +96,26 @@ impl<'db> Scorer<'db> {
             .query(query, self.search.precursor_tol, self.search.fragment_tol);
 
         for (idx, fragment_mz) in query.mz.iter().enumerate() {
-            for charge in 1..=query.charge.min(self.search.max_fragment_charge) {
-                let fragment_mz = (fragment_mz * charge as f32) - (charge as f32 * PROTON);
-                for frag in candidates.page_search(fragment_mz) {
-                    let mut sc = scores
-                        .entry(frag.peptide_index)
-                        .or_insert_with(|| Score::new(frag));
+            // for charge in 1..=query.charge.min(self.search.max_fragment_charge) {
+            // let fragment_mz = (fragment_mz * charge as f32) - (charge as f32 * PROTON);
+            for frag in candidates.page_search(*fragment_mz) {
+                let mut sc = scores
+                    .entry(frag.peptide_index)
+                    .or_insert_with(|| Score::new(frag));
 
-                    let intensity = query.int[idx];
-                    match frag.kind {
-                        Kind::B => {
-                            sc.matched_b += 1;
-                            sc.summed_b += intensity
-                        }
-                        Kind::Y => {
-                            sc.matched_y += 1;
-                            sc.summed_y += intensity
-                        }
+                let intensity = query.int[idx];
+                match frag.kind {
+                    Kind::B => {
+                        sc.matched_b += 1;
+                        sc.summed_b += intensity
+                    }
+                    Kind::Y => {
+                        sc.matched_y += 1;
+                        sc.summed_y += intensity
                     }
                 }
             }
+            // }
         }
 
         let mut scores = scores
@@ -193,6 +193,7 @@ pub struct Search {
     precursor_tol: Tolerance,
     fragment_tol: Tolerance,
     max_fragment_charge: u8,
+    take_top_n: usize,
     report_psms: usize,
     ms2_paths: Vec<String>,
     pin_paths: Vec<String>,
@@ -204,7 +205,8 @@ struct Input {
     database: carina::database::Builder,
     precursor_tol: Tolerance,
     fragment_tol: Tolerance,
-    report_psms: usize,
+    report_psms: Option<usize>,
+    take_top_n: Option<usize>,
     max_fragment_charge: Option<u8>,
     ms2_paths: Vec<String>,
 }
@@ -218,7 +220,8 @@ impl Search {
             database,
             precursor_tol: request.precursor_tol,
             fragment_tol: request.fragment_tol,
-            report_psms: request.report_psms,
+            report_psms: request.report_psms.unwrap_or(1),
+            take_top_n: request.take_top_n.unwrap_or(100),
             max_fragment_charge: request.max_fragment_charge.unwrap_or(3),
             pin_paths: Vec::new(),
             ms2_paths: request.ms2_paths,
@@ -251,12 +254,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let scorer = Scorer::new(&db, &search);
+    let sp = SpectrumProcessor::new(
+        search.take_top_n,
+        search.max_fragment_charge,
+        search.database.fragment_max_mz,
+    );
 
     let mut pin_paths = Vec::with_capacity(search.ms2_paths.len());
     for ms2_path in &search.ms2_paths {
         let spectra = read_spectrum(ms2_path)?
             .into_iter()
-            .map(ProcessedSpectrum::from)
+            .map(|spectra| sp.process(spectra))
             .collect::<Vec<_>>();
 
         let start = Instant::now();

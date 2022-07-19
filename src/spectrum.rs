@@ -1,5 +1,13 @@
 use std::collections::BTreeMap;
 
+use crate::mass::PROTON;
+
+pub struct SpectrumProcessor {
+    take_top_n: usize,
+    max_fragment_charge: u8,
+    max_fragment_mz: f32,
+}
+
 #[derive(Clone, Default, Debug)]
 pub struct ProcessedSpectrum {
     pub scan: u32,
@@ -10,15 +18,30 @@ pub struct ProcessedSpectrum {
     pub int: Vec<f32>,
 }
 
-impl From<Spectrum> for ProcessedSpectrum {
-    fn from(s: Spectrum) -> Self {
-        let (mz, int): (Vec<f32>, Vec<f32>) = s
-            .peaks
-            .iter()
-            .rev()
-            .take(100)
-            .map(|(Intensity(int), mz)| (mz, int.sqrt()))
-            .unzip();
+impl SpectrumProcessor {
+    pub fn new(take_top_n: usize, max_fragment_charge: u8, max_fragment_mz: f32) -> Self {
+        Self {
+            take_top_n,
+            max_fragment_charge,
+            max_fragment_mz,
+        }
+    }
+
+    pub fn process(&self, s: Spectrum) -> ProcessedSpectrum {
+        let charge = self.max_fragment_charge.min(s.charge);
+        let mut mz = Vec::with_capacity(charge as usize * self.take_top_n);
+        let mut int = Vec::with_capacity(charge as usize * self.take_top_n);
+        for (Intensity(fragment_int), fragment_mz) in s.peaks.iter().rev().take(self.take_top_n) {
+            for charge in 1..=charge {
+                let fragment_mz = (fragment_mz * charge as f32) - (charge as f32 * PROTON);
+                if fragment_mz < self.max_fragment_mz {
+                    mz.push(fragment_mz);
+                    int.push(fragment_int.sqrt());
+                }
+            }
+        }
+
+        // dbg!(mz.len());
 
         ProcessedSpectrum {
             scan: s.scan,
