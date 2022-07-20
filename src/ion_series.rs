@@ -14,8 +14,8 @@ pub enum Kind {
 pub struct Ion {
     /// B or Y ion
     pub kind: Kind,
-    /// Neutral fragment m/z (no charge)
-    pub mz: f32,
+    /// Neutral fragment mass (no charge)
+    pub monoisotopic_mass: f32,
 }
 
 /// Generate B/Y ions for a candidate peptide under a given charge state
@@ -49,15 +49,15 @@ impl<'p> Iterator for IonSeries<'p> {
         }?;
         self.idx += 1;
 
-        let mut neutral: f32 = seq.iter().map(|r| r.monoisotopic()).sum();
+        let mut monoisotopic_mass: f32 = seq.iter().map(|r| r.monoisotopic()).sum();
         if Kind::Y == self.kind {
-            neutral += H2O;
+            monoisotopic_mass += H2O;
         }
         // neutral = (neutral + self.charge as f32 * PROTON) / self.charge as f32;
 
         Some(Ion {
             kind: self.kind,
-            mz: neutral,
+            monoisotopic_mass,
         })
     }
 }
@@ -92,7 +92,7 @@ mod test {
     }
 
     fn check_within<I: Iterator<Item = Ion>>(iter: I, expected_mz: &[f32]) {
-        let observed = iter.map(|ion| ion.mz).collect::<Vec<f32>>();
+        let observed = iter.map(|ion| ion.monoisotopic_mass).collect::<Vec<f32>>();
         assert_eq!(expected_mz.len(), observed.len());
         assert!(expected_mz
             .iter()
@@ -103,7 +103,7 @@ mod test {
     macro_rules! ions {
         ($peptide:expr, $kind:expr, $charge:expr) => {{
             IonSeries::new($peptide, $kind).map(|mut ion| {
-                ion.mz = (ion.mz + $charge * PROTON) / $charge;
+                ion.monoisotopic_mass = (ion.monoisotopic_mass + $charge * PROTON) / $charge;
                 ion
             })
         }};

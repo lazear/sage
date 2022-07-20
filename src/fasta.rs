@@ -46,7 +46,12 @@ pub struct Trypsin {
     max_len: usize,
 }
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, PartialOrd, Ord)]
+/// A tryptic digest
+///
+/// # Important invariant about [`Digest`]:
+/// * two digests are equal if their sequences and reversed state are equal
+///   i.e., protein ID is ignored for equality and hashing
 pub struct Digest<'s> {
     /// Parent protein ID
     pub protein: &'s str,
@@ -56,9 +61,20 @@ pub struct Digest<'s> {
     pub reversed: bool,
 }
 
+impl<'s> PartialEq for Digest<'s> {
+    fn eq(&self, other: &Self) -> bool {
+        self.sequence == other.sequence && self.reversed == other.reversed
+    }
+}
+
+impl<'s> Eq for Digest<'s> {
+    fn assert_receiver_is_total_eq(&self) {}
+}
+
 impl<'s> std::hash::Hash for Digest<'s> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.sequence.hash(state);
+        self.reversed.hash(state);
     }
 }
 
@@ -133,6 +149,27 @@ impl Trypsin {
 #[cfg(test)]
 mod tests {
     use super::Trypsin;
+    use std::collections::HashSet;
+
+    #[test]
+    fn hash_digest() {
+        let trypsin = Trypsin::new(false, 0, 2, 50);
+        let sequence = "MADEEKMADEEK";
+        let expected = vec!["MADEEK", "MADEEK"];
+
+        let mut observed = trypsin.digest("A".into(), sequence.into());
+
+        // Make sure digest worked!
+        assert_eq!(
+            expected,
+            observed.iter().map(|d| &d.sequence).collect::<Vec<_>>()
+        );
+
+        observed[1].protein = "B";
+        // Make sure hashing a digest works
+        let set = observed.drain(..).collect::<HashSet<_>>();
+        assert_eq!(set.len(), 1);
+    }
 
     #[test]
     fn digest() {

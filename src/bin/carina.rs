@@ -4,6 +4,7 @@ use carina::mass::{Tolerance, PROTON};
 use carina::peptide::TargetDecoy;
 use carina::spectrum::{read_spectrum, ProcessedSpectrum, SpectrumProcessor};
 use clap::{Arg, Command};
+use indicatif::ParallelProgressIterator;
 use log::info;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -100,13 +101,12 @@ impl<'db> Scorer<'db> {
             .db
             .query(query, self.search.precursor_tol, self.search.fragment_tol);
 
-        for (idx, fragment_mz) in query.mz.iter().enumerate() {
+        for (fragment_mz, intensity) in query.peaks.iter() {
             for frag in candidates.page_search(*fragment_mz) {
                 let mut sc = scores
                     .entry(frag.peptide_index)
                     .or_insert_with(|| Score::new(frag));
 
-                let intensity = query.int[idx];
                 match frag.kind {
                     Kind::B => {
                         sc.matched_b += 1;
@@ -172,11 +172,11 @@ impl<'db> Scorer<'db> {
                 specid: 0,
                 scannr: query.scan,
                 label: self.db[better.peptide].label(),
-                expmass: query.precursor_mz,
+                expmass: query.monoisotopic_mass + PROTON,
                 calcmass: peptide.monoisotopic + PROTON,
                 charge: query.charge,
                 rt: query.rt,
-                delta_mass: (query.precursor_mz - peptide.monoisotopic - PROTON),
+                delta_mass: (query.monoisotopic_mass - peptide.monoisotopic),
                 hyperscore: better.hyperlog,
                 deltascore: better.hyperlog - next,
                 matched_peaks: better.matched_b + better.matched_y,
@@ -273,6 +273,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let start = Instant::now();
         let scores: Vec<Percolator> = spectra
             .par_iter()
+            // .progress()
             .flat_map(|spectra| scorer.score(spectra))
             .collect();
         let duration = Instant::now() - start;

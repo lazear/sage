@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 
+use serde::Deserialize;
+
 use crate::mass::PROTON;
 
 pub struct SpectrumProcessor {
@@ -11,11 +13,12 @@ pub struct SpectrumProcessor {
 #[derive(Clone, Default, Debug)]
 pub struct ProcessedSpectrum {
     pub scan: u32,
-    pub precursor_mz: f32,
+    pub monoisotopic_mass: f32,
     pub charge: u8,
     pub rt: f32,
-    pub mz: Vec<f32>,
-    pub int: Vec<f32>,
+    pub peaks: Vec<(f32, f32)>,
+    // pub mz: Vec<f32>,
+    // pub int: Vec<f32>,
 }
 
 impl SpectrumProcessor {
@@ -27,41 +30,68 @@ impl SpectrumProcessor {
         }
     }
 
-    pub fn process(&self, s: Spectrum) -> ProcessedSpectrum {
+    pub fn process(&self, mut s: Spectrum) -> ProcessedSpectrum {
         let charge = self.max_fragment_charge.min(s.charge);
-        let mut mz = Vec::with_capacity(charge as usize * self.take_top_n);
-        let mut int = Vec::with_capacity(charge as usize * self.take_top_n);
-        for (Intensity(fragment_int), fragment_mz) in s.peaks.iter().rev().take(self.take_top_n) {
+        // let mut mz = Vec::with_capacity(charge as usize * self.take_top_n);
+        // let mut int = Vec::with_capacity(charge as usize * self.take_top_n);
+        let mut peaks = Vec::with_capacity(charge as usize * self.take_top_n);
+
+        s.peaks.sort_by(|(_, a), (_, b)| b.total_cmp(&a));
+        let n = s.peaks.len().min(self.take_top_n);
+        let top_peaks = &mut s.peaks[..n];
+
+        for (fragment_mz, fragment_int) in top_peaks.iter() {
             for charge in 1..=charge {
-                let fragment_mz = (fragment_mz * charge as f32) - (charge as f32 * PROTON);
+                // OK, this bit is kinda weird - to save memory, instead of calculating theoretical
+                // m/z's for different charge states, we instead resample the experimental spectra
+                //
+                // We assume that the m/z we are observing are all at charge state 1, and we
+                // want to convert them to higher charge states in order to simulate a calculated
+                // theoretical fragment with this m/z
+                let fragment_mz = (fragment_mz - PROTON) * charge as f32;
                 if fragment_mz < self.max_fragment_mz {
-                    mz.push(fragment_mz);
-                    int.push(fragment_int.sqrt());
+                    peaks.push((fragment_mz, fragment_int.sqrt()));
                 }
             }
         }
+
+        // Sort by m/z
+        peaks.sort_by(|a, b| a.0.total_cmp(&b.0));
+
+        // for (Intensity(fragment_int), fragment_mz) in s.peaks.iter().rev().take(self.take_top_n) {
+        //     for charge in 1..=charge {
+        //         let fragment_mz = (fragment_mz * charge as f32) - (charge as f32 * PROTON);
+        //         if fragment_mz < self.max_fragment_mz {
+        //             mz.push(fragment_mz);
+        //             int.push(fragment_int.sqrt());
+        //         }
+        //     }
+        // }
 
         // dbg!(mz.len());
 
         ProcessedSpectrum {
             scan: s.scan,
-            precursor_mz: s.precursor_mass,
+            monoisotopic_mass: s.precursor_mass - PROTON,
             charge: s.charge,
             rt: s.rt,
-            mz,
-            int,
+            peaks,
+            // mz,
+            // int,
         }
     }
 }
 
 /// An observed MS2 spectrum
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Default, Debug, Deserialize)]
+// #[cfg_attr(test, derive(Deserialize))]
 pub struct Spectrum {
     scan: u32,
     rt: f32,
     precursor_mass: f32,
     charge: u8,
-    peaks: BTreeMap<Intensity, f32>,
+    // peaks: BTreeMap<Intensity, f32>,
+    peaks: Vec<(f32, f32)>,
 }
 
 #[derive(Default, Clone, Debug, PartialEq, PartialOrd)]
@@ -111,7 +141,8 @@ pub fn read_spectrum<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<Vec<
             let mut ws = line.split_whitespace().map(|s| s.parse::<f32>());
             let mz = ws.next().unwrap().unwrap();
             let abundance = ws.next().unwrap().unwrap();
-            current.peaks.insert(Intensity(abundance), mz);
+            // current.peaks.insert(Intensity(abundance), mz);
+            current.peaks.push((mz, abundance));
         }
     }
 

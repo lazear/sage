@@ -148,7 +148,7 @@ impl Parameters {
                         .map(|ion| Theoretical {
                             peptide_index: PeptideIx(idx as u32),
                             precursor_mz: peptide.neutral(),
-                            fragment_mz: ion.mz,
+                            fragment_mz: ion.monoisotopic_mass,
                             kind: ion.kind,
                         })
                         .filter(|frag| {
@@ -216,13 +216,14 @@ impl Parameters {
     }
 }
 
-#[derive(Hash, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Hash, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 #[repr(transparent)]
 pub struct PeptideIx(u32);
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct Theoretical {
     pub peptide_index: PeptideIx,
+    // technically not m/z currently - precursor mono. mass
     pub precursor_mz: f32,
     pub fragment_mz: f32,
     pub kind: Kind,
@@ -278,8 +279,7 @@ impl<'d, 'q> IndexedQuery<'d, 'q> {
     /// Search for a specified `fragment_mz` within the database
     pub fn page_search(&self, fragment_mz: f32) -> impl Iterator<Item = &Theoretical> {
         let (fragment_lo, fragment_hi) = self.fragment_tol.bounds(fragment_mz);
-        let (precursor_lo, precursor_hi) =
-            self.precursor_tol.bounds(self.query.precursor_mz - PROTON);
+        let (precursor_lo, precursor_hi) = self.precursor_tol.bounds(self.query.monoisotopic_mass);
 
         // Locate the left and right page indices that contain matching fragments
         // Note that we need to multiply by `bucket_size` to transform these into
@@ -336,6 +336,12 @@ where
         Ok(idx) | Err(idx) => (left_idx + idx).min(slice.len().saturating_sub(1)),
     };
     (left_idx, right_idx)
+}
+
+impl PeptideIx {
+    pub fn for_testing_only_seriously_though(idx: usize) -> Self {
+        Self(idx as u32)
+    }
 }
 
 #[cfg(test)]
