@@ -54,24 +54,22 @@ class PostAnalysis:
         ).set_index("scannr")
 
     def dump_scan(self, peptide: str, scan):
-        with open(f'{peptide}.json','w') as f:
-            rt = scan["retentionTime"]
-            precursor_mz = scan["precursorMz"][0]["precursorMz"]
-            precursor_charge = scan["precursorMz"][0]["precursorCharge"]
-            precursor_mz = (
-                (precursor_mz * precursor_charge)
-                - (precursor_charge * 1.007_276_4)
-                + 1.007_276_4
-            )
-            data = {
-                'scan': int(scan['num']),
-                'rt': float(rt),
-                'precursor_mass': precursor_mz,
-                'charge': int(precursor_charge),
-                'peaks': [(float(x), float(y)) for x,y in zip(scan["m/z array"], scan['intensity array'])],
-            }
+        rt = scan["retentionTime"]
+        precursor_mz = scan["precursorMz"][0]["precursorMz"]
+        precursor_charge = scan["precursorMz"][0]["precursorCharge"]
+        precursor_mz = (
+            (precursor_mz * precursor_charge)
+            - (precursor_charge * 1.007_276_4)
+            + 1.007_276_4
+        )
+        df = pd.DataFrame(dict(mz=scan['m/z array'], intensity=scan['intensity array']))
+        df.loc[:,'precursor_charge'] = precursor_charge
+        df.loc[:,'precursor_mz'] = precursor_mz
+        df.loc[:,'scan'] = scan['num']
+        df.loc[:,'rt'] = rt
+        print(df)
+        df.to_csv(f"{peptide}.csv")
 
-            f.write(json.dumps(data, indent=2))
 
 
     def plot(self, specific_scan: Optional[int]):

@@ -1,18 +1,13 @@
-use crate::fasta::Trypsin;
+use crate::fasta::{Fasta, Trypsin};
+use crate::ion_series::{IonSeries, Kind};
+use crate::mass::Tolerance;
 use crate::peptide::{Peptide, TargetDecoy};
 use crate::spectrum::ProcessedSpectrum;
-use crate::{
-    fasta::Fasta,
-    ion_series::{IonSeries, Kind},
-    mass::{Tolerance, PROTON},
-};
-
 use log::error;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::hash::Hash;
-
 use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 use std::path::PathBuf;
 
 #[derive(Deserialize)]

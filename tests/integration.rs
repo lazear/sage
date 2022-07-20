@@ -3,7 +3,7 @@ use carina::fasta::{Digest, Trypsin};
 use carina::ion_series::{IonSeries, Kind};
 use carina::mass::Tolerance;
 use carina::peptide::Peptide;
-use carina::spectrum::{Spectrum, SpectrumProcessor};
+use carina::spectrum::SpectrumProcessor;
 use std::collections::HashMap;
 
 const SEQUENCE: &'static str = "
@@ -20,11 +20,11 @@ VWPFEKVADAMKQMQEKKNVGKVLLVPGPEKEN";
 /// Data from PXD001468 - searched with 10ppm precursor and fragment tolerance
 /// Top hit after FDR refinement using [mokapot](https://github.com/wfondrie/mokapot)
 pub fn peptide_id() -> Result<(), Box<dyn std::error::Error>> {
-    let data: &str = include_str!("LQSRPAAPPAPGPGQLTLR.json");
-    let spectrum: Spectrum = serde_json::from_str(data)?;
+    let spectrum = carina::spectrum::read_ms2("tests/LQSRPAAPPAPGPGQLTLR.ms2")?;
+    assert_eq!(spectrum.len(), 1);
 
     let sp = SpectrumProcessor::new(100, 2, 1500.0);
-    let processed = sp.process(spectrum);
+    let processed = sp.process(spectrum[0].clone());
     assert!(processed.peaks.len() <= 300);
 
     let sequence = SEQUENCE.split_whitespace().collect::<String>();
@@ -87,12 +87,11 @@ pub fn peptide_id() -> Result<(), Box<dyn std::error::Error>> {
 // We use a funky strategy to simulate charge states (see [`SpectrumProcessor`])
 // Confirm that we see the right ID's!
 pub fn confirm_charge_state_simulation() -> Result<(), Box<dyn std::error::Error>> {
-    let data: &str = include_str!("LQSRPAAPPAPGPGQLTLR.json");
-    let spectrum: Spectrum = serde_json::from_str(data)?;
+    let spectrum = carina::spectrum::read_ms2("tests/LQSRPAAPPAPGPGQLTLR.ms2")?;
+    assert_eq!(spectrum.len(), 1);
 
-    // charge state = 1, e.g. don't simulate higher states
-    let sp = SpectrumProcessor::new(100, 1, 1500.0);
-    let processed = sp.process(spectrum);
+    let sp = SpectrumProcessor::new(100, 2, 1500.0);
+    let processed = sp.process(spectrum[0].clone());
     assert!(processed.peaks.len() <= 300);
 
     let peptide = Peptide::try_from(&Digest {

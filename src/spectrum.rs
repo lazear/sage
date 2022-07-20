@@ -1,7 +1,3 @@
-use std::collections::BTreeMap;
-
-use serde::Deserialize;
-
 use crate::mass::PROTON;
 
 pub struct SpectrumProcessor {
@@ -17,8 +13,6 @@ pub struct ProcessedSpectrum {
     pub charge: u8,
     pub rt: f32,
     pub peaks: Vec<(f32, f32)>,
-    // pub mz: Vec<f32>,
-    // pub int: Vec<f32>,
 }
 
 impl SpectrumProcessor {
@@ -32,8 +26,6 @@ impl SpectrumProcessor {
 
     pub fn process(&self, mut s: Spectrum) -> ProcessedSpectrum {
         let charge = self.max_fragment_charge.min(s.charge);
-        // let mut mz = Vec::with_capacity(charge as usize * self.take_top_n);
-        // let mut int = Vec::with_capacity(charge as usize * self.take_top_n);
         let mut peaks = Vec::with_capacity(charge as usize * self.take_top_n);
 
         s.peaks.sort_by(|(_, a), (_, b)| b.total_cmp(&a));
@@ -45,9 +37,9 @@ impl SpectrumProcessor {
                 // OK, this bit is kinda weird - to save memory, instead of calculating theoretical
                 // m/z's for different charge states, we instead resample the experimental spectra
                 //
-                // We assume that the m/z we are observing are all at charge state 1, and we
-                // want to convert them to higher charge states in order to simulate a calculated
-                // theoretical fragment with this m/z
+                // We assume that the m/z we are observing are potentially at charge state >1, and we
+                // want to convert them to charge state = 1 (well, really neutral monoisotopic mass)
+                // in order to simulate a calculated theoretical fragment with a higher charge
                 let fragment_mz = (fragment_mz - PROTON) * charge as f32;
                 if fragment_mz < self.max_fragment_mz {
                     peaks.push((fragment_mz, fragment_int.sqrt()));
@@ -58,39 +50,23 @@ impl SpectrumProcessor {
         // Sort by m/z
         peaks.sort_by(|a, b| a.0.total_cmp(&b.0));
 
-        // for (Intensity(fragment_int), fragment_mz) in s.peaks.iter().rev().take(self.take_top_n) {
-        //     for charge in 1..=charge {
-        //         let fragment_mz = (fragment_mz * charge as f32) - (charge as f32 * PROTON);
-        //         if fragment_mz < self.max_fragment_mz {
-        //             mz.push(fragment_mz);
-        //             int.push(fragment_int.sqrt());
-        //         }
-        //     }
-        // }
-
-        // dbg!(mz.len());
-
         ProcessedSpectrum {
             scan: s.scan,
             monoisotopic_mass: s.precursor_mass - PROTON,
             charge: s.charge,
             rt: s.rt,
             peaks,
-            // mz,
-            // int,
         }
     }
 }
 
 /// An observed MS2 spectrum
-#[derive(Clone, Default, Debug, Deserialize)]
-// #[cfg_attr(test, derive(Deserialize))]
+#[derive(Clone, Default, Debug)]
 pub struct Spectrum {
     scan: u32,
     rt: f32,
     precursor_mass: f32,
     charge: u8,
-    // peaks: BTreeMap<Intensity, f32>,
     peaks: Vec<(f32, f32)>,
 }
 
@@ -108,7 +84,7 @@ impl std::cmp::Ord for Intensity {
 }
 
 /// Read a `.ms2` file
-pub fn read_spectrum<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<Vec<Spectrum>> {
+pub fn read_ms2<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<Vec<Spectrum>> {
     let buf = std::fs::read_to_string(path)?;
     let mut spectra = Vec::new();
     let mut current = Spectrum::default();
@@ -141,10 +117,10 @@ pub fn read_spectrum<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<Vec<
             let mut ws = line.split_whitespace().map(|s| s.parse::<f32>());
             let mz = ws.next().unwrap().unwrap();
             let abundance = ws.next().unwrap().unwrap();
-            // current.peaks.insert(Intensity(abundance), mz);
             current.peaks.push((mz, abundance));
         }
     }
+    spectra.push(current);
 
     Ok(spectra)
 }

@@ -45,15 +45,14 @@ Data repository: [PXD016766](http://proteomecentral.proteomexchange.org/cgi/GetD
 
 Performance results: (Intel i7-12700KF + 32GB RAM)
 
-- ~40 seconds to process 12 files, using less than 4GB of RAM
-- Active scanning: ~25,000 scans/s (can be tuned to use more ram and go 5x faster!)
-- Amortized scanning: ~7,000 scans/s (most time used on fragment indexing, IO)
+- ~30 seconds to process 12 files, using less than 4GB of RAM
+- Active scanning: ~45,000 scans/s for narrow window (can be tuned to use more ram and go 5x faster!)
 
 
 ### Search methods
 
 - MS2 files generated using the [ProteoWizard MSConvert tool](http://www.proteowizard.org/download.html)
-- MSFragger and Comet were configured with analogous parameters (50ppm precursor tolerance, 10ppm fragment tolerance - or for Comet setting `fragment_bin_tol` to 0.02 Da).
+- MSFragger and Comet were configured with analogous parameters (+/- 25 ppm precursor tolerance, +/- 10 ppm fragment tolerance - or for Comet setting `fragment_bin_tol` to 0.02 Da).
 - [Mokapot](https://github.com/wfondrie/mokapot) was then used to refine FDR for all search results
 
 Carina search settings file:
@@ -62,7 +61,7 @@ Carina search settings file:
   "database": {
     "bucket_size": 8192,
     "fragment_min_mz": 75.0,
-    "fragment_max_mz": 4000.0,
+    "fragment_max_mz": 2000.0,
     "peptide_min_len": 5,
     "peptide_max_len": 50,
     "decoy": true,
@@ -75,7 +74,7 @@ Carina search settings file:
     "fasta": "UP000005640_9606.fasta"
   },
   "precursor_tol": {
-    "ppm": 50.0
+    "ppm": 25.0
   },
   "fragment_tol": {
     "ppm": 10.0 
