@@ -115,11 +115,17 @@ pub fn confirm_charge_state_simulation() -> Result<(), Box<dyn std::error::Error
     fragments.sort_by(|a, b| a.fragment_mz.total_cmp(&b.fragment_mz));
     assert_eq!(fragments.len(), 36);
 
+    let (matched_b, matched_y) = match_peaks(&fragments, &processed.peaks, 10.0);
+    assert_eq!(matched_b + matched_y, 8);
+
+    Ok(())
+}
+
+fn match_peaks(fragments: &[Theoretical], peaks: &[(f32, f32)], ppm: f32) -> (usize, usize) {
     let mut matched_b = 0;
     let mut matched_y = 0;
-
-    for (mz, int) in processed.peaks {
-        let (low, high) = Tolerance::Ppm(10.0).bounds(mz);
+    for (mz, int) in peaks {
+        let (low, high) = Tolerance::Ppm(ppm).bounds(*mz);
         let (i, j) = binary_search_slice(&fragments, |f| f.fragment_mz, low, high);
         for fragment in fragments[i..j]
             .iter()
@@ -138,8 +144,5 @@ pub fn confirm_charge_state_simulation() -> Result<(), Box<dyn std::error::Error
             }
         }
     }
-
-    assert_eq!(matched_b + matched_y, 8);
-
-    Ok(())
+    (matched_b, matched_y)
 }

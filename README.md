@@ -6,7 +6,9 @@ I wanted to see how far I could take a proteomics search engine in ~1000 lines o
 
 I was inspired by the elegant data structure discussed in the [MSFragger paper](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5409104/), and decided to implement an (open source) version of it in Rust - with great results.
 
-Carina has excellent performance characteristics (>2x faster and >2x less memory usage than MSFragger), but does not sacrifice code quality or size to do so!
+Carina has excellent performance characteristics (>2x faster and >2x less memory usage than MSFragger for narrow searches), but does not sacrifice code quality or size to do so!
+
+- MSFragger still blows the pants off this tool on Open Searches (> 50 Da precursor_tol) ... for now!
  
 ## Features
 
@@ -46,7 +48,7 @@ Data repository: [PXD016766](http://proteomecentral.proteomexchange.org/cgi/GetD
 Performance results: (Intel i7-12700KF + 32GB RAM)
 
 - ~30 seconds to process 12 files, using less than 4GB of RAM
-- Active scanning: ~45,000 scans/s for narrow window (can be tuned to use more ram and go 5x faster!)
+- Active scanning: ~35,000 scans/s for narrow window (can be tuned to use more ram and go 5x faster!)
 
 
 ### Search methods

@@ -83,6 +83,7 @@ class PostAnalysis:
                     row = self.results.loc[
                         sn,
                     ]
+                    print(row)
                     peptide = ''.join([c for c in row['peptide'] if c.isalpha()])
                     pylab_aux.annotate_spectrum(
                         scan,
@@ -101,4 +102,5 @@ class PostAnalysis:
 
 _ = Pipeline()
 p = PostAnalysis()
-p.plot(30069)
+# p.plot(30069)
+p.plot(38525)

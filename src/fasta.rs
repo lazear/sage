@@ -63,7 +63,7 @@ pub struct Digest<'s> {
 
 impl<'s> PartialEq for Digest<'s> {
     fn eq(&self, other: &Self) -> bool {
-        self.sequence == other.sequence && self.reversed == other.reversed
+        self.sequence == other.sequence
     }
 }
 
@@ -74,7 +74,7 @@ impl<'s> Eq for Digest<'s> {
 impl<'s> std::hash::Hash for Digest<'s> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.sequence.hash(state);
-        self.reversed.hash(state);
+        // self.reversed.hash(state);
     }
 }
 
@@ -165,7 +165,10 @@ mod tests {
             observed.iter().map(|d| &d.sequence).collect::<Vec<_>>()
         );
 
-        observed[1].protein = "B";
+        assert_eq!(observed[0].sequence, observed[1].sequence);
+
+        observed[1].protein = "A";
+        observed[1].reversed = true;
         // Make sure hashing a digest works
         let set = observed.drain(..).collect::<HashSet<_>>();
         assert_eq!(set.len(), 1);
@@ -177,6 +180,36 @@ mod tests {
         let sequence = "MADEEKLPPGWEKRMSRSSGRVYYFNHITNASQWERPSGN";
         let expected = vec!["MADEEK", "LPPGWEK", "MSR", "SSGR", "VYYFNHITNASQWERPSGN"];
         // assert_eq!(super::digest(sequence, false), expected);
+        assert_eq!(
+            trypsin
+                .digest("".into(), sequence.into())
+                .into_iter()
+                .map(|d| d.sequence)
+                .collect::<Vec<_>>(),
+            expected
+        );
+    }
+
+    #[test]
+    fn reverse() {
+        let trypsin = Trypsin::new(true, 0, 2, 50);
+        let sequence = "MADEEKLPPGWEKRMSRSSGRVYYFNHITNASQWERPSGN";
+        let expected = vec![
+            "MADEEK",
+            "LPPGWEK",
+            "MSR",
+            "SSGR",
+            "VYYFNHITNASQWERPSGN",
+            "NGSPR",
+            "EWQSANTIHNFYYVR",
+            "GSSR",
+            "SMR",
+            "EWGPPLK",
+            "EEDAM",
+        ];
+
+        trypsin.digest("".into(), sequence.into());
+
         assert_eq!(
             trypsin
                 .digest("".into(), sequence.into())

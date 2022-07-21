@@ -86,6 +86,7 @@ impl Parameters {
 
         let trypsin = Trypsin::new(
             self.decoy,
+            // false,
             self.missed_cleavages,
             self.peptide_min_len,
             self.peptide_max_len,
@@ -106,6 +107,21 @@ impl Parameters {
         let mut target_decoys = peptides
             .par_iter()
             .filter_map(|f| Peptide::try_from(f).ok().map(|pep| (f, pep)))
+            // .flat_map(|(digest, mut peptide)|  {
+            //     let mut reversed = peptide.clone();
+            //     reversed.sequence.reverse();
+            //     // First modification we apply takes priority
+            //     if let Some(m) = self.n_term_mod {
+            //         peptide.set_nterm_mod(m);
+            //         reversed.set_nterm_mod(m)
+            //     }
+            //     // Apply any relevant static modifications
+            //     for (resi, mass) in &self.static_mods {
+            //         peptide.static_mod(*resi, *mass);
+            //         reversed.static_mod(*resi, *mass);
+            //     };
+            //     [TargetDecoy::Decoy(reversed), TargetDecoy::Target(peptide)]
+            // }).collect::<Vec<_>>();
             .map(|(digest, mut peptide)| {
                 // First modification we apply takes priority
                 if let Some(m) = self.n_term_mod {
@@ -253,6 +269,10 @@ impl IndexedDatabase {
     pub fn size(&self) -> usize {
         self.fragments.len()
     }
+
+    pub fn buckets(&self) -> &[f32] {
+        &self.min_value
+    }
 }
 
 impl std::ops::Index<PeptideIx> for IndexedDatabase {
@@ -281,24 +301,28 @@ impl<'d, 'q> IndexedQuery<'d, 'q> {
         // indices that can be used with `self.db.fragments`
         let (left_idx, right_idx) =
             binary_search_slice(&self.db.min_value, |m| *m, fragment_lo, fragment_hi);
-        let left_idx = left_idx * self.db.bucket_size;
 
-        // Last chunk not guaranted to be modulo bucket size, make sure we don't
-        // accidentally go out of bounds!
-        let right_idx = (right_idx * self.db.bucket_size).min(self.db.fragments.len());
+        // It is absolutely critical that we do not cross page boundaries!
+        // If we do, we can no longer rely on total ordering of precursor m/z
+        (left_idx..right_idx).flat_map(move |page| {
+            let left_idx = page * self.db.bucket_size;
+            // Last chunk not guaranted to be modulo bucket size, make sure we don't
+            // accidentally go out of bounds!
+            let right_idx = ((page + 1) * self.db.bucket_size).min(self.db.fragments.len());
 
-        // Narrow down into our region of interest, then perform another binary
-        // search to further refine down to the slice of matching precursor mzs
-        let slice = &&self.db.fragments[left_idx..right_idx];
-        let (inner_left, inner_right) =
-            binary_search_slice(slice, |frag| frag.precursor_mz, precursor_lo, precursor_hi);
+            // Narrow down into our region of interest, then perform another binary
+            // search to further refine down to the slice of matching precursor mzs
+            let slice = &&self.db.fragments[left_idx..right_idx];
+            let (inner_left, inner_right) =
+                binary_search_slice(slice, |frag| frag.precursor_mz, precursor_lo, precursor_hi);
 
-        // Finally, filter down our slice into exact matches only
-        slice[inner_left..inner_right].iter().filter(move |frag| {
-            frag.precursor_mz >= precursor_lo
-                && frag.precursor_mz <= precursor_hi
-                && frag.fragment_mz >= fragment_lo
-                && frag.fragment_mz <= fragment_hi
+            // Finally, filter down our slice into exact matches only
+            slice[inner_left..inner_right].iter().filter(move |frag| {
+                frag.precursor_mz >= precursor_lo
+                    && frag.precursor_mz <= precursor_hi
+                    && frag.fragment_mz >= fragment_lo
+                    && frag.fragment_mz <= fragment_hi
+            })
         })
     }
 }
@@ -309,9 +333,9 @@ impl<'d, 'q> IndexedQuery<'d, 'q> {
 ///
 /// # Invariants
 ///
-/// * `slice[left] < low || left == 0`
-/// * `slice[right] > high || right == slice.len() - 1`
-/// * `0 <= left <= right < slice.len()`
+/// * `slice[left] <= low || left == 0`
+/// * `slice[right] <= high && (slice[right+1] > high || right == slice.len())`
+/// * `0 <= left <= right <= slice.len()`
 #[inline]
 pub fn binary_search_slice<T, F>(slice: &[T], key: F, low: f32, high: f32) -> (usize, usize)
 where
@@ -320,15 +344,21 @@ where
     let left_idx = match slice.binary_search_by(|a| key(a).total_cmp(&low)) {
         Ok(idx) | Err(idx) => {
             let mut idx = idx.saturating_sub(1);
-            while idx > 0 && key(&slice[idx]) >= low {
+            while idx > 0 && key(&slice[idx]) > low {
                 idx -= 1;
             }
             idx
         }
     };
 
-    let right_idx = match slice[left_idx..].binary_search_by(|a| key(a).total_cmp(&high)) {
-        Ok(idx) | Err(idx) => (left_idx + idx).min(slice.len().saturating_sub(1)),
+    let right_idx = match slice.binary_search_by(|a| key(a).total_cmp(&high)) {
+        Ok(idx) | Err(idx) => {
+            let mut idx = idx;
+            while idx < slice.len() && key(&slice[idx]) <= high {
+                idx = idx.saturating_add(1);
+            }
+            idx.min(slice.len())
+        }
     };
     (left_idx, right_idx)
 }
@@ -347,14 +377,13 @@ mod test {
     fn binary_search_slice_smoke() {
         // Make sure that our query returns the maximal set of indices
         let data = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0];
-        let bounds = binary_search_slice(&data, |x| *x, 1.75, 3.25);
-        assert_eq!(bounds, (1, 5));
+        let bounds = binary_search_slice(&data, |x| *x, 1.75, 3.5);
+        assert_eq!(bounds, (1, 6));
         assert!(data[bounds.0] <= 1.75);
-        assert!(data[bounds.1] > 3.25);
-        assert_eq!(&data[bounds.0..bounds.1], &[1.5, 2.0, 2.5, 3.0]);
+        assert_eq!(&data[bounds.0..bounds.1], &[1.5, 2.0, 2.5, 3.0, 3.5]);
 
         let bounds = binary_search_slice(&data, |x| *x, 0.0, 5.0);
-        assert_eq!(bounds, (0, data.len() - 1));
+        assert_eq!(bounds, (0, data.len()));
     }
 
     #[test]
@@ -362,11 +391,11 @@ mod test {
         // Make sure that our query returns the maximal set of indices
         let data = [1.0, 1.5, 1.5, 1.5, 1.5, 2.0, 2.5, 3.0, 3.0, 3.5, 4.0];
         let (left, right) = binary_search_slice(&data, |x| *x, 1.5, 3.25);
-        assert!(data[left] < 1.5);
+        assert!(data[left] <= 1.5);
         assert!(data[right] > 3.25);
         assert_eq!(
             &data[left..right],
-            &[1.0, 1.5, 1.5, 1.5, 1.5, 2.0, 2.5, 3.0, 3.0]
+            &[1.5, 1.5, 1.5, 1.5, 2.0, 2.5, 3.0, 3.0]
         );
     }
 }

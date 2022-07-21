@@ -135,24 +135,24 @@ impl<'db> Scorer<'db> {
         // * Calculate q-value
 
         scores.sort_by(|b, a| a.hyperlog.total_cmp(&b.hyperlog));
-        // let mut q_values = vec![0.0; scores.len()];
-        // let mut decoy = 1;
-        // let mut target = 0;
+        let mut q_values = vec![0.0; scores.len()];
+        let mut decoy = 1;
+        let mut target = 0;
 
-        // for (idx, score) in scores.iter().enumerate() {
-        //     match self.db[score.peptide] {
-        //         TargetDecoy::Target(_) => target += 1,
-        //         TargetDecoy::Decoy(_) => decoy += 1,
-        //     }
-        //     q_values[idx] = decoy as f32 / target as f32;
-        // }
+        for (idx, score) in scores.iter().enumerate() {
+            match self.db[score.peptide] {
+                TargetDecoy::Target(_) => target += 1,
+                TargetDecoy::Decoy(_) => decoy += 1,
+            }
+            q_values[idx] = decoy as f32 / target as f32;
+        }
 
-        // // Reverse array, and calculate the cumulative minimum
-        // let mut q_min = 1.0f32;
-        // for idx in (0..q_values.len()).rev() {
-        //     q_min = q_min.min(q_values[idx]);
-        //     q_values[idx] = q_min;
-        // }
+        // Reverse array, and calculate the cumulative minimum
+        let mut q_min = 1.0f32;
+        for idx in (0..q_values.len()).rev() {
+            q_min = q_min.min(q_values[idx]);
+            q_values[idx] = q_min;
+        }
 
         let mut reporting = Vec::new();
         if scores.is_empty() {
@@ -182,8 +182,7 @@ impl<'db> Scorer<'db> {
                 matched_peaks: better.matched_b + better.matched_y,
                 summed_intensity: better.summed_b + better.summed_y,
                 total_candidates: scores.len(),
-                // q_value: q_values[idx],
-                q_value: 0.0,
+                q_value: q_values[idx],
             })
         }
         reporting
@@ -251,6 +250,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let db = search.database.clone().build()?;
 
+    let buckets = db.buckets();
+    let mut avg_delta = 0.0;
+
+    for i in 1..buckets.len() {
+        let delta = buckets[i] - buckets[i - 1];
+        avg_delta += delta;
+    }
+    dbg!(avg_delta / buckets.len() as f32);
+
     info!(
         "generated {} fragments in {}ms",
         db.size(),
@@ -274,7 +282,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let start = Instant::now();
         let scores: Vec<Percolator> = spectra
             .par_iter()
-            .progress()
+            // .progress()
             .flat_map(|spectra| scorer.score(spectra))
             .collect();
         let duration = Instant::now() - start;
