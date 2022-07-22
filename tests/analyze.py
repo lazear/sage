@@ -2,7 +2,7 @@ import os
 import ppx
 import json
 from typing import Optional
-from pyteomics import mzxml, pylab_aux
+from pyteomics import mzxml, pylab_aux, ms2
 import spectrum_utils.spectrum as sus
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -99,8 +99,23 @@ class PostAnalysis:
 
                     if specific_scan:
                         self.dump_scan(peptide, scan)
+    @staticmethod
+    def plot_single_ms2(ms2_path: str, peptide: str):
+        scan = next(ms2.read(ms2_path, huge_tree=True))
+        pylab_aux.annotate_spectrum(
+            scan,
+            peptide=peptide,
+            max_charge=int(scan["params"]["charge"][0]),
+            precursor_charge=int(scan["params"]["charge"][0]),
+            scaling="root",
+            max_num_peaks=100,
+            backend="spectrum_utils",
+        )
+        plt.suptitle(peptide)
+        plt.show()
 
 _ = Pipeline()
 p = PostAnalysis()
 # p.plot(30069)
-p.plot(38525)
+
+PostAnalysis.plot_single_ms2("LQSRPAAPPAPGPGQLTLR.ms2", "LQSRPAAPPAPGPGQLTLR")

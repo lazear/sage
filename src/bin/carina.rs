@@ -75,6 +75,7 @@ pub struct Scorer<'db> {
     factorial: [f32; 64],
 }
 
+
 impl<'db> Scorer<'db> {
     pub fn new(db: &'db IndexedDatabase, search: &'db Search) -> Self {
         let mut factorial = [1.0f32; 64];
@@ -129,30 +130,7 @@ impl<'db> Scorer<'db> {
             })
             .collect::<Vec<_>>();
 
-        // FDR Calculation:
-        // * Sort by score, descending
-        // * Estimate FDR
-        // * Calculate q-value
-
         scores.sort_by(|b, a| a.hyperlog.total_cmp(&b.hyperlog));
-        let mut q_values = vec![0.0; scores.len()];
-        let mut decoy = 1;
-        let mut target = 0;
-
-        for (idx, score) in scores.iter().enumerate() {
-            match self.db[score.peptide] {
-                TargetDecoy::Target(_) => target += 1,
-                TargetDecoy::Decoy(_) => decoy += 1,
-            }
-            q_values[idx] = decoy as f32 / target as f32;
-        }
-
-        // Reverse array, and calculate the cumulative minimum
-        let mut q_min = 1.0f32;
-        for idx in (0..q_values.len()).rev() {
-            q_min = q_min.min(q_values[idx]);
-            q_values[idx] = q_min;
-        }
 
         let mut reporting = Vec::new();
         if scores.is_empty() {
@@ -182,11 +160,51 @@ impl<'db> Scorer<'db> {
                 matched_peaks: better.matched_b + better.matched_y,
                 summed_intensity: better.summed_b + better.summed_y,
                 total_candidates: scores.len(),
-                q_value: q_values[idx],
+                q_value: 1.0,
             })
         }
         reporting
     }
+
+    /// Assign q_values in place to a set of PSMs
+    /// 
+    /// # Invariants
+    /// * `scores` must be sorted in descending order (e.g. best PSM is first)
+    pub fn assign_q_values(&self, scores: &mut [Percolator]) -> usize {
+        // FDR Calculation:
+        // * Sort by score, descending
+        // * Estimate FDR
+        // * Calculate q-value
+
+        let mut q_values = vec![0.0; scores.len()];
+        let mut decoy = 1;
+        let mut target = 0;
+
+        for (idx, score) in scores.iter().enumerate() {
+            match score.label == 1 {
+                true => target += 1,
+                false => decoy += 1,
+            }
+            q_values[idx] = decoy as f32 / target as f32;
+        }
+
+        // Reverse array, and calculate the cumulative minimum
+        let mut q_min = 1.0f32;
+        for idx in (0..q_values.len()).rev() {
+            q_min = q_min.min(q_values[idx]);
+            q_values[idx] = q_min;
+        }
+
+        let mut passing = 0;
+        for (q_value, score) in q_values.iter().zip(scores.iter_mut()) {
+            score.q_value = *q_value;
+            if *q_value <= 0.01 {
+                passing += 1;
+            }
+        }
+        passing
+    }
+
 }
 
 #[derive(Serialize)]
@@ -195,7 +213,8 @@ pub struct Search {
     precursor_tol: Tolerance,
     fragment_tol: Tolerance,
     max_fragment_charge: u8,
-    take_top_n: usize,
+    min_peaks: usize,
+    max_peaks: usize,
     report_psms: usize,
     ms2_paths: Vec<String>,
     pin_paths: Vec<String>,
@@ -208,7 +227,8 @@ struct Input {
     precursor_tol: Tolerance,
     fragment_tol: Tolerance,
     report_psms: Option<usize>,
-    take_top_n: Option<usize>,
+    min_peaks: Option<usize>,
+    max_peaks: Option<usize>,
     max_fragment_charge: Option<u8>,
     ms2_paths: Vec<String>,
 }
@@ -223,7 +243,8 @@ impl Search {
             precursor_tol: request.precursor_tol,
             fragment_tol: request.fragment_tol,
             report_psms: request.report_psms.unwrap_or(1),
-            take_top_n: request.take_top_n.unwrap_or(100),
+            max_peaks: request.max_peaks.unwrap_or(150),
+            min_peaks: request.min_peaks.unwrap_or(15),
             max_fragment_charge: request.max_fragment_charge.unwrap_or(3),
             pin_paths: Vec::new(),
             ms2_paths: request.ms2_paths,
@@ -267,30 +288,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let scorer = Scorer::new(&db, &search);
     let sp = SpectrumProcessor::new(
-        search.take_top_n,
+        search.max_peaks,
         search.max_fragment_charge,
         search.database.fragment_max_mz,
     );
 
     let mut pin_paths = Vec::with_capacity(search.ms2_paths.len());
     for ms2_path in &search.ms2_paths {
-        let spectra = read_ms2(ms2_path)?
-            .into_iter()
-            .map(|spectra| sp.process(spectra))
-            .collect::<Vec<_>>();
-
         let start = Instant::now();
-        let scores: Vec<Percolator> = spectra
-            .par_iter()
-            // .progress()
-            .flat_map(|spectra| scorer.score(spectra))
-            .collect();
+        let mut scores = read_ms2(ms2_path)?
+            .into_par_iter()
+            .filter(|spec| spec.peaks.len() >= search.min_peaks)
+            .flat_map(|spectra| scorer.score(&sp.process(spectra)))
+            .collect::<Vec<_>>();
         let duration = Instant::now() - start;
 
         let pin_path = format!("{}.carina.pin", ms2_path);
         let mut writer = csv::WriterBuilder::new()
             .delimiter(b'\t')
             .from_path(&pin_path)?;
+        
+        scores.sort_by(|a, b| b.hyperscore.total_cmp(&a.hyperscore));
+        let passing_psms = scorer.assign_q_values(&mut scores);
+        let total_psms = scores.len();
 
         for (idx, mut score) in scores.into_iter().enumerate() {
             score.specid = idx;
@@ -300,11 +320,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         pin_paths.push(pin_path);
 
         info!(
-            "{:?}: processed {} scans in {} ms ({} scans/sec)",
+            "{:?}: assigned {} PSMs ({} with 1% FDR) in {} ms ({} PSMs/sec)",
             ms2_path,
-            spectra.len(),
+            total_psms,
+            passing_psms,
             duration.as_millis(),
-            spectra.len() as f32 / duration.as_secs_f32()
+            total_psms as f32 / duration.as_secs_f32()
         );
     }
 

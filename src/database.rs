@@ -23,6 +23,8 @@ pub struct Builder {
     peptide_min_len: Option<usize>,
     /// Maximum peptide length that will be fragmented
     peptide_max_len: Option<usize>,
+    peptide_min_mass: Option<f32>,
+    peptide_max_mass: Option<f32>,
     /// Use target-decoy
     decoy: Option<bool>,
     /// How many missed cleavages to use
@@ -54,9 +56,11 @@ impl Builder {
         Parameters {
             bucket_size,
             fragment_min_mz: self.fragment_min_mz.unwrap_or(75.0),
-            fragment_max_mz: self.fragment_max_mz.unwrap_or(4000.0),
+            fragment_max_mz: self.fragment_max_mz.unwrap_or(2500.0),
             peptide_min_len: self.peptide_min_len.unwrap_or(5),
             peptide_max_len: self.peptide_max_len.unwrap_or(65),
+            peptide_min_mass: self.peptide_min_mass.unwrap_or(500.0),
+            peptide_max_mass: self.peptide_max_mass.unwrap_or(5000.0),
             decoy: self.decoy.unwrap_or(true),
             missed_cleavages: self.missed_cleavages.unwrap_or(0),
             n_term_mod: self.n_term_mod,
@@ -73,6 +77,8 @@ pub struct Parameters {
     pub fragment_max_mz: f32,
     peptide_min_len: usize,
     peptide_max_len: usize,
+    peptide_min_mass: f32,
+    peptide_max_mass: f32,
     decoy: bool,
     missed_cleavages: u8,
     n_term_mod: Option<f32>,
@@ -107,6 +113,7 @@ impl Parameters {
         let mut target_decoys = peptides
             .par_iter()
             .filter_map(|f| Peptide::try_from(f).ok().map(|pep| (f, pep)))
+            .filter(|(_, p)| p.monoisotopic >= self.peptide_min_mass && p.monoisotopic <= self.peptide_max_mass)
             // .flat_map(|(digest, mut peptide)|  {
             //     let mut reversed = peptide.clone();
             //     reversed.sequence.reverse();
