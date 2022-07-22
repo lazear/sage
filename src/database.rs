@@ -113,7 +113,9 @@ impl Parameters {
         let mut target_decoys = peptides
             .par_iter()
             .filter_map(|f| Peptide::try_from(f).ok().map(|pep| (f, pep)))
-            .filter(|(_, p)| p.monoisotopic >= self.peptide_min_mass && p.monoisotopic <= self.peptide_max_mass)
+            .filter(|(_, p)| {
+                p.monoisotopic >= self.peptide_min_mass && p.monoisotopic <= self.peptide_max_mass
+            })
             // .flat_map(|(digest, mut peptide)|  {
             //     let mut reversed = peptide.clone();
             //     reversed.sequence.reverse();
