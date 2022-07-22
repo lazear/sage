@@ -19,7 +19,8 @@ pub struct Score {
     matched_y: u32,
     summed_b: f32,
     summed_y: f32,
-    hyperlog: f32,
+    q_value: f32,
+    hyperscore: f32,
 }
 
 #[derive(Serialize)]
@@ -39,7 +40,33 @@ pub struct Percolator<'db> {
     matched_peaks: u32,
     summed_intensity: f32,
     total_candidates: usize,
+    spectrum_q_value: f32,
     q_value: f32,
+}
+
+pub trait PsmScore {
+    fn set_qvalue(&mut self, q: f32);
+    fn decoy(&self, scorer: &Scorer) -> bool;
+}
+
+impl PsmScore for Percolator<'_> {
+    fn set_qvalue(&mut self, q: f32) {
+        self.q_value = q;
+    }
+
+    fn decoy(&self, scorer: &Scorer) -> bool {
+        self.label == -1
+    }
+}
+
+impl PsmScore for Score {
+    fn set_qvalue(&mut self, q: f32) {
+        self.q_value = q;
+    }
+
+    fn decoy(&self, scorer: &Scorer) -> bool {
+        scorer.db[self.peptide].label() == -1
+    }
 }
 
 impl Score {
@@ -64,7 +91,8 @@ impl Score {
             matched_y: 0,
             summed_b: 0.0,
             summed_y: 0.0,
-            hyperlog: 0.0,
+            q_value: 1.0,
+            hyperscore: 0.0,
         }
     }
 }
@@ -74,7 +102,6 @@ pub struct Scorer<'db> {
     search: &'db Search,
     factorial: [f32; 64],
 }
-
 
 impl<'db> Scorer<'db> {
     pub fn new(db: &'db IndexedDatabase, search: &'db Search) -> Self {
@@ -125,12 +152,13 @@ impl<'db> Scorer<'db> {
         let mut scores = scores
             .into_values()
             .map(|mut sc| {
-                sc.hyperlog = sc.hyperscore(&self.factorial);
+                sc.hyperscore = sc.hyperscore(&self.factorial);
                 sc
             })
             .collect::<Vec<_>>();
 
-        scores.sort_by(|b, a| a.hyperlog.total_cmp(&b.hyperlog));
+        scores.sort_by(|b, a| a.hyperscore.total_cmp(&b.hyperscore));
+        self.assign_q_values(&mut scores, true);
 
         let mut reporting = Vec::new();
         if scores.is_empty() {
@@ -140,7 +168,7 @@ impl<'db> Scorer<'db> {
             let better = scores[idx];
             let next = scores
                 .get(idx + 1)
-                .map(|score| score.hyperlog)
+                .map(|score| score.hyperscore)
                 .unwrap_or_default();
 
             let peptide = self.db[better.peptide].peptide();
@@ -155,11 +183,12 @@ impl<'db> Scorer<'db> {
                 charge: query.charge,
                 rt: query.rt,
                 delta_mass: (query.monoisotopic_mass - peptide.monoisotopic),
-                hyperscore: better.hyperlog,
-                deltascore: better.hyperlog - next,
+                hyperscore: better.hyperscore,
+                deltascore: better.hyperscore - next,
                 matched_peaks: better.matched_b + better.matched_y,
                 summed_intensity: better.summed_b + better.summed_y,
                 total_candidates: scores.len(),
+                spectrum_q_value: better.q_value,
                 q_value: 1.0,
             })
         }
@@ -167,10 +196,10 @@ impl<'db> Scorer<'db> {
     }
 
     /// Assign q_values in place to a set of PSMs
-    /// 
+    ///
     /// # Invariants
     /// * `scores` must be sorted in descending order (e.g. best PSM is first)
-    pub fn assign_q_values(&self, scores: &mut [Percolator]) -> usize {
+    pub fn assign_q_values<T: PsmScore>(&self, scores: &mut [T], spectrum: bool) -> usize {
         // FDR Calculation:
         // * Sort by score, descending
         // * Estimate FDR
@@ -181,9 +210,9 @@ impl<'db> Scorer<'db> {
         let mut target = 0;
 
         for (idx, score) in scores.iter().enumerate() {
-            match score.label == 1 {
-                true => target += 1,
-                false => decoy += 1,
+            match score.decoy(&self) {
+                true => decoy += 1,
+                false => target += 1,
             }
             q_values[idx] = decoy as f32 / target as f32;
         }
@@ -196,15 +225,20 @@ impl<'db> Scorer<'db> {
         }
 
         let mut passing = 0;
-        for (q_value, score) in q_values.iter().zip(scores.iter_mut()) {
-            score.q_value = *q_value;
-            if *q_value <= 0.01 {
+        for (idx, score) in scores.iter_mut().enumerate() {
+            let q = q_values[idx];
+            score.set_qvalue(q);
+            // if spectrum {
+            // score.spectrum_q_value = q;
+            // } else {
+            // score.q_value = q;
+            // }
+            if q <= 0.01 {
                 passing += 1;
             }
         }
         passing
     }
-
 }
 
 #[derive(Serialize)]
@@ -307,9 +341,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut writer = csv::WriterBuilder::new()
             .delimiter(b'\t')
             .from_path(&pin_path)?;
-        
+
         scores.sort_by(|a, b| b.hyperscore.total_cmp(&a.hyperscore));
-        let passing_psms = scorer.assign_q_values(&mut scores);
+        let passing_psms = scorer.assign_q_values(&mut scores, false);
+        // let passing_psms = 0;
         let total_psms = scores.len();
 
         for (idx, mut score) in scores.into_iter().enumerate() {
