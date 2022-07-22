@@ -38,35 +38,12 @@ pub struct Percolator<'db> {
     hyperscore: f32,
     deltascore: f32,
     matched_peaks: u32,
-    summed_intensity: f32,
+    percent_matched_peaks: f32,
+    matched_intensity: f32,
+    percent_matched_intensity: f32,
     total_candidates: usize,
     spectrum_q_value: f32,
     q_value: f32,
-}
-
-pub trait PsmScore {
-    fn set_qvalue(&mut self, q: f32);
-    fn decoy(&self, scorer: &Scorer) -> bool;
-}
-
-impl PsmScore for Percolator<'_> {
-    fn set_qvalue(&mut self, q: f32) {
-        self.q_value = q;
-    }
-
-    fn decoy(&self, scorer: &Scorer) -> bool {
-        self.label == -1
-    }
-}
-
-impl PsmScore for Score {
-    fn set_qvalue(&mut self, q: f32) {
-        self.q_value = q;
-    }
-
-    fn decoy(&self, scorer: &Scorer) -> bool {
-        scorer.db[self.peptide].label() == -1
-    }
 }
 
 impl Score {
@@ -74,13 +51,14 @@ impl Score {
     /// * `fact_table` is a precomputed vector of factorials
     fn hyperscore(&self, fact_table: &[f32]) -> f32 {
         let i = (self.summed_b + 1.0) * (self.summed_y + 1.0);
-        let m = fact_table[(self.matched_b as usize).min(fact_table.len() - 1)]
-            * fact_table[(self.matched_y as usize).min(fact_table.len() - 1)];
-        let score = (i * m as f32).ln();
+        let m = fact_table[(self.matched_b as usize).min(fact_table.len() - 2)]
+            * fact_table[(self.matched_y as usize).min(fact_table.len() - 2)];
+
+        let score = i.ln() + m.ln();
         if score.is_finite() {
             score
         } else {
-            0.0
+            f32::MAX
         }
     }
 
@@ -100,13 +78,13 @@ impl Score {
 pub struct Scorer<'db> {
     db: &'db IndexedDatabase,
     search: &'db Search,
-    factorial: [f32; 64],
+    factorial: [f32; 32],
 }
 
 impl<'db> Scorer<'db> {
     pub fn new(db: &'db IndexedDatabase, search: &'db Search) -> Self {
-        let mut factorial = [1.0f32; 64];
-        for i in 1..64 {
+        let mut factorial = [1.0f32; 32];
+        for i in 1..32 {
             factorial[i] = factorial[i - 1] * i as f32;
         }
 
@@ -129,7 +107,9 @@ impl<'db> Scorer<'db> {
             .db
             .query(query, self.search.precursor_tol, self.search.fragment_tol);
 
+        let mut total_intensity = 0.0;
         for (fragment_mz, intensity) in query.peaks.iter() {
+            total_intensity += intensity;
             for frag in candidates.page_search(*fragment_mz) {
                 let mut sc = scores
                     .entry(frag.peptide_index)
@@ -148,6 +128,10 @@ impl<'db> Scorer<'db> {
             }
         }
 
+        if scores.is_empty() {
+            return Vec::new();
+        }
+
         // Now that we have processed all candidates, calculate the hyperscore
         let mut scores = scores
             .into_values()
@@ -158,12 +142,24 @@ impl<'db> Scorer<'db> {
             .collect::<Vec<_>>();
 
         scores.sort_by(|b, a| a.hyperscore.total_cmp(&b.hyperscore));
-        self.assign_q_values(&mut scores, true);
+
+        let mut decoy = 1;
+        let mut target = 0;
+        for score in scores.iter_mut() {
+            match self.db[score.peptide] {
+                TargetDecoy::Target(_) => target += 1,
+                TargetDecoy::Decoy(_) => decoy += 1,
+            }
+            score.q_value = decoy as f32 / target as f32;
+        }
+        let mut q_min = 1.0f32;
+        for score in scores.iter_mut().rev() {
+            q_min = q_min.min(score.q_value);
+            score.q_value = q_min;
+        }
 
         let mut reporting = Vec::new();
-        if scores.is_empty() {
-            return reporting;
-        }
+
         for idx in 0..self.search.report_psms.min(scores.len()) {
             let better = scores[idx];
             let next = scores
@@ -186,7 +182,10 @@ impl<'db> Scorer<'db> {
                 hyperscore: better.hyperscore,
                 deltascore: better.hyperscore - next,
                 matched_peaks: better.matched_b + better.matched_y,
-                summed_intensity: better.summed_b + better.summed_y,
+                percent_matched_peaks: (better.matched_b + better.matched_y) as f32
+                    / query.peaks.len() as f32,
+                matched_intensity: better.summed_b + better.summed_y,
+                percent_matched_intensity: (better.summed_b + better.summed_y) / total_intensity,
                 total_candidates: scores.len(),
                 spectrum_q_value: better.q_value,
                 q_value: 1.0,
@@ -199,41 +198,30 @@ impl<'db> Scorer<'db> {
     ///
     /// # Invariants
     /// * `scores` must be sorted in descending order (e.g. best PSM is first)
-    pub fn assign_q_values<T: PsmScore>(&self, scores: &mut [T], spectrum: bool) -> usize {
+    pub fn assign_q_values(&self, scores: &mut [Percolator]) -> usize {
         // FDR Calculation:
         // * Sort by score, descending
         // * Estimate FDR
         // * Calculate q-value
 
-        let mut q_values = vec![0.0; scores.len()];
         let mut decoy = 1;
         let mut target = 0;
 
-        for (idx, score) in scores.iter().enumerate() {
-            match score.decoy(&self) {
+        for score in scores.iter_mut() {
+            match score.label == -1 {
                 true => decoy += 1,
                 false => target += 1,
             }
-            q_values[idx] = decoy as f32 / target as f32;
+            score.q_value = decoy as f32 / target as f32;
         }
 
-        // Reverse array, and calculate the cumulative minimum
+        // Reverse slice, and calculate the cumulative minimum
         let mut q_min = 1.0f32;
-        for idx in (0..q_values.len()).rev() {
-            q_min = q_min.min(q_values[idx]);
-            q_values[idx] = q_min;
-        }
-
         let mut passing = 0;
-        for (idx, score) in scores.iter_mut().enumerate() {
-            let q = q_values[idx];
-            score.set_qvalue(q);
-            // if spectrum {
-            // score.spectrum_q_value = q;
-            // } else {
-            // score.q_value = q;
-            // }
-            if q <= 0.01 {
+        for score in scores.iter_mut().rev() {
+            q_min = q_min.min(score.q_value);
+            score.q_value = q_min;
+            if q_min <= 0.01 {
                 passing += 1;
             }
         }
@@ -343,7 +331,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .from_path(&pin_path)?;
 
         scores.sort_by(|a, b| b.hyperscore.total_cmp(&a.hyperscore));
-        let passing_psms = scorer.assign_q_values(&mut scores, false);
+        let passing_psms = scorer.assign_q_values(&mut scores);
         // let passing_psms = 0;
         let total_psms = scores.len();
 
