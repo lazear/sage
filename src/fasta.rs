@@ -40,7 +40,6 @@ impl Fasta {
 }
 
 pub struct Trypsin {
-    reverse: bool,
     miss_cleavage: u8,
     min_len: usize,
     max_len: usize,
@@ -50,15 +49,13 @@ pub struct Trypsin {
 /// A tryptic digest
 ///
 /// # Important invariant about [`Digest`]:
-/// * two digests are equal if their sequences and reversed state are equal
+/// * two digests are equal if and only if their sequences are equal
 ///   i.e., protein ID is ignored for equality and hashing
 pub struct Digest<'s> {
     /// Parent protein ID
     pub protein: &'s str,
     /// Tryptic peptide sequence
     pub sequence: String,
-    /// Reversed sequence?
-    pub reversed: bool,
 }
 
 impl<'s> PartialEq for Digest<'s> {
@@ -74,7 +71,6 @@ impl<'s> Eq for Digest<'s> {
 impl<'s> std::hash::Hash for Digest<'s> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.sequence.hash(state);
-        // self.reversed.hash(state);
     }
 }
 
@@ -98,13 +94,9 @@ impl Trypsin {
         digests
     }
 
-    fn digest_one_dir<'f>(
-        &self,
-        protein: &'f str,
-        sequence: &str,
-        reversed: bool,
-        digests: &mut Vec<Digest<'f>>,
-    ) {
+    /// Generate a series of tryptic digests for a given `sequence`
+    pub fn digest<'f>(&self, protein: &'f str, sequence: &str) -> Vec<Digest<'f>> {
+        let mut digests = Vec::new();
         let peptides = self.inner(sequence);
         for cleavage in 1..=(1 + self.miss_cleavage) {
             // Generate missed cleavages
@@ -112,33 +104,17 @@ impl Trypsin {
                 let len: usize = win.iter().map(|w| w.len()).sum();
                 if len >= self.min_len && len <= self.max_len {
                     let sequence = win.concat();
-                    digests.push(Digest {
-                        protein,
-                        sequence,
-                        reversed,
-                    })
+                    digests.push(Digest { protein, sequence })
                 }
             }
-        }
-    }
-
-    /// Generate a series of tryptic digests for a given `sequence`
-    pub fn digest<'f>(&self, protein: &'f str, sequence: &str) -> Vec<Digest<'f>> {
-        let mut digests = Vec::new();
-        self.digest_one_dir(protein, sequence, false, &mut digests);
-
-        if self.reverse {
-            let sequence = sequence.chars().rev().collect::<String>();
-            self.digest_one_dir(protein, &sequence, true, &mut digests);
         }
         digests
     }
 
     /// Create a new [`Trypsin`] struct, which will use the specified parameters
     /// for all in silico digests
-    pub fn new(reverse: bool, miss_cleavage: u8, min_len: usize, max_len: usize) -> Self {
+    pub fn new(miss_cleavage: u8, min_len: usize, max_len: usize) -> Self {
         Self {
-            reverse,
             miss_cleavage,
             max_len,
             min_len,
@@ -153,7 +129,7 @@ mod tests {
 
     #[test]
     fn hash_digest() {
-        let trypsin = Trypsin::new(false, 0, 2, 50);
+        let trypsin = Trypsin::new(0, 2, 50);
         let sequence = "MADEEKMADEEK";
         let expected = vec!["MADEEK", "MADEEK"];
 
@@ -168,7 +144,6 @@ mod tests {
         assert_eq!(observed[0].sequence, observed[1].sequence);
 
         observed[1].protein = "A";
-        observed[1].reversed = true;
         // Make sure hashing a digest works
         let set = observed.drain(..).collect::<HashSet<_>>();
         assert_eq!(set.len(), 1);
@@ -176,7 +151,7 @@ mod tests {
 
     #[test]
     fn digest() {
-        let trypsin = Trypsin::new(false, 0, 2, 50);
+        let trypsin = Trypsin::new(0, 2, 50);
         let sequence = "MADEEKLPPGWEKRMSRSSGRVYYFNHITNASQWERPSGN";
         let expected = vec!["MADEEK", "LPPGWEK", "MSR", "SSGR", "VYYFNHITNASQWERPSGN"];
         // assert_eq!(super::digest(sequence, false), expected);
@@ -192,14 +167,12 @@ mod tests {
 
     #[test]
     fn reverse() {
-        let trypsin = Trypsin::new(true, 0, 2, 50);
-        let sequence = "MADEEKLPPGWEKRMSRSSGRVYYFNHITNASQWERPSGN";
+        let trypsin = Trypsin::new(0, 2, 50);
+        let sequence = "MADEEKLPPGWEKRMSRSSGRVYYFNHITNASQWERPSGN"
+            .chars()
+            .rev()
+            .collect::<String>();
         let expected = vec![
-            "MADEEK",
-            "LPPGWEK",
-            "MSR",
-            "SSGR",
-            "VYYFNHITNASQWERPSGN",
             "NGSPR",
             "EWQSANTIHNFYYVR",
             "GSSR",
@@ -208,11 +181,9 @@ mod tests {
             "EEDAM",
         ];
 
-        trypsin.digest("".into(), sequence.into());
-
         assert_eq!(
             trypsin
-                .digest("".into(), sequence.into())
+                .digest("".into(), &sequence)
                 .into_iter()
                 .map(|d| d.sequence)
                 .collect::<Vec<_>>(),
@@ -222,7 +193,7 @@ mod tests {
 
     #[test]
     fn digest_missed_cleavage() {
-        let trypsin = Trypsin::new(false, 1, 0, 50);
+        let trypsin = Trypsin::new(1, 0, 50);
         let sequence = "MADEEKLPPGWEKRMSRSSGRVYYFNHITNASQWERPSGN";
         let expected = vec![
             "MADEEK",
@@ -249,7 +220,7 @@ mod tests {
 
     #[test]
     fn digest_missed_cleavage_2() {
-        let trypsin = Trypsin::new(false, 2, 0, 50);
+        let trypsin = Trypsin::new(2, 0, 50);
         let sequence = "MADEEKLPPGWEKRMSRSSGRVYYFNHITNASQWERPSGN";
         let expected = vec![
             "MADEEK",

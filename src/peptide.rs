@@ -34,20 +34,15 @@ impl TargetDecoy {
 pub struct Peptide {
     pub protein: String,
     pub sequence: Vec<Residue>,
+    pub nterm: Option<f32>,
     pub monoisotopic: f32,
 }
 
 impl Peptide {
     pub fn set_nterm_mod(&mut self, m: f32) {
-        if let Some(resi) = self.sequence.first_mut() {
-            // Don't overwrite an already modified amino acid!
-            match *resi {
-                Residue::Just(c) => {
-                    self.monoisotopic += m;
-                    *resi = Residue::Mod(c, m);
-                }
-                _ => {}
-            };
+        if self.nterm.is_none() {
+            self.nterm = Some(m);
+            self.monoisotopic += m;
         }
     }
 
@@ -83,6 +78,7 @@ impl<'a> TryFrom<&Digest<'a>> for Peptide {
         Ok(Peptide {
             sequence,
             monoisotopic,
+            nterm: None,
             protein: value.protein.to_string(),
         })
     }
@@ -90,6 +86,9 @@ impl<'a> TryFrom<&Digest<'a>> for Peptide {
 
 impl std::fmt::Display for Peptide {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(m) = self.nterm {
+            write!(f, "[{}]", m)?;
+        }
         f.write_str(
             &self
                 .sequence

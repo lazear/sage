@@ -89,11 +89,8 @@ pub struct Parameters {
 }
 
 impl Parameters {
-    pub fn build(self) -> Result<IndexedDatabase, Box<dyn std::error::Error>> {
-        let fasta = Fasta::open(self.fasta)?;
-
+    fn digest(&self, fasta: &Fasta) -> Vec<TargetDecoy> {
         let trypsin = Trypsin::new(
-            self.decoy,
             self.missed_cleavages,
             self.peptide_min_len,
             self.peptide_max_len,
@@ -103,36 +100,37 @@ impl Parameters {
         // and missed cleavages, if applicable.
         //
         // Then, collect in a HashSet so that we only keep unique tryptic peptides
-        let peptides = fasta
+        let targets = fasta
             .proteins
             .par_iter()
             .flat_map(|(protein, sequence)| trypsin.digest(protein, sequence))
             .collect::<HashSet<_>>();
 
+        let decoys = fasta
+            .proteins
+            .par_iter()
+            .flat_map(|(protein, sequence)| {
+                let sequence = sequence.chars().rev().collect::<String>();
+                trypsin.digest(protein, &sequence)
+            })
+            .filter(|digest| !targets.contains(digest))
+            .collect::<HashSet<_>>();
+
+        log::trace!(
+            "generated {} target and {} decoy peptides",
+            targets.len(),
+            decoys.len()
+        );
+
         // From our set of unique peptide sequence, apply any modifications
         // and convert to [`TargetDecoy`] enum
-        let mut target_decoys = peptides
+        let mut target_decoys = targets
             .par_iter()
-            .filter_map(|f| Peptide::try_from(f).ok().map(|pep| (f, pep)))
-            .filter(|(_, p)| {
+            .filter_map(|f| Peptide::try_from(f).ok())
+            .filter(|p| {
                 p.monoisotopic >= self.peptide_min_mass && p.monoisotopic <= self.peptide_max_mass
             })
-            // .flat_map(|(digest, mut peptide)|  {
-            //     let mut reversed = peptide.clone();
-            //     reversed.sequence.reverse();
-            //     // First modification we apply takes priority
-            //     if let Some(m) = self.n_term_mod {
-            //         peptide.set_nterm_mod(m);
-            //         reversed.set_nterm_mod(m)
-            //     }
-            //     // Apply any relevant static modifications
-            //     for (resi, mass) in &self.static_mods {
-            //         peptide.static_mod(*resi, *mass);
-            //         reversed.static_mod(*resi, *mass);
-            //     };
-            //     [TargetDecoy::Decoy(reversed), TargetDecoy::Target(peptide)]
-            // }).collect::<Vec<_>>();
-            .map(|(digest, mut peptide)| {
+            .map(|mut peptide| {
                 // First modification we apply takes priority
                 if let Some(m) = self.n_term_mod {
                     peptide.set_nterm_mod(m);
@@ -144,16 +142,42 @@ impl Parameters {
                 }
 
                 // If this is a reversed digest, annotate it as a Decoy
-                match digest.reversed {
-                    true => TargetDecoy::Decoy(peptide),
-                    false => TargetDecoy::Target(peptide),
-                }
+                TargetDecoy::Target(peptide)
             })
             .collect::<Vec<TargetDecoy>>();
 
-        // target_decoys.sort_unstable_by(|a, b| a.neutral().total_cmp(&b.neutral()));
-        (&mut target_decoys).par_sort_unstable_by(|a, b| a.neutral().total_cmp(&b.neutral()));
+        target_decoys.extend(
+            decoys
+                .par_iter()
+                .filter_map(|f| Peptide::try_from(f).ok())
+                .filter(|p| {
+                    p.monoisotopic >= self.peptide_min_mass
+                        && p.monoisotopic <= self.peptide_max_mass
+                })
+                .map(|mut peptide| {
+                    // First modification we apply takes priority
+                    if let Some(m) = self.n_term_mod {
+                        peptide.set_nterm_mod(m);
+                    }
 
+                    // Apply any relevant static modifications
+                    for (resi, mass) in &self.static_mods {
+                        peptide.static_mod(*resi, *mass);
+                    }
+
+                    // If this is a reversed digest, annotate it as a Decoy
+                    TargetDecoy::Decoy(peptide)
+                })
+                .collect::<Vec<TargetDecoy>>(),
+        );
+
+        (&mut target_decoys).par_sort_unstable_by(|a, b| a.neutral().total_cmp(&b.neutral()));
+        target_decoys
+    }
+
+    pub fn build(self) -> Result<IndexedDatabase, Box<dyn std::error::Error>> {
+        let fasta = Fasta::open(&self.fasta)?;
+        let target_decoys = self.digest(&fasta);
         let mut fragments = Vec::new();
 
         // Finally, perform in silico digest for our target sequences

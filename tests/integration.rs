@@ -28,7 +28,7 @@ pub fn peptide_id() -> Result<(), Box<dyn std::error::Error>> {
     assert!(processed.peaks.len() <= 300);
 
     let sequence = SEQUENCE.split_whitespace().collect::<String>();
-    let peptides = Trypsin::new(false, 1, 5, 50)
+    let peptides = Trypsin::new(1, 5, 50)
         .digest("Q99536", &sequence)
         .into_iter()
         .map(|dig| Peptide::try_from(&dig))
@@ -97,7 +97,6 @@ pub fn confirm_charge_state_simulation() -> Result<(), Box<dyn std::error::Error
     let peptide = Peptide::try_from(&Digest {
         protein: "Q99536",
         sequence: "LQSRPAAPPAPGPGQLTLR".into(),
-        reversed: false,
     })
     .unwrap();
 

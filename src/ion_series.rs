@@ -50,8 +50,15 @@ impl<'p> Iterator for IonSeries<'p> {
         self.idx += 1;
 
         let mut monoisotopic_mass: f32 = seq.iter().map(|r| r.monoisotopic()).sum();
-        if Kind::Y == self.kind {
-            monoisotopic_mass += H2O;
+
+        match (self.kind, self.peptide.nterm) {
+            (Kind::B, None) => {}
+            (Kind::B, Some(m)) => {
+                monoisotopic_mass += m;
+            }
+            (Kind::Y, _) => {
+                monoisotopic_mass += H2O;
+            }
         }
 
         Some(Ion {
@@ -85,6 +92,7 @@ mod test {
             Ok(Peptide {
                 protein: String::default(),
                 sequence,
+                nterm: None,
                 monoisotopic,
             })
         }
@@ -151,5 +159,24 @@ mod test {
         ];
 
         check_within(ions!(&peptide, Kind::Y, 2.0), &expected_mz);
+    }
+
+    #[test]
+    fn nterm_mod() {
+        let mut peptide = "PEPTIDE".parse::<Peptide>().unwrap();
+        peptide.set_nterm_mod(229.01);
+
+        // Charge state 1, TMT tagged
+        let expected_b = [
+            98.06004, 227.10263, 324.155_4, 425.203_06, 538.287_2, 653.314_1,
+        ].into_iter().map(|x| x + 229.01).collect::<Vec<_>>();
+
+        let expected_y = vec![
+            703.31447, 574.27188, 477.21912, 376.17144, 263.08737, 148.06043,
+        ];
+
+        check_within(ions!(&peptide, Kind::B, 1.0), &expected_b);
+        check_within(ions!(&peptide, Kind::Y, 1.0), &expected_y);
+
     }
 }
