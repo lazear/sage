@@ -53,7 +53,6 @@ impl<'p> Iterator for IonSeries<'p> {
         if Kind::Y == self.kind {
             monoisotopic_mass += H2O;
         }
-        // neutral = (neutral + self.charge as f32 * PROTON) / self.charge as f32;
 
         Some(Ion {
             kind: self.kind,

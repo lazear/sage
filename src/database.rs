@@ -23,7 +23,9 @@ pub struct Builder {
     peptide_min_len: Option<usize>,
     /// Maximum peptide length that will be fragmented
     peptide_max_len: Option<usize>,
+    /// Minimum peptide monoisotopic mass that will be fragmented
     peptide_min_mass: Option<f32>,
+    /// Maximum peptide monoisotopic mass that will be fragmented
     peptide_max_mass: Option<f32>,
     /// Use target-decoy
     decoy: Option<bool>,
@@ -33,7 +35,7 @@ pub struct Builder {
     n_term_mod: Option<f32>,
     /// Static modifications to add to matching amino acids
     static_mods: Option<HashMap<char, f32>>,
-    /// Fasta database
+    /// Path to fasta database
     fasta: PathBuf,
 }
 
@@ -92,7 +94,6 @@ impl Parameters {
 
         let trypsin = Trypsin::new(
             self.decoy,
-            // false,
             self.missed_cleavages,
             self.peptide_min_len,
             self.peptide_max_len,
@@ -361,9 +362,9 @@ where
         }
     };
 
-    let right_idx = match slice.binary_search_by(|a| key(a).total_cmp(&high)) {
+    let right_idx = match slice[left_idx..].binary_search_by(|a| key(a).total_cmp(&high)) {
         Ok(idx) | Err(idx) => {
-            let mut idx = idx;
+            let mut idx = idx + left_idx;
             while idx < slice.len() && key(&slice[idx]) <= high {
                 idx = idx.saturating_add(1);
             }

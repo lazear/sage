@@ -12,11 +12,10 @@ use std::time::{self, Instant};
 #[derive(Copy, Clone)]
 pub struct Score {
     peptide: PeptideIx,
-    matched_b: u32,
-    matched_y: u32,
+    matched_b: u16,
+    matched_y: u16,
     summed_b: f32,
     summed_y: f32,
-    q_value: f32,
     hyperscore: f32,
 }
 
@@ -33,12 +32,11 @@ pub struct Percolator<'db> {
     rt: f32,
     delta_mass: f32,
     hyperscore: f32,
-    deltascore: f32,
+    delta_hyperscore: f32,
     matched_peaks: u32,
-    percent_matched_peaks: f32,
-    matched_intensity: f32,
-    percent_matched_intensity: f32,
-    total_candidates: usize,
+    matched_intensity_pct: f32,
+    delta_matched: f32,
+    scored_candidates: usize,
     spectrum_z_score: f32,
     q_value: f32,
 }
@@ -66,7 +64,6 @@ impl Score {
             matched_y: 0,
             summed_b: 0.0,
             summed_y: 0.0,
-            q_value: 1.0,
             hyperscore: 0.0,
         }
     }
@@ -100,6 +97,8 @@ impl<'db> Scorer<'db> {
         let (low, high) = self.search.precursor_tol.bounds(query.monoisotopic_mass);
         let (idx_lo, idx_hi) = binary_search_slice(&self.db.peptides, |p| p.neutral(), low, high);
 
+        // Allocate space for all potential candidates - many potential candidates
+        // will not have fragments matched, so we use `Option<Score>`
         let mut score_vector: Vec<Option<Score>> = vec![None; idx_hi - idx_lo + 1];
 
         // Create a new `IndexedQuery`
@@ -108,6 +107,7 @@ impl<'db> Scorer<'db> {
             .query(query, self.search.precursor_tol, self.search.fragment_tol);
 
         let mut total_intensity = 0.0;
+        let mut matches = 0;
         for (fragment_mz, intensity) in query.peaks.iter() {
             total_intensity += intensity;
             for frag in candidates.page_search(*fragment_mz) {
@@ -126,10 +126,11 @@ impl<'db> Scorer<'db> {
                 }
 
                 score_vector[idx] = Some(sc);
+                matches += 1;
             }
         }
 
-        if total_intensity == 0.0 {
+        if matches == 0 {
             return Vec::new();
         }
 
@@ -145,22 +146,8 @@ impl<'db> Scorer<'db> {
             })
             .collect::<Vec<_>>();
 
-        (&mut scores).par_sort_unstable_by(|b, a| a.hyperscore.total_cmp(&b.hyperscore));
-
-        // let mut decoy = 1;
-        // let mut target = 0;
-        // for score in scores.iter_mut() {
-        //     match self.db[score.peptide] {
-        //         TargetDecoy::Target(_) => target += 1,
-        //         TargetDecoy::Decoy(_) => decoy += 1,
-        //     }
-        //     score.q_value = decoy as f32 / target as f32;
-        // }
-        // let mut q_min = 1.0f32;
-        // for score in scores.iter_mut().rev() {
-        //     q_min = q_min.min(score.q_value);
-        //     score.q_value = q_min;
-        // }
+        // (&mut scores).par_sort_unstable_by(|b, a| a.hyperscore.total_cmp(&b.hyperscore));
+        scores.sort_unstable_by(|b, a| a.hyperscore.total_cmp(&b.hyperscore));
 
         // Calculate median & std deviation of hyperscores
         let median = scores[scores.len() / 2].hyperscore;
@@ -180,7 +167,7 @@ impl<'db> Scorer<'db> {
 
             let z_score = match sd.is_finite() && sd > 0.0 {
                 true => (better.hyperscore - median) / sd,
-                false => 0.0,
+                false => 0.1,
             };
 
             let peptide = self.db[better.peptide].peptide();
@@ -194,15 +181,14 @@ impl<'db> Scorer<'db> {
                 calcmass: peptide.monoisotopic + PROTON,
                 charge: query.charge,
                 rt: query.rt,
-                delta_mass: (query.monoisotopic_mass - peptide.monoisotopic),
+                delta_mass: (query.monoisotopic_mass - peptide.monoisotopic).abs(),
                 hyperscore: better.hyperscore,
-                deltascore: better.hyperscore - next,
-                matched_peaks: better.matched_b + better.matched_y,
-                percent_matched_peaks: (better.matched_b + better.matched_y) as f32
-                    / query.peaks.len() as f32,
-                matched_intensity: better.summed_b + better.summed_y,
-                percent_matched_intensity: (better.summed_b + better.summed_y) / total_intensity,
-                total_candidates: scores.len(),
+                delta_hyperscore: better.hyperscore - next,
+                matched_peaks: (better.matched_b + better.matched_y) as u32,
+                matched_intensity_pct: (better.summed_b + better.summed_y) / total_intensity,
+                delta_matched: (better.matched_b + better.matched_y) as f32
+                    / (matches as f32 / scores.len() as f32),
+                scored_candidates: scores.len(),
                 spectrum_z_score: z_score,
                 q_value: 1.0,
             })
