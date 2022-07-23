@@ -27,7 +27,7 @@ impl SpectrumProcessor {
     pub fn process(&self, mut s: Spectrum) -> ProcessedSpectrum {
         let charge = self.max_fragment_charge.min(s.charge);
 
-        s.peaks.sort_by(|(_, a), (_, b)| b.total_cmp(&a));
+        s.peaks.sort_unstable_by(|(_, a), (_, b)| b.total_cmp(&a));
         let n = s.peaks.len().min(self.take_top_n);
         let mut peaks = s.peaks[..n]
             .iter()
@@ -49,7 +49,7 @@ impl SpectrumProcessor {
             .collect::<Vec<_>>();
 
         // Sort by m/z
-        peaks.sort_by(|a, b| a.0.total_cmp(&b.0));
+        peaks.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
 
         ProcessedSpectrum {
             scan: s.scan,
