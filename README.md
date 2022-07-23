@@ -1,4 +1,6 @@
-# Proteomics database search engine with stellar performance
+# Proteomics Search Engine with *Stellar* Performance
+
+[![Rust](https://github.com/lazear/carina/actions/workflows/rust.yml/badge.svg)](https://github.com/lazear/carina/actions/workflows/rust.yml)
 
 <img src="figures/TMT_Panel.png" width="800">
 
