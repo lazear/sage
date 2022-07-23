@@ -10,7 +10,7 @@ pub const NH3: f32 = 17.026548;
 #[serde(rename_all = "lowercase")]
 pub enum Tolerance {
     Ppm(f32),
-    Th(f32),
+    Da(f32),
 }
 
 impl Tolerance {
@@ -22,7 +22,7 @@ impl Tolerance {
                 let delta = center * ppm / 1_000_000.0;
                 (center - delta, center + delta)
             }
-            Tolerance::Th(th) => (center - th, center + th),
+            Tolerance::Da(th) => (center - th, center + th),
         }
     }
 }

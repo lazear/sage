@@ -1,4 +1,4 @@
-# Proteomics Search Engine in a Weekend!
+# Proteomics database search engine with stellar performance
 
 <img src="figures/TMT_Panel.png" width="800">
 
@@ -13,7 +13,7 @@ Carina has excellent performance characteristics (>2x faster and >2x less memory
 ## Features
 
 - Search by fragment, filter by precursor: blazing fast performance
-- Effortlessly cross-platform
+- Effortlessly cross-platform, effortlessly parallel
 - Small and simple codebase
 - Configuration by JSON files
 - X!Tandem hyperscore function
