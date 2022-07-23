@@ -14,6 +14,8 @@ pub enum Tolerance {
 }
 
 impl Tolerance {
+    /// Compute the (`lower`, `upper`) window (in Da) for for a monoisotopic
+    /// mass and a given tolerance
     pub fn bounds(&self, center: f32) -> (f32, f32) {
         match self {
             Tolerance::Ppm(ppm) => {

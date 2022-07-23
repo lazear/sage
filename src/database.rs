@@ -150,7 +150,8 @@ impl Parameters {
             })
             .collect::<Vec<TargetDecoy>>();
 
-        target_decoys.sort_by(|a, b| a.neutral().total_cmp(&b.neutral()));
+        // target_decoys.sort_unstable_by(|a, b| a.neutral().total_cmp(&b.neutral()));
+        (&mut target_decoys).par_sort_unstable_by(|a, b| a.neutral().total_cmp(&b.neutral()));
 
         let mut fragments = Vec::new();
 
@@ -180,7 +181,7 @@ impl Parameters {
         }
 
         // Sort all of our theoretical fragments by m/z, from low to high
-        fragments.sort_by(|a, b| a.fragment_mz.total_cmp(&b.fragment_mz));
+        (&mut fragments).par_sort_unstable_by(|a, b| a.fragment_mz.total_cmp(&b.fragment_mz));
 
         // Now, we bucket all of our theoretical fragments, and within each bucket
         // sort by precursor m/z - and save the minimum *fragment* m/z in a separate
@@ -222,7 +223,7 @@ impl Parameters {
                 // There should always be at least one item in the chunk!
                 //  we know the chunk is already sorted by fragment_mz too, so this is minimum value
                 let min = chunk[0].fragment_mz;
-                chunk.sort_by(|a, b| a.precursor_mz.total_cmp(&b.precursor_mz));
+                chunk.sort_unstable_by(|a, b| a.precursor_mz.total_cmp(&b.precursor_mz));
                 min
             })
             .collect::<Vec<_>>();
@@ -238,7 +239,7 @@ impl Parameters {
 
 #[derive(Hash, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 #[repr(transparent)]
-pub struct PeptideIx(u32);
+pub struct PeptideIx(pub u32);
 
 #[derive(Copy, Clone, Debug)]
 pub struct Theoretical {
@@ -250,7 +251,7 @@ pub struct Theoretical {
 }
 
 pub struct IndexedDatabase {
-    pub(crate) peptides: Vec<TargetDecoy>,
+    pub peptides: Vec<TargetDecoy>,
     pub fragments: Vec<Theoretical>,
     pub(crate) min_value: Vec<f32>,
     bucket_size: usize,
@@ -353,7 +354,7 @@ where
     let left_idx = match slice.binary_search_by(|a| key(a).total_cmp(&low)) {
         Ok(idx) | Err(idx) => {
             let mut idx = idx.saturating_sub(1);
-            while idx > 0 && key(&slice[idx]) > low {
+            while idx > 0 && key(&slice[idx]) >= low {
                 idx -= 1;
             }
             idx
@@ -404,7 +405,7 @@ mod test {
         assert!(data[right] > 3.25);
         assert_eq!(
             &data[left..right],
-            &[1.5, 1.5, 1.5, 1.5, 2.0, 2.5, 3.0, 3.0]
+            &[1.0, 1.5, 1.5, 1.5, 1.5, 2.0, 2.5, 3.0, 3.0]
         );
     }
 }

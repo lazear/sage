@@ -1,14 +1,11 @@
-use carina::database::{IndexedDatabase, PeptideIx, Theoretical};
+use carina::database::{binary_search_slice, IndexedDatabase, PeptideIx, Theoretical};
 use carina::ion_series::Kind;
 use carina::mass::{Tolerance, PROTON};
-use carina::peptide::TargetDecoy;
 use carina::spectrum::{read_ms2, ProcessedSpectrum, SpectrumProcessor};
 use clap::{Arg, Command};
-use indicatif::ParallelProgressIterator;
 use log::info;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::path::Path;
 use std::time::{self, Instant};
 
@@ -42,7 +39,7 @@ pub struct Percolator<'db> {
     matched_intensity: f32,
     percent_matched_intensity: f32,
     total_candidates: usize,
-    spectrum_q_value: f32,
+    spectrum_z_score: f32,
     q_value: f32,
 }
 
@@ -100,7 +97,10 @@ impl<'db> Scorer<'db> {
 
     /// Score a single [`ProcessedSpectrum`] against the database
     pub fn score<'s>(&self, query: &ProcessedSpectrum) -> Vec<Percolator<'db>> {
-        let mut scores: HashMap<PeptideIx, Score> = HashMap::new();
+        let (low, high) = self.search.precursor_tol.bounds(query.monoisotopic_mass);
+        let (idx_lo, idx_hi) = binary_search_slice(&self.db.peptides, |p| p.neutral(), low, high);
+
+        let mut score_vector: Vec<Option<Score>> = vec![None; idx_hi - idx_lo + 1];
 
         // Create a new `IndexedQuery`
         let candidates = self
@@ -111,9 +111,8 @@ impl<'db> Scorer<'db> {
         for (fragment_mz, intensity) in query.peaks.iter() {
             total_intensity += intensity;
             for frag in candidates.page_search(*fragment_mz) {
-                let mut sc = scores
-                    .entry(frag.peptide_index)
-                    .or_insert_with(|| Score::new(frag));
+                let idx = frag.peptide_index.0 as usize - idx_lo;
+                let mut sc = score_vector[idx].take().unwrap_or_else(|| Score::new(frag));
 
                 match frag.kind {
                     Kind::B => {
@@ -125,38 +124,50 @@ impl<'db> Scorer<'db> {
                         sc.summed_y += intensity
                     }
                 }
+
+                score_vector[idx] = Some(sc);
             }
         }
 
-        if scores.is_empty() {
+        if total_intensity == 0.0 {
             return Vec::new();
         }
 
         // Now that we have processed all candidates, calculate the hyperscore
-        let mut scores = scores
-            .into_values()
-            .map(|mut sc| {
-                sc.hyperscore = sc.hyperscore(&self.factorial);
-                sc
+        let mut scores = score_vector
+            .into_iter()
+            .filter_map(|s| match s {
+                Some(mut sc) => {
+                    sc.hyperscore = sc.hyperscore(&self.factorial);
+                    Some(sc)
+                }
+                None => None,
             })
             .collect::<Vec<_>>();
 
-        scores.sort_by(|b, a| a.hyperscore.total_cmp(&b.hyperscore));
+        (&mut scores).par_sort_unstable_by(|b, a| a.hyperscore.total_cmp(&b.hyperscore));
 
-        let mut decoy = 1;
-        let mut target = 0;
-        for score in scores.iter_mut() {
-            match self.db[score.peptide] {
-                TargetDecoy::Target(_) => target += 1,
-                TargetDecoy::Decoy(_) => decoy += 1,
-            }
-            score.q_value = decoy as f32 / target as f32;
-        }
-        let mut q_min = 1.0f32;
-        for score in scores.iter_mut().rev() {
-            q_min = q_min.min(score.q_value);
-            score.q_value = q_min;
-        }
+        // let mut decoy = 1;
+        // let mut target = 0;
+        // for score in scores.iter_mut() {
+        //     match self.db[score.peptide] {
+        //         TargetDecoy::Target(_) => target += 1,
+        //         TargetDecoy::Decoy(_) => decoy += 1,
+        //     }
+        //     score.q_value = decoy as f32 / target as f32;
+        // }
+        // let mut q_min = 1.0f32;
+        // for score in scores.iter_mut().rev() {
+        //     q_min = q_min.min(score.q_value);
+        //     score.q_value = q_min;
+        // }
+
+        // Calculate median & std deviation of hyperscores
+        let median = scores[scores.len() / 2].hyperscore;
+        let mut sd = scores
+            .iter()
+            .fold(0.0f32, |sum, x| sum + (x.hyperscore - median).powi(2));
+        sd = (sd / scores.len().saturating_sub(1) as f32).sqrt();
 
         let mut reporting = Vec::new();
 
@@ -166,6 +177,11 @@ impl<'db> Scorer<'db> {
                 .get(idx + 1)
                 .map(|score| score.hyperscore)
                 .unwrap_or_default();
+
+            let z_score = match sd.is_finite() && sd > 0.0 {
+                true => (better.hyperscore - median) / sd,
+                false => 0.0,
+            };
 
             let peptide = self.db[better.peptide].peptide();
             reporting.push(Percolator {
@@ -187,7 +203,7 @@ impl<'db> Scorer<'db> {
                 matched_intensity: better.summed_b + better.summed_y,
                 percent_matched_intensity: (better.summed_b + better.summed_y) / total_intensity,
                 total_candidates: scores.len(),
-                spectrum_q_value: better.q_value,
+                spectrum_z_score: z_score,
                 q_value: 1.0,
             })
         }
@@ -330,7 +346,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .delimiter(b'\t')
             .from_path(&pin_path)?;
 
-        scores.sort_by(|a, b| b.hyperscore.total_cmp(&a.hyperscore));
+        // scores.sort_unstable_by(|a, b| b.hyperscore.total_cmp(&a.hyperscore));
+        (&mut scores).par_sort_unstable_by(|a, b| b.hyperscore.total_cmp(&a.hyperscore));
         let passing_psms = scorer.assign_q_values(&mut scores);
         // let passing_psms = 0;
         let total_psms = scores.len();
