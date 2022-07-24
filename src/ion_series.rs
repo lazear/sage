@@ -21,6 +21,7 @@ pub struct Ion {
 /// Generate B/Y ions for a candidate peptide under a given charge state
 pub struct IonSeries<'p> {
     pub kind: Kind,
+    cumulative_mass: f32,
     peptide: &'p Peptide,
     idx: usize,
 }
@@ -28,10 +29,15 @@ pub struct IonSeries<'p> {
 impl<'p> IonSeries<'p> {
     /// Create a new [`IonSeries`] iterator for a specified peptide
     pub fn new(peptide: &'p Peptide, kind: Kind) -> Self {
+        let cumulative_mass = match kind {
+            Kind::B => peptide.nterm.unwrap_or_default(),
+            Kind::Y => peptide.monoisotopic - peptide.nterm.unwrap_or_default(),
+        };
         Self {
             kind,
+            cumulative_mass,
             peptide,
-            idx: 1,
+            idx: 0,
         }
     }
 }
@@ -39,31 +45,23 @@ impl<'p> IonSeries<'p> {
 impl<'p> Iterator for IonSeries<'p> {
     type Item = Ion;
 
+    // Dynamic programming solution - memoize cumulative mass of
+    // peptide fragment for fast fragment ion generation
     fn next(&mut self) -> Option<Self::Item> {
-        if self.idx == self.peptide.sequence.len() {
+        if self.idx == self.peptide.sequence.len() - 1 {
             return None;
         }
-        let seq = match self.kind {
-            Kind::B => self.peptide.sequence.get(..self.idx),
-            Kind::Y => self.peptide.sequence.get(self.idx..),
-        }?;
+        let r = self.peptide.sequence.get(self.idx)?;
+
+        self.cumulative_mass += match self.kind {
+            Kind::B => r.monoisotopic(),
+            Kind::Y => -r.monoisotopic(),
+        };
         self.idx += 1;
-
-        let mut monoisotopic_mass: f32 = seq.iter().map(|r| r.monoisotopic()).sum();
-
-        match (self.kind, self.peptide.nterm) {
-            (Kind::B, None) => {}
-            (Kind::B, Some(m)) => {
-                monoisotopic_mass += m;
-            }
-            (Kind::Y, _) => {
-                monoisotopic_mass += H2O;
-            }
-        }
 
         Some(Ion {
             kind: self.kind,
-            monoisotopic_mass,
+            monoisotopic_mass: self.cumulative_mass,
         })
     }
 }
@@ -101,10 +99,18 @@ mod test {
     fn check_within<I: Iterator<Item = Ion>>(iter: I, expected_mz: &[f32]) {
         let observed = iter.map(|ion| ion.monoisotopic_mass).collect::<Vec<f32>>();
         assert_eq!(expected_mz.len(), observed.len());
-        assert!(expected_mz
-            .iter()
-            .zip(observed.iter())
-            .all(|(a, b)| (a - b).abs() < 0.001));
+        assert!(
+            expected_mz
+                .iter()
+                .zip(observed.iter())
+                .all(|(a, b)| (a - b).abs() < 0.01),
+            "{:?}",
+            expected_mz
+                .iter()
+                .zip(observed.iter())
+                .map(|(a, b)| a - b)
+                .collect::<Vec<_>>()
+        );
     }
 
     macro_rules! ions {
@@ -166,17 +172,20 @@ mod test {
         let mut peptide = "PEPTIDE".parse::<Peptide>().unwrap();
         peptide.set_nterm_mod(229.01);
 
-        // Charge state 1, TMT tagged
+        // Charge state 1, b-ions should be TMT tagged
         let expected_b = [
             98.06004, 227.10263, 324.155_4, 425.203_06, 538.287_2, 653.314_1,
-        ].into_iter().map(|x| x + 229.01).collect::<Vec<_>>();
+        ]
+        .into_iter()
+        .map(|x| x + 229.01)
+        .collect::<Vec<_>>();
 
+        // y-ions shouldn't have TMT tag
         let expected_y = vec![
             703.31447, 574.27188, 477.21912, 376.17144, 263.08737, 148.06043,
         ];
 
         check_within(ions!(&peptide, Kind::B, 1.0), &expected_b);
         check_within(ions!(&peptide, Kind::Y, 1.0), &expected_y);
-
     }
 }
