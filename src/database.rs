@@ -106,13 +106,22 @@ impl Parameters {
             .flat_map(|(protein, sequence)| trypsin.digest(protein, sequence))
             .collect::<HashSet<_>>();
 
-        let decoys = fasta
+        // Handle reversed/decoy sequences separately
+        // We want to make sure that there is no decoy peptide with the
+        // exact sequence as a target peptide - so this leads to some
+        // code duplication due to the dependency
+        let reversed = fasta
             .proteins
-            .par_iter()
-            .flat_map(|(protein, sequence)| {
+            .iter()
+            .map(|(acc, sequence)| {
                 let sequence = sequence.chars().rev().collect::<String>();
-                trypsin.digest(protein, &sequence)
+                (format!("DECOY_{}", acc), sequence)
             })
+            .collect::<Vec<_>>();
+
+        let decoys = reversed
+            .par_iter()
+            .flat_map(|(protein, sequence)| trypsin.digest(protein, &sequence))
             .filter(|digest| !targets.contains(digest))
             .collect::<HashSet<_>>();
 

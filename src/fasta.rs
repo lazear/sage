@@ -1,9 +1,8 @@
-use std::collections::BTreeMap;
 use std::io;
 use std::path::Path;
 
 pub struct Fasta {
-    pub proteins: BTreeMap<String, String>,
+    pub proteins: Vec<(String, String)>,
 }
 
 impl Fasta {
@@ -11,7 +10,7 @@ impl Fasta {
     pub fn open<P: AsRef<Path>>(path: P) -> io::Result<Fasta> {
         let buf = std::fs::read_to_string(path)?;
 
-        let mut map = BTreeMap::new();
+        let mut map = Vec::new();
         let mut iter = buf.as_str().lines();
         let mut last_id = iter.next().unwrap();
         let mut s = String::new();
@@ -27,7 +26,7 @@ impl Fasta {
                         continue;
                     }
                     let acc = last_id.split('|').nth(1).unwrap().into();
-                    map.insert(acc, std::mem::take(&mut s));
+                    map.push((acc, std::mem::take(&mut s)));
                 }
                 last_id = id;
             } else {
@@ -55,7 +54,7 @@ pub struct Digest<'s> {
     /// Parent protein ID
     pub protein: &'s str,
     /// Tryptic peptide sequence
-    pub sequence: String,
+    pub sequence: &'s str,
 }
 
 impl<'s> PartialEq for Digest<'s> {
@@ -75,7 +74,7 @@ impl<'s> std::hash::Hash for Digest<'s> {
 }
 
 impl Trypsin {
-    fn inner<'s>(&self, sequence: &'s str) -> Vec<&'s str> {
+    fn inner<'s>(&self, sequence: &'s str) -> Vec<std::ops::Range<usize>> {
         let mut digests = Vec::new();
         let mut left = 0;
         for (right, ch) in sequence.chars().enumerate() {
@@ -84,18 +83,18 @@ impl Trypsin {
                     if right + 1 < sequence.len() && sequence[right + 1..].starts_with('P') {
                         continue;
                     }
-                    digests.push(&sequence[left..=right]);
+                    digests.push(left..right + 1);
                     left = right + 1;
                 }
                 _ => (),
             }
         }
-        digests.push(&sequence[left..]);
+        digests.push(left..sequence.len());
         digests
     }
 
     /// Generate a series of tryptic digests for a given `sequence`
-    pub fn digest<'f>(&self, protein: &'f str, sequence: &str) -> Vec<Digest<'f>> {
+    pub fn digest<'f>(&self, protein: &'f str, sequence: &'f str) -> Vec<Digest<'f>> {
         let mut digests = Vec::new();
         let peptides = self.inner(sequence);
         for cleavage in 1..=(1 + self.miss_cleavage) {
@@ -103,7 +102,7 @@ impl Trypsin {
             for win in peptides.windows(cleavage as usize) {
                 let len: usize = win.iter().map(|w| w.len()).sum();
                 if len >= self.min_len && len <= self.max_len {
-                    let sequence = win.concat();
+                    let sequence = &sequence[win[0].start..win[cleavage as usize - 1].end];
                     digests.push(Digest { protein, sequence })
                 }
             }
@@ -138,7 +137,7 @@ mod tests {
         // Make sure digest worked!
         assert_eq!(
             expected,
-            observed.iter().map(|d| &d.sequence).collect::<Vec<_>>()
+            observed.iter().map(|d| d.sequence).collect::<Vec<_>>()
         );
 
         assert_eq!(observed[0].sequence, observed[1].sequence);
