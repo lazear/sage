@@ -50,7 +50,7 @@ pub fn peptide_id() -> Result<(), Box<dyn std::error::Error>> {
                 .chain(IonSeries::new(peptide, Kind::Y))
                 .map(move |ion| Theoretical {
                     peptide_index: PeptideIx::for_testing_only_seriously_though(idx),
-                    precursor_mz: peptide.monoisotopic,
+                    // precursor_mz: peptide.monoisotopic,
                     fragment_mz: ion.monoisotopic_mass,
                     kind: ion.kind,
                 })
@@ -105,7 +105,7 @@ pub fn confirm_charge_state_simulation() -> Result<(), Box<dyn std::error::Error
         .chain(IonSeries::new(&peptide, Kind::Y))
         .map(move |ion| Theoretical {
             peptide_index: PeptideIx::for_testing_only_seriously_though(0),
-            precursor_mz: peptide.monoisotopic,
+            // precursor_mz: peptide.monoisotopic,
             fragment_mz: ion.monoisotopic_mass / 2.0,
             kind: ion.kind,
         })

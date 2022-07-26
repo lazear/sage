@@ -95,23 +95,24 @@ impl<'db> Scorer<'db> {
     /// Score a single [`ProcessedSpectrum`] against the database
     pub fn score<'s>(&self, query: &ProcessedSpectrum) -> Vec<Percolator<'db>> {
         let (low, high) = self.search.precursor_tol.bounds(query.monoisotopic_mass);
-        let (idx_lo, idx_hi) = binary_search_slice(&self.db.peptides, |p| p.neutral(), low, high);
-
-        // Allocate space for all potential candidates - many potential candidates
-        // will not have fragments matched, so we use `Option<Score>`
-        let mut score_vector: Vec<Option<Score>> = vec![None; idx_hi - idx_lo + 1];
+        // let (idx_lo, idx_hi) = binary_search_slice(&self.db.peptides, |p| p.neutral(), low, high);
 
         // Create a new `IndexedQuery`
         let candidates = self
             .db
             .query(query, self.search.precursor_tol, self.search.fragment_tol);
 
+        // Allocate space for all potential candidates - many potential candidates
+        // will not have fragments matched, so we use `Option<Score>`
+        let potential = candidates.pre_idx_hi - candidates.pre_idx_lo + 1;
+        let mut score_vector: Vec<Option<Score>> = vec![None; potential];
+
         let mut total_intensity = 0.0;
         let mut matches = 0;
         for (fragment_mz, intensity) in query.peaks.iter() {
             total_intensity += intensity;
             for frag in candidates.page_search(*fragment_mz) {
-                let idx = frag.peptide_index.0 as usize - idx_lo;
+                let idx = frag.peptide_index.0 as usize - candidates.pre_idx_lo;
                 let mut sc = score_vector[idx].take().unwrap_or_else(|| Score::new(frag));
 
                 match frag.kind {
@@ -133,6 +134,8 @@ impl<'db> Scorer<'db> {
         if matches == 0 {
             return Vec::new();
         }
+
+        // dbg!(candidates.average_bucket_hits());
 
         // Now that we have processed all candidates, calculate the hyperscore
         let mut scores = score_vector

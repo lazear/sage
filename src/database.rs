@@ -6,6 +6,7 @@ use crate::spectrum::ProcessedSpectrum;
 use log::error;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::path::PathBuf;
@@ -202,7 +203,7 @@ impl Parameters {
                     IonSeries::new(peptide.peptide(), kind)
                         .map(|ion| Theoretical {
                             peptide_index: PeptideIx(idx as u32),
-                            precursor_mz: peptide.neutral(),
+                            // precursor_mz: peptide.neutral(),
                             fragment_mz: ion.monoisotopic_mass,
                             kind: ion.kind,
                         })
@@ -215,7 +216,7 @@ impl Parameters {
         }
 
         // Sort all of our theoretical fragments by m/z, from low to high
-        (&mut fragments).par_sort_unstable_by(|a, b| a.fragment_mz.total_cmp(&b.fragment_mz));
+        (&mut fragments).par_sort_by(|a, b| a.fragment_mz.total_cmp(&b.fragment_mz));
 
         // Now, we bucket all of our theoretical fragments, and within each bucket
         // sort by precursor m/z - and save the minimum *fragment* m/z in a separate
@@ -257,7 +258,7 @@ impl Parameters {
                 // There should always be at least one item in the chunk!
                 //  we know the chunk is already sorted by fragment_mz too, so this is minimum value
                 let min = chunk[0].fragment_mz;
-                chunk.sort_unstable_by(|a, b| a.precursor_mz.total_cmp(&b.precursor_mz));
+                chunk.sort_unstable_by(|a, b| a.peptide_index.cmp(&b.peptide_index));
                 min
             })
             .collect::<Vec<_>>();
@@ -279,7 +280,7 @@ pub struct PeptideIx(pub u32);
 pub struct Theoretical {
     pub peptide_index: PeptideIx,
     // technically not m/z currently - precursor mono. mass
-    pub precursor_mz: f32,
+    // pub precursor_mz: f32,
     pub fragment_mz: f32,
     pub kind: Kind,
 }
@@ -302,11 +303,19 @@ impl IndexedDatabase {
         precursor_tol: Tolerance,
         fragment_tol: Tolerance,
     ) -> IndexedQuery<'d, 'q> {
+        let (low, high) = precursor_tol.bounds(query.monoisotopic_mass);
+        let (pre_idx_lo, pre_idx_hi) =
+            binary_search_slice(&self.peptides, |p| p.neutral(), low, high);
+
         IndexedQuery {
             db: self,
             query,
             precursor_tol,
             fragment_tol,
+            pre_idx_lo,
+            pre_idx_hi,
+            // page_hits: Cell::new(0),
+            // num_frags: Cell::new(0),
         }
     }
 
@@ -332,19 +341,26 @@ pub struct IndexedQuery<'d, 'q> {
     query: &'q ProcessedSpectrum,
     precursor_tol: Tolerance,
     fragment_tol: Tolerance,
+
+    pub pre_idx_lo: usize,
+    pub pre_idx_hi: usize,
+    // page_hits: Cell<usize>,
+    // num_frags: Cell<usize>,
 }
 
 impl<'d, 'q> IndexedQuery<'d, 'q> {
     /// Search for a specified `fragment_mz` within the database
     pub fn page_search(&self, fragment_mz: f32) -> impl Iterator<Item = &Theoretical> {
         let (fragment_lo, fragment_hi) = self.fragment_tol.bounds(fragment_mz);
-        let (precursor_lo, precursor_hi) = self.precursor_tol.bounds(self.query.monoisotopic_mass);
 
         // Locate the left and right page indices that contain matching fragments
         // Note that we need to multiply by `bucket_size` to transform these into
         // indices that can be used with `self.db.fragments`
         let (left_idx, right_idx) =
             binary_search_slice(&self.db.min_value, |m| *m, fragment_lo, fragment_hi);
+
+        // self.num_frags.set(self.num_frags.get() + 1);
+        // self.page_hits.set(self.page_hits.get() + (right_idx - left_idx + 1));
 
         // It is absolutely critical that we do not cross page boundaries!
         // If we do, we can no longer rely on total ordering of precursor m/z
@@ -357,18 +373,28 @@ impl<'d, 'q> IndexedQuery<'d, 'q> {
             // Narrow down into our region of interest, then perform another binary
             // search to further refine down to the slice of matching precursor mzs
             let slice = &&self.db.fragments[left_idx..right_idx];
-            let (inner_left, inner_right) =
-                binary_search_slice(slice, |frag| frag.precursor_mz, precursor_lo, precursor_hi);
+            let (inner_left, inner_right) = binary_search_slice_ord(
+                slice,
+                |frag| frag.peptide_index.0 as usize,
+                self.pre_idx_lo,
+                self.pre_idx_hi,
+            );
 
             // Finally, filter down our slice into exact matches only
             slice[inner_left..inner_right].iter().filter(move |frag| {
-                frag.precursor_mz >= precursor_lo
-                    && frag.precursor_mz <= precursor_hi
+                // frag.precursor_mz >= precursor_lo
+                // && frag.precursor_mz <= precursor_hi
+                frag.peptide_index.0 as usize >= self.pre_idx_lo
+                    && frag.peptide_index.0 as usize <= self.pre_idx_hi
                     && frag.fragment_mz >= fragment_lo
                     && frag.fragment_mz <= fragment_hi
             })
         })
     }
+
+    // pub fn average_bucket_hits(self) -> f32 {
+    //     self.page_hits.get() as f32 / self.num_frags.get() as f32
+    // }
 }
 
 /// Return the widest `left` and `right` indices into a `slice` (sorted by the
@@ -396,6 +422,34 @@ where
     };
 
     let right_idx = match slice[left_idx..].binary_search_by(|a| key(a).total_cmp(&high)) {
+        Ok(idx) | Err(idx) => {
+            let mut idx = idx + left_idx;
+            while idx < slice.len() && key(&slice[idx]) <= high {
+                idx = idx.saturating_add(1);
+            }
+            idx.min(slice.len())
+        }
+    };
+    (left_idx, right_idx)
+}
+
+#[inline]
+pub fn binary_search_slice_ord<T, F, O>(slice: &[T], key: F, low: O, high: O) -> (usize, usize)
+where
+    F: Fn(&T) -> O,
+    O: Ord,
+{
+    let left_idx = match slice.binary_search_by(|a| key(a).cmp(&low)) {
+        Ok(idx) | Err(idx) => {
+            let mut idx = idx.saturating_sub(1);
+            while idx > 0 && key(&slice[idx]) >= low {
+                idx -= 1;
+            }
+            idx
+        }
+    };
+
+    let right_idx = match slice[left_idx..].binary_search_by(|a| key(a).cmp(&high)) {
         Ok(idx) | Err(idx) => {
             let mut idx = idx + left_idx;
             while idx < slice.len() && key(&slice[idx]) <= high {

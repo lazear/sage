@@ -100,9 +100,9 @@ impl Trypsin {
         for cleavage in 1..=(1 + self.miss_cleavage) {
             // Generate missed cleavages
             for win in peptides.windows(cleavage as usize) {
-                let len: usize = win.iter().map(|w| w.len()).sum();
+                let sequence = &sequence[win[0].start..win[cleavage as usize - 1].end];
+                let len = sequence.len();
                 if len >= self.min_len && len <= self.max_len {
-                    let sequence = &sequence[win[0].start..win[cleavage as usize - 1].end];
                     digests.push(Digest { protein, sequence })
                 }
             }
