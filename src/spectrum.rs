@@ -29,7 +29,7 @@ impl SpectrumProcessor {
 
         s.peaks.sort_unstable_by(|(_, a), (_, b)| b.total_cmp(&a));
         let n = s.peaks.len().min(self.take_top_n);
-        let mut peaks = s.peaks[..n]
+        let peaks = s.peaks[..n]
             .iter()
             .flat_map(|(mz, int)| {
                 (1..=charge).filter_map(move |charge| {
@@ -47,9 +47,6 @@ impl SpectrumProcessor {
                 })
             })
             .collect::<Vec<_>>();
-
-        // Sort by m/z
-        peaks.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
 
         ProcessedSpectrum {
             scan: s.scan,
@@ -69,19 +66,6 @@ pub struct Spectrum {
     precursor_mass: f32,
     charge: u8,
     pub peaks: Vec<(f32, f32)>,
-}
-
-#[derive(Default, Clone, Debug, PartialEq, PartialOrd)]
-struct Intensity(f32);
-
-impl std::cmp::Eq for Intensity {
-    fn assert_receiver_is_total_eq(&self) {}
-}
-
-impl std::cmp::Ord for Intensity {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.0.total_cmp(&other.0)
-    }
 }
 
 /// Read a `.ms2` file

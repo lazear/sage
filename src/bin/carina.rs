@@ -94,9 +94,6 @@ impl<'db> Scorer<'db> {
 
     /// Score a single [`ProcessedSpectrum`] against the database
     pub fn score<'s>(&self, query: &ProcessedSpectrum) -> Vec<Percolator<'db>> {
-        let (low, high) = self.search.precursor_tol.bounds(query.monoisotopic_mass);
-        // let (idx_lo, idx_hi) = binary_search_slice(&self.db.peptides, |p| p.neutral(), low, high);
-
         // Create a new `IndexedQuery`
         let candidates = self
             .db
@@ -135,8 +132,6 @@ impl<'db> Scorer<'db> {
             return Vec::new();
         }
 
-        // dbg!(candidates.average_bucket_hits());
-
         // Now that we have processed all candidates, calculate the hyperscore
         let mut scores = score_vector
             .into_iter()
@@ -149,7 +144,6 @@ impl<'db> Scorer<'db> {
             })
             .collect::<Vec<_>>();
 
-        // (&mut scores).par_sort_unstable_by(|b, a| a.hyperscore.total_cmp(&b.hyperscore));
         scores.sort_unstable_by(|b, a| a.hyperscore.total_cmp(&b.hyperscore));
 
         // Calculate median & std deviation of hyperscores
@@ -321,24 +315,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let mut pin_paths = Vec::with_capacity(search.ms2_paths.len());
-    for ms2_path in &search.ms2_paths {
+    for ms2_path in search.ms2_paths.clone() {
         let start = Instant::now();
-        let mut scores = read_ms2(ms2_path)?
+        let mut scores = read_ms2(&ms2_path)?
             .into_par_iter()
             .filter(|spec| spec.peaks.len() >= search.min_peaks)
-            .flat_map(|spectra| scorer.score(&sp.process(spectra)))
+            .flat_map(|spec| scorer.score(&sp.process(spec)))
             .collect::<Vec<_>>();
+        (&mut scores).par_sort_unstable_by(|a, b| b.hyperscore.total_cmp(&a.hyperscore));
+        let passing_psms = scorer.assign_q_values(&mut scores);
         let duration = Instant::now() - start;
 
-        let pin_path = format!("{}.carina.pin", ms2_path);
+        let pin_path = format!("{}.carina.pin", &ms2_path);
         let mut writer = csv::WriterBuilder::new()
             .delimiter(b'\t')
             .from_path(&pin_path)?;
 
-        // scores.sort_unstable_by(|a, b| b.hyperscore.total_cmp(&a.hyperscore));
-        (&mut scores).par_sort_unstable_by(|a, b| b.hyperscore.total_cmp(&a.hyperscore));
-        let passing_psms = scorer.assign_q_values(&mut scores);
-        // let passing_psms = 0;
         let total_psms = scores.len();
 
         for (idx, mut score) in scores.into_iter().enumerate() {
@@ -359,7 +351,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     search.search_time = (Instant::now() - start).as_secs_f32();
-    search.pin_paths = pin_paths;
+    // search.pin_paths = pin_paths;
     let results = serde_json::to_string_pretty(&search)?;
 
     eprintln!("{}", &results);

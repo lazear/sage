@@ -8,14 +8,14 @@ I wanted to see how far I could take a proteomics search engine in ~1000 lines o
 
 I was inspired by the elegant data structure discussed in the [MSFragger paper](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5409104/), and decided to implement an (open source) version of it in Rust - with great results.
 
-Carina has excellent performance characteristics (>2x faster and >2x less memory usage than MSFragger for narrow searches), but does not sacrifice code quality or size to do so!
-
-- MSFragger still blows the pants off this tool on Open Searches (> 50 Da precursor_tol) ... for now!
+Carina has excellent performance characteristics (5-10x faster, 2-3x reduction in memory use compared to - the closed source - MSFragger), but does not sacrifice code quality or size to do so!
+- MSFragger can still come out on top time-wise during wider open searchs (>250 Da window) due to deisotoping (Carina does not yet have de-isotoping, which is a massive performance hit)
  
 ## Features
 
 - Search by fragment, filter by precursor: blazing fast performance
 - Effortlessly cross-platform, effortlessly parallel
+  - Performance on wider searches appears to be significantly better on Unix systems (potentially a Rayon issue)
 - Small and simple codebase
 - Configuration by JSON files
 - X!Tandem hyperscore function
@@ -49,25 +49,30 @@ Data repository: [PXD016766](http://proteomecentral.proteomexchange.org/cgi/GetD
 
 Performance results: (Intel i7-12700KF + 32GB RAM)
 
-- ~30 seconds to process 12 files, using less than 4GB of RAM
-- Active scanning: ~35,000 scans/s for narrow window (can be tuned to use more ram and go 5x faster!)
+- ~15 seconds to process 12 files in narrow search, using less than 2GB of RAM (can be tuned to run files in parallel... ~9s and ~3GB of RAM)
+- Active scanning: ~50,000 scans/s for narrow window (can be tuned to use more RAM and go even faster!)
+
+- ~120 seconds to process 12 files in open search (50 Da precursor window), using less than 2GB of RAM (can be tuned to run files in parallel... ~9s and ~3GB of RAM)
 
 
 ### Search methods
 
 - MS2 files generated using the [ProteoWizard MSConvert tool](http://www.proteowizard.org/download.html)
-- MSFragger and Comet were configured with analogous parameters (+/- 25 ppm precursor tolerance, +/- 10 ppm fragment tolerance - or for Comet setting `fragment_bin_tol` to 0.02 Da).
+- MSFragger and Comet were configured with analogous parameters (+/- 1.25 Da precursor tolerance, +/- 10 ppm fragment tolerance - or for Comet setting `fragment_bin_tol` to 0.02 Da).
 - [Mokapot](https://github.com/wfondrie/mokapot) was then used to refine FDR for all search results
+- Parameter files for all engines can be found in the `figures/benchmark_params` folder!
 
 Carina search settings file:
 ```json
 {
   "database": {
-    "bucket_size": 8192,
-    "fragment_min_mz": 75.0,
-    "fragment_max_mz": 2000.0,
-    "peptide_min_len": 5,
+    "bucket_size": 16384,
+    "fragment_min_mz": 150.0,
+    "fragment_max_mz": 1500.0,
+    "peptide_min_len": 7,
     "peptide_max_len": 50,
+    "peptide_min_mass": 200.0,
+    "peptide_max_mass": 5000.0,
     "decoy": true,
     "missed_cleavages": 1,
     "n_term_mod": 229.1629,
@@ -78,11 +83,14 @@ Carina search settings file:
     "fasta": "UP000005640_9606.fasta"
   },
   "precursor_tol": {
-    "ppm": 25.0
+    "da": 1.25
   },
   "fragment_tol": {
-    "ppm": 10.0 
+    "ppm": 10.0
   },
+  "max_fragment_charge": 1,
+  "min_peaks": 15,
+  "max_peaks": 150,
   "report_psms": 1,
   "ms2_paths": [
     "./tmt_analysis/raw/dq_00082_11cell_90min_hrMS2_A1.ms2",

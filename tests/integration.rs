@@ -64,7 +64,7 @@ pub fn peptide_id() -> Result<(), Box<dyn std::error::Error>> {
 
     for (mz, _) in processed.peaks {
         let (low, high) = Tolerance::Ppm(10.0).bounds(mz);
-        let (i, j) = binary_search_slice(&fragments, |f| f.fragment_mz, low, high);
+        let (i, j) = binary_search_slice(&fragments, |f, x| f.fragment_mz.total_cmp(x), low, high);
         for fragment in fragments[i..j]
             .iter()
             .filter(|frag| frag.fragment_mz >= low && frag.fragment_mz <= high)
@@ -125,7 +125,7 @@ fn match_peaks(fragments: &[Theoretical], peaks: &[(f32, f32)], ppm: f32) -> (us
     let mut matched_y = 0;
     for (mz, int) in peaks {
         let (low, high) = Tolerance::Ppm(ppm).bounds(*mz);
-        let (i, j) = binary_search_slice(&fragments, |f| f.fragment_mz, low, high);
+        let (i, j) = binary_search_slice(&fragments, |f, x| f.fragment_mz.total_cmp(x), low, high);
         for fragment in fragments[i..j]
             .iter()
             .filter(|frag| frag.fragment_mz >= low && frag.fragment_mz <= high)

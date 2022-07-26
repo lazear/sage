@@ -6,7 +6,7 @@ use crate::spectrum::ProcessedSpectrum;
 use log::error;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::cell::Cell;
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::path::PathBuf;
@@ -113,7 +113,7 @@ impl Parameters {
         // code duplication due to the dependency
         let reversed = fasta
             .proteins
-            .iter()
+            .par_iter()
             .map(|(acc, sequence)| {
                 let sequence = sequence.chars().rev().collect::<String>();
                 (format!("DECOY_{}", acc), sequence)
@@ -258,7 +258,7 @@ impl Parameters {
                 // There should always be at least one item in the chunk!
                 //  we know the chunk is already sorted by fragment_mz too, so this is minimum value
                 let min = chunk[0].fragment_mz;
-                chunk.sort_unstable_by(|a, b| a.peptide_index.cmp(&b.peptide_index));
+                chunk.par_sort_unstable_by(|a, b| a.peptide_index.cmp(&b.peptide_index));
                 min
             })
             .collect::<Vec<_>>();
@@ -304,8 +304,12 @@ impl IndexedDatabase {
         fragment_tol: Tolerance,
     ) -> IndexedQuery<'d, 'q> {
         let (low, high) = precursor_tol.bounds(query.monoisotopic_mass);
-        let (pre_idx_lo, pre_idx_hi) =
-            binary_search_slice(&self.peptides, |p| p.neutral(), low, high);
+        let (pre_idx_lo, pre_idx_hi) = binary_search_slice(
+            &self.peptides,
+            |p, bounds| p.neutral().total_cmp(bounds),
+            low,
+            high,
+        );
 
         IndexedQuery {
             db: self,
@@ -314,8 +318,6 @@ impl IndexedDatabase {
             fragment_tol,
             pre_idx_lo,
             pre_idx_hi,
-            // page_hits: Cell::new(0),
-            // num_frags: Cell::new(0),
         }
     }
 
@@ -344,8 +346,6 @@ pub struct IndexedQuery<'d, 'q> {
 
     pub pre_idx_lo: usize,
     pub pre_idx_hi: usize,
-    // page_hits: Cell<usize>,
-    // num_frags: Cell<usize>,
 }
 
 impl<'d, 'q> IndexedQuery<'d, 'q> {
@@ -356,11 +356,12 @@ impl<'d, 'q> IndexedQuery<'d, 'q> {
         // Locate the left and right page indices that contain matching fragments
         // Note that we need to multiply by `bucket_size` to transform these into
         // indices that can be used with `self.db.fragments`
-        let (left_idx, right_idx) =
-            binary_search_slice(&self.db.min_value, |m| *m, fragment_lo, fragment_hi);
-
-        // self.num_frags.set(self.num_frags.get() + 1);
-        // self.page_hits.set(self.page_hits.get() + (right_idx - left_idx + 1));
+        let (left_idx, right_idx) = binary_search_slice(
+            &self.db.min_value,
+            |min, bounds| min.total_cmp(bounds),
+            fragment_lo,
+            fragment_hi,
+        );
 
         // It is absolutely critical that we do not cross page boundaries!
         // If we do, we can no longer rely on total ordering of precursor m/z
@@ -373,9 +374,9 @@ impl<'d, 'q> IndexedQuery<'d, 'q> {
             // Narrow down into our region of interest, then perform another binary
             // search to further refine down to the slice of matching precursor mzs
             let slice = &&self.db.fragments[left_idx..right_idx];
-            let (inner_left, inner_right) = binary_search_slice_ord(
+            let (inner_left, inner_right) = binary_search_slice(
                 slice,
-                |frag| frag.peptide_index.0 as usize,
+                |frag, bounds| (frag.peptide_index.0 as usize).cmp(bounds),
                 self.pre_idx_lo,
                 self.pre_idx_hi,
             );
@@ -407,52 +408,24 @@ impl<'d, 'q> IndexedQuery<'d, 'q> {
 /// * `slice[right] <= high && (slice[right+1] > high || right == slice.len())`
 /// * `0 <= left <= right <= slice.len()`
 #[inline]
-pub fn binary_search_slice<T, F>(slice: &[T], key: F, low: f32, high: f32) -> (usize, usize)
+pub fn binary_search_slice<T, F, S>(slice: &[T], key: F, low: S, high: S) -> (usize, usize)
 where
-    F: Fn(&T) -> f32,
+    F: Fn(&T, &S) -> Ordering,
 {
-    let left_idx = match slice.binary_search_by(|a| key(a).total_cmp(&low)) {
+    let left_idx = match slice.binary_search_by(|a| key(a, &low)) {
         Ok(idx) | Err(idx) => {
             let mut idx = idx.saturating_sub(1);
-            while idx > 0 && key(&slice[idx]) >= low {
+            while idx > 0 && key(&slice[idx], &low) != Ordering::Less {
                 idx -= 1;
             }
             idx
         }
     };
 
-    let right_idx = match slice[left_idx..].binary_search_by(|a| key(a).total_cmp(&high)) {
+    let right_idx = match slice[left_idx..].binary_search_by(|a| key(a, &high)) {
         Ok(idx) | Err(idx) => {
             let mut idx = idx + left_idx;
-            while idx < slice.len() && key(&slice[idx]) <= high {
-                idx = idx.saturating_add(1);
-            }
-            idx.min(slice.len())
-        }
-    };
-    (left_idx, right_idx)
-}
-
-#[inline]
-pub fn binary_search_slice_ord<T, F, O>(slice: &[T], key: F, low: O, high: O) -> (usize, usize)
-where
-    F: Fn(&T) -> O,
-    O: Ord,
-{
-    let left_idx = match slice.binary_search_by(|a| key(a).cmp(&low)) {
-        Ok(idx) | Err(idx) => {
-            let mut idx = idx.saturating_sub(1);
-            while idx > 0 && key(&slice[idx]) >= low {
-                idx -= 1;
-            }
-            idx
-        }
-    };
-
-    let right_idx = match slice[left_idx..].binary_search_by(|a| key(a).cmp(&high)) {
-        Ok(idx) | Err(idx) => {
-            let mut idx = idx + left_idx;
-            while idx < slice.len() && key(&slice[idx]) <= high {
+            while idx < slice.len() && key(&slice[idx], &high) != Ordering::Greater {
                 idx = idx.saturating_add(1);
             }
             idx.min(slice.len())
@@ -475,12 +448,12 @@ mod test {
     fn binary_search_slice_smoke() {
         // Make sure that our query returns the maximal set of indices
         let data = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0];
-        let bounds = binary_search_slice(&data, |x| *x, 1.75, 3.5);
+        let bounds = binary_search_slice(&data, |a: &f64, b| a.total_cmp(b), 1.75, 3.5);
         assert_eq!(bounds, (1, 6));
         assert!(data[bounds.0] <= 1.75);
         assert_eq!(&data[bounds.0..bounds.1], &[1.5, 2.0, 2.5, 3.0, 3.5]);
 
-        let bounds = binary_search_slice(&data, |x| *x, 0.0, 5.0);
+        let bounds = binary_search_slice(&data, |a: &f64, b| a.total_cmp(b), 0.0, 5.0);
         assert_eq!(bounds, (0, data.len()));
     }
 
@@ -488,7 +461,7 @@ mod test {
     fn binary_search_slice_run() {
         // Make sure that our query returns the maximal set of indices
         let data = [1.0, 1.5, 1.5, 1.5, 1.5, 2.0, 2.5, 3.0, 3.0, 3.5, 4.0];
-        let (left, right) = binary_search_slice(&data, |x| *x, 1.5, 3.25);
+        let (left, right) = binary_search_slice(&data, |a: &f64, b| a.total_cmp(b), 1.5, 3.25);
         assert!(data[left] <= 1.5);
         assert!(data[right] > 3.25);
         assert_eq!(

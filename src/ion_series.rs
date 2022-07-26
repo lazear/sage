@@ -1,7 +1,5 @@
-use crate::{
-    mass::{Mass, H2O},
-    peptide::Peptide,
-};
+use crate::mass::{Mass, H2O};
+use crate::peptide::Peptide;
 
 #[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
 pub enum Kind {
