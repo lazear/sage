@@ -25,7 +25,9 @@ impl SpectrumProcessor {
     }
 
     pub fn process(&self, mut s: Spectrum) -> ProcessedSpectrum {
-        let charge = self.max_fragment_charge.min(s.charge);
+        let charge = self
+            .max_fragment_charge
+            .min(s.charge.saturating_sub(1).max(1));
 
         s.peaks.sort_unstable_by(|(_, a), (_, b)| b.total_cmp(&a));
         let n = s.peaks.len().min(self.take_top_n);

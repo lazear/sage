@@ -1,6 +1,6 @@
 use crate::fasta::{Fasta, Trypsin};
 use crate::ion_series::{IonSeries, Kind};
-use crate::mass::Tolerance;
+use crate::mass::{Tolerance, NEUTRON};
 use crate::peptide::{Peptide, TargetDecoy};
 use crate::spectrum::ProcessedSpectrum;
 use log::error;
@@ -276,7 +276,7 @@ impl Parameters {
 #[repr(transparent)]
 pub struct PeptideIx(pub u32);
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Theoretical {
     pub peptide_index: PeptideIx,
     // technically not m/z currently - precursor mono. mass
@@ -303,12 +303,13 @@ impl IndexedDatabase {
         precursor_tol: Tolerance,
         fragment_tol: Tolerance,
     ) -> IndexedQuery<'d, 'q> {
-        let (low, high) = precursor_tol.bounds(query.monoisotopic_mass);
+        let (precursor_lo, precursor_hi) = precursor_tol.bounds(query.monoisotopic_mass);
+
         let (pre_idx_lo, pre_idx_hi) = binary_search_slice(
             &self.peptides,
             |p, bounds| p.neutral().total_cmp(bounds),
-            low,
-            high,
+            precursor_lo,
+            precursor_hi,
         );
 
         IndexedQuery {
@@ -343,7 +344,6 @@ pub struct IndexedQuery<'d, 'q> {
     query: &'q ProcessedSpectrum,
     precursor_tol: Tolerance,
     fragment_tol: Tolerance,
-
     pub pre_idx_lo: usize,
     pub pre_idx_hi: usize,
 }
@@ -352,6 +352,7 @@ impl<'d, 'q> IndexedQuery<'d, 'q> {
     /// Search for a specified `fragment_mz` within the database
     pub fn page_search(&self, fragment_mz: f32) -> impl Iterator<Item = &Theoretical> {
         let (fragment_lo, fragment_hi) = self.fragment_tol.bounds(fragment_mz);
+        let (precursor_lo, precursor_hi) = self.precursor_tol.bounds(self.query.monoisotopic_mass);
 
         // Locate the left and right page indices that contain matching fragments
         // Note that we need to multiply by `bucket_size` to transform these into
@@ -374,6 +375,7 @@ impl<'d, 'q> IndexedQuery<'d, 'q> {
             // Narrow down into our region of interest, then perform another binary
             // search to further refine down to the slice of matching precursor mzs
             let slice = &&self.db.fragments[left_idx..right_idx];
+
             let (inner_left, inner_right) = binary_search_slice(
                 slice,
                 |frag, bounds| (frag.peptide_index.0 as usize).cmp(bounds),
@@ -383,10 +385,8 @@ impl<'d, 'q> IndexedQuery<'d, 'q> {
 
             // Finally, filter down our slice into exact matches only
             slice[inner_left..inner_right].iter().filter(move |frag| {
-                // frag.precursor_mz >= precursor_lo
-                // && frag.precursor_mz <= precursor_hi
-                frag.peptide_index.0 as usize >= self.pre_idx_lo
-                    && frag.peptide_index.0 as usize <= self.pre_idx_hi
+                self.db[frag.peptide_index].neutral() >= precursor_lo
+                    && self.db[frag.peptide_index].neutral() <= precursor_hi
                     && frag.fragment_mz >= fragment_lo
                     && frag.fragment_mz <= fragment_hi
             })

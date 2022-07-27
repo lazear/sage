@@ -3,14 +3,15 @@ use std::fmt::Write;
 use serde::{Deserialize, Serialize};
 
 pub const H2O: f32 = 18.010565;
-pub const PROTON: f32 = 1.007_276_4;
+pub const PROTON: f32 = 1.0072764;
+pub const NEUTRON: f32 = 1.00335;
 pub const NH3: f32 = 17.026548;
 
 #[derive(Copy, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Tolerance {
-    Ppm(f32),
-    Da(f32),
+    Ppm(f32, f32),
+    Da(f32, f32),
 }
 
 impl Tolerance {
@@ -18,11 +19,12 @@ impl Tolerance {
     /// mass and a given tolerance
     pub fn bounds(&self, center: f32) -> (f32, f32) {
         match self {
-            Tolerance::Ppm(ppm) => {
-                let delta = center * ppm / 1_000_000.0;
-                (center - delta, center + delta)
+            Tolerance::Ppm(lo, hi) => {
+                let delta_lo = center * lo / 1_000_000.0;
+                let delta_hi = center * hi / 1_000_000.0;
+                (center + delta_lo, center + delta_hi)
             }
-            Tolerance::Da(th) => (center - th, center + th),
+            Tolerance::Da(lo, hi) => (center + lo, center + hi),
         }
     }
 }
@@ -103,9 +105,17 @@ mod test {
 
     #[test]
     fn tolerances() {
-        assert_eq!(Tolerance::Ppm(10.0).bounds(1000.0), (999.99, 1000.01));
-        assert_eq!(Tolerance::Ppm(10.0).bounds(487.0), (486.99513, 487.00487));
-
-        assert_eq!(Tolerance::Ppm(50.0).bounds(1000.0), (999.95, 1000.05));
+        assert_eq!(
+            Tolerance::Ppm(-10.0, 20.0).bounds(1000.0),
+            (999.99, 1000.02)
+        );
+        assert_eq!(
+            Tolerance::Ppm(-10.0, 10.0).bounds(487.0),
+            (486.99513, 487.00487)
+        );
+        assert_eq!(
+            Tolerance::Ppm(-50.0, 50.0).bounds(1000.0),
+            (999.95, 1000.05)
+        );
     }
 }

@@ -1,12 +1,12 @@
-use carina::database::{binary_search_slice, IndexedDatabase, PeptideIx, Theoretical};
+use carina::database::{IndexedDatabase, PeptideIx, Theoretical};
 use carina::ion_series::Kind;
-use carina::mass::{Tolerance, PROTON};
+use carina::mass::{Tolerance, NEUTRON, PROTON};
 use carina::spectrum::{read_ms2, ProcessedSpectrum, SpectrumProcessor};
 use clap::{Arg, Command};
 use log::info;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{self, Instant};
 
 #[derive(Copy, Clone)]
@@ -95,6 +95,7 @@ impl<'db> Scorer<'db> {
     /// Score a single [`ProcessedSpectrum`] against the database
     pub fn score<'s>(&self, query: &ProcessedSpectrum) -> Vec<Percolator<'db>> {
         // Create a new `IndexedQuery`
+
         let candidates = self
             .db
             .query(query, self.search.precursor_tol, self.search.fragment_tol);
@@ -237,9 +238,13 @@ pub struct Search {
     min_peaks: usize,
     max_peaks: usize,
     report_psms: usize,
-    ms2_paths: Vec<String>,
-    pin_paths: Vec<String>,
+    process_files_parallel: bool,
+    ms2_paths: Vec<PathBuf>,
+    pin_paths: Vec<PathBuf>,
     search_time: f32,
+
+    #[serde(skip_serializing)]
+    output_directory: Option<PathBuf>,
 }
 
 #[derive(Deserialize)]
@@ -251,7 +256,9 @@ struct Input {
     min_peaks: Option<usize>,
     max_peaks: Option<usize>,
     max_fragment_charge: Option<u8>,
-    ms2_paths: Vec<String>,
+    process_files_parallel: Option<bool>,
+    output_directory: Option<PathBuf>,
+    ms2_paths: Vec<PathBuf>,
 }
 
 impl Search {
@@ -269,9 +276,57 @@ impl Search {
             max_fragment_charge: request.max_fragment_charge.unwrap_or(3),
             pin_paths: Vec::new(),
             ms2_paths: request.ms2_paths,
+            process_files_parallel: request.process_files_parallel.unwrap_or(true),
+            output_directory: request.output_directory,
             search_time: 0.0,
         })
     }
+}
+
+fn process_ms2_file<P: AsRef<Path>>(
+    p: P,
+    scorer: &Scorer,
+) -> Result<PathBuf, Box<dyn std::error::Error + Send + Sync + 'static>> {
+    let sp = SpectrumProcessor::new(
+        scorer.search.max_peaks,
+        scorer.search.max_fragment_charge,
+        scorer.search.database.fragment_max_mz,
+    );
+
+    let mut scores = read_ms2(&p)?
+        .into_par_iter()
+        .filter(|spec| spec.peaks.len() >= scorer.search.min_peaks)
+        .flat_map(|spec| scorer.score(&sp.process(spec)))
+        .collect::<Vec<_>>();
+    (&mut scores).par_sort_unstable_by(|a, b| b.hyperscore.total_cmp(&a.hyperscore));
+    let passing_psms = scorer.assign_q_values(&mut scores);
+
+    let mut path = p.as_ref().to_path_buf();
+    path.set_extension("carina.pin");
+
+    if let Some(mut directory) = scorer.search.output_directory.clone() {
+        directory.push(path.file_name().expect("BUG: should be a filename!"));
+        path = directory;
+    }
+
+    let mut writer = csv::WriterBuilder::new()
+        .delimiter(b'\t')
+        .from_path(&path)?;
+
+    let total_psms = scores.len();
+
+    for (idx, mut score) in scores.into_iter().enumerate() {
+        score.specid = idx;
+        writer.serialize(score)?;
+    }
+
+    info!(
+        "{:?}: assigned {} PSMs ({} with 1% FDR)",
+        p.as_ref(),
+        total_psms,
+        passing_psms,
+    );
+    Ok(path)
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -308,53 +363,45 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let scorer = Scorer::new(&db, &search);
-    let sp = SpectrumProcessor::new(
-        search.max_peaks,
-        search.max_fragment_charge,
-        search.database.fragment_max_mz,
-    );
+    let start = Instant::now();
 
-    let mut pin_paths = Vec::with_capacity(search.ms2_paths.len());
-    for ms2_path in search.ms2_paths.clone() {
-        let start = Instant::now();
-        let mut scores = read_ms2(&ms2_path)?
-            .into_par_iter()
-            .filter(|spec| spec.peaks.len() >= search.min_peaks)
-            .flat_map(|spec| scorer.score(&sp.process(spec)))
-            .collect::<Vec<_>>();
-        (&mut scores).par_sort_unstable_by(|a, b| b.hyperscore.total_cmp(&a.hyperscore));
-        let passing_psms = scorer.assign_q_values(&mut scores);
-        let duration = Instant::now() - start;
-
-        let pin_path = format!("{}.carina.pin", &ms2_path);
-        let mut writer = csv::WriterBuilder::new()
-            .delimiter(b'\t')
-            .from_path(&pin_path)?;
-
-        let total_psms = scores.len();
-
-        for (idx, mut score) in scores.into_iter().enumerate() {
-            score.specid = idx;
-            writer.serialize(score)?;
-        }
-
-        pin_paths.push(pin_path);
-
-        info!(
-            "{:?}: assigned {} PSMs ({} with 1% FDR) in {} ms ({} PSMs/sec)",
-            ms2_path,
-            total_psms,
-            passing_psms,
-            duration.as_millis(),
-            total_psms as f32 / duration.as_secs_f32()
-        );
-    }
+    let output_paths = match search.process_files_parallel {
+        true => search
+            .ms2_paths
+            .par_iter()
+            .map(|ms2_path| process_ms2_file(ms2_path, &scorer))
+            .collect::<Vec<_>>(),
+        false => search
+            .ms2_paths
+            .iter()
+            .map(|ms2_path| process_ms2_file(ms2_path, &scorer))
+            .collect::<Vec<_>>(),
+    };
 
     search.search_time = (Instant::now() - start).as_secs_f32();
-    // search.pin_paths = pin_paths;
+
+    let mut failures = 0;
+    search.pin_paths = search
+        .ms2_paths
+        .iter()
+        .zip(output_paths.into_iter())
+        .filter_map(|(input, output)| match output {
+            Ok(path) => Some(path),
+            Err(err) => {
+                eprintln!(
+                    "Encountered error while processing {}: {}",
+                    input.as_path().to_string_lossy(),
+                    err
+                );
+                failures += 1;
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+
     let results = serde_json::to_string_pretty(&search)?;
 
-    eprintln!("{}", &results);
+    println!("{}", &results);
     std::fs::write("results.json", results)?;
 
     Ok(())
