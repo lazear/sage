@@ -96,9 +96,13 @@ impl<'db> Scorer<'db> {
     pub fn score<'s>(&self, query: &ProcessedSpectrum) -> Vec<Percolator<'db>> {
         // Create a new `IndexedQuery`
 
-        let candidates = self
-            .db
-            .query(query, self.search.precursor_tol, self.search.fragment_tol);
+        let candidates = self.db.query(
+            query,
+            self.search.precursor_tol,
+            self.search.fragment_tol,
+            self.search.isotope_errors.0,
+            self.search.isotope_errors.1,
+        );
 
         // Allocate space for all potential candidates - many potential candidates
         // will not have fragments matched, so we use `Option<Score>`
@@ -235,6 +239,7 @@ pub struct Search {
     precursor_tol: Tolerance,
     fragment_tol: Tolerance,
     max_fragment_charge: u8,
+    isotope_errors: (i8, i8),
     min_peaks: usize,
     max_peaks: usize,
     report_psms: usize,
@@ -256,6 +261,7 @@ struct Input {
     min_peaks: Option<usize>,
     max_peaks: Option<usize>,
     max_fragment_charge: Option<u8>,
+    isotope_errors: Option<(i8, i8)>,
     process_files_parallel: Option<bool>,
     output_directory: Option<PathBuf>,
     ms2_paths: Vec<PathBuf>,
@@ -266,6 +272,10 @@ impl Search {
         let mut file = std::fs::File::open(path)?;
         let request: Input = serde_json::from_reader(&mut file)?;
         let database = request.database.make_parameters();
+        let isotope_errors = request.isotope_errors.unwrap_or((0, 0));
+        if isotope_errors.0 > isotope_errors.1 {
+            panic!("Minimum isotope_error value greater than maximum! Correct usage: `isotope_errors: [-1, 3]`");
+        }
         Ok(Search {
             database,
             precursor_tol: request.precursor_tol,
@@ -274,6 +284,7 @@ impl Search {
             max_peaks: request.max_peaks.unwrap_or(150),
             min_peaks: request.min_peaks.unwrap_or(15),
             max_fragment_charge: request.max_fragment_charge.unwrap_or(3),
+            isotope_errors: request.isotope_errors.unwrap_or((0, 0)),
             pin_paths: Vec::new(),
             ms2_paths: request.ms2_paths,
             process_files_parallel: request.process_files_parallel.unwrap_or(true),

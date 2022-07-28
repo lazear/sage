@@ -1,4 +1,4 @@
-use crate::mass::PROTON;
+use crate::mass::{Tolerance, PROTON};
 
 pub struct SpectrumProcessor {
     take_top_n: usize,
@@ -29,6 +29,8 @@ impl SpectrumProcessor {
             .max_fragment_charge
             .min(s.charge.saturating_sub(1).max(1));
 
+        let (prec_lo, prec_hi) = Tolerance::Ppm(-1.5, 1.5).bounds(s.precursor_mass - PROTON);
+
         s.peaks.sort_unstable_by(|(_, a), (_, b)| b.total_cmp(&a));
         let n = s.peaks.len().min(self.take_top_n);
         let peaks = s.peaks[..n]
@@ -42,7 +44,9 @@ impl SpectrumProcessor {
                     // want to convert them to charge state = 1 (well, really neutral monoisotopic mass)
                     // in order to simulate a calculated theoretical fragment with a higher charge
                     let fragment_mass = (mz - PROTON) * charge as f32;
-                    match fragment_mass <= self.max_fragment_mz {
+                    match (fragment_mass <= self.max_fragment_mz)
+                        && (fragment_mass > prec_hi || fragment_mass < prec_lo)
+                    {
                         true => Some((fragment_mass, int.sqrt())),
                         false => None,
                     }

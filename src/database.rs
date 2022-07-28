@@ -279,8 +279,6 @@ pub struct PeptideIx(pub u32);
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Theoretical {
     pub peptide_index: PeptideIx,
-    // technically not m/z currently - precursor mono. mass
-    // pub precursor_mz: f32,
     pub fragment_mz: f32,
     pub kind: Kind,
 }
@@ -302,14 +300,16 @@ impl IndexedDatabase {
         query: &'q ProcessedSpectrum,
         precursor_tol: Tolerance,
         fragment_tol: Tolerance,
+        min_isotope_err: i8,
+        max_isotope_err: i8,
     ) -> IndexedQuery<'d, 'q> {
         let (precursor_lo, precursor_hi) = precursor_tol.bounds(query.monoisotopic_mass);
 
         let (pre_idx_lo, pre_idx_hi) = binary_search_slice(
             &self.peptides,
             |p, bounds| p.neutral().total_cmp(bounds),
-            precursor_lo,
-            precursor_hi,
+            precursor_lo - (NEUTRON * max_isotope_err as f32).abs(),
+            precursor_hi + (NEUTRON * min_isotope_err as f32).abs()
         );
 
         IndexedQuery {
@@ -317,6 +317,8 @@ impl IndexedDatabase {
             query,
             precursor_tol,
             fragment_tol,
+            min_isotope_err,
+            max_isotope_err,
             pre_idx_lo,
             pre_idx_hi,
         }
@@ -344,6 +346,8 @@ pub struct IndexedQuery<'d, 'q> {
     query: &'q ProcessedSpectrum,
     precursor_tol: Tolerance,
     fragment_tol: Tolerance,
+    min_isotope_err: i8,
+    max_isotope_err: i8,
     pub pre_idx_lo: usize,
     pub pre_idx_hi: usize,
 }
@@ -365,7 +369,7 @@ impl<'d, 'q> IndexedQuery<'d, 'q> {
         );
 
         // It is absolutely critical that we do not cross page boundaries!
-        // If we do, we can no longer rely on total ordering of precursor m/z
+        // If we do, we can no longer rely on total ordering of peptide_index (precursor m/z)
         (left_idx..right_idx).flat_map(move |page| {
             let left_idx = page * self.db.bucket_size;
             // Last chunk not guaranted to be modulo bucket size, make sure we don't
@@ -385,17 +389,17 @@ impl<'d, 'q> IndexedQuery<'d, 'q> {
 
             // Finally, filter down our slice into exact matches only
             slice[inner_left..inner_right].iter().filter(move |frag| {
-                self.db[frag.peptide_index].neutral() >= precursor_lo
-                    && self.db[frag.peptide_index].neutral() <= precursor_hi
+                let neutral = self.db[frag.peptide_index].neutral();
+                (self.min_isotope_err..=self.max_isotope_err).any(|isotope_err| {
+                    let delta = isotope_err as f32 * NEUTRON;
+                    (neutral >= precursor_lo - delta) && (neutral <= precursor_hi - delta)
+                })
+                    && neutral <= precursor_hi
                     && frag.fragment_mz >= fragment_lo
                     && frag.fragment_mz <= fragment_hi
             })
         })
     }
-
-    // pub fn average_bucket_hits(self) -> f32 {
-    //     self.page_hits.get() as f32 / self.num_frags.get() as f32
-    // }
 }
 
 /// Return the widest `left` and `right` indices into a `slice` (sorted by the
