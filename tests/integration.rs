@@ -5,6 +5,7 @@ use carina::mass::Tolerance;
 use carina::peptide::Peptide;
 use carina::spectrum::SpectrumProcessor;
 use std::collections::HashMap;
+use std::io::BufReader;
 
 const SEQUENCE: &'static str = "
 MSDEREVAEAATGEDASSPPPKTEAASDPQHPAASEGAAAAAASPPLLRCLVLTGFGGYD
@@ -19,23 +20,26 @@ VWPFEKVADAMKQMQEKKNVGKVLLVPGPEKEN";
 /// Confirm that a known match is good!
 /// Data from PXD001468 - searched with 10ppm precursor and fragment tolerance
 /// Top hit after FDR refinement using [mokapot](https://github.com/wfondrie/mokapot)
-pub fn peptide_id() -> Result<(), Box<dyn std::error::Error>> {
-    let spectrum = carina::spectrum::read_ms2("tests/LQSRPAAPPAPGPGQLTLR.ms2")?;
-    assert_eq!(spectrum.len(), 1);
+pub fn peptide_id() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+    let spectra =
+        carina::mzml::MzMlReader::read_ms2("tests/b1906_293T_proteinID_01A_QE3_122212.mzML")?;
+    assert_eq!(spectra.len(), 1);
 
     let sp = SpectrumProcessor::new(100, 2, 1500.0);
-    let processed = sp.process(spectrum[0].clone());
+    let processed = sp.process(spectra[0].clone()).unwrap();
     assert!(processed.peaks.len() <= 300);
 
     let sequence = SEQUENCE.split_whitespace().collect::<String>();
-    let peptides = Trypsin::new(1, 5, 50)
+    let mut peptides = Trypsin::new(0, 5, 50)
         .digest("Q99536", &sequence)
         .into_iter()
         .map(|dig| Peptide::try_from(&dig))
         .collect::<Result<Vec<Peptide>, _>>()
         .expect("this better parse!");
 
-    assert_eq!(peptides.len(), 52);
+    peptides.sort_by(|a, b| a.monoisotopic.total_cmp(&b.monoisotopic));
+
+    // assert_eq!(peptides.len(), 52);
 
     // let peptides
     let mut hit_index = 0;
@@ -57,6 +61,18 @@ pub fn peptide_id() -> Result<(), Box<dyn std::error::Error>> {
         })
         .collect::<Vec<Theoretical>>();
 
+    let s = serde_json::to_string_pretty(&fragments)?;
+    std::fs::write("ions.json", s)?;
+    std::fs::write(
+        "peptides.json",
+        serde_json::to_string_pretty(
+            &peptides
+                .iter()
+                .map(|p| p.to_string())
+                .collect::<Vec<String>>(),
+        )?,
+    )?;
+
     fragments.sort_by(|a, b| a.fragment_mz.total_cmp(&b.fragment_mz));
 
     // Track scores for all peptides in this protein
@@ -69,7 +85,12 @@ pub fn peptide_id() -> Result<(), Box<dyn std::error::Error>> {
             .iter()
             .filter(|frag| frag.fragment_mz >= low && frag.fragment_mz <= high)
         {
-            // eprintln!("m/z {} matched {} ({}) int {}", mz, fragment.fragment_mz, (mz - fragment.fragment_mz).abs(), int);
+            eprintln!(
+                "m/z {} matched {} ({})",
+                mz,
+                fragment.fragment_mz,
+                (mz - fragment.fragment_mz).abs()
+            );
             let entry = scores.entry(fragment.peptide_index).or_insert(0);
             *entry += 1;
         }
@@ -86,12 +107,14 @@ pub fn peptide_id() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 // We use a funky strategy to simulate charge states (see [`SpectrumProcessor`])
 // Confirm that we see the right ID's!
-pub fn confirm_charge_state_simulation() -> Result<(), Box<dyn std::error::Error>> {
-    let spectrum = carina::spectrum::read_ms2("tests/LQSRPAAPPAPGPGQLTLR.ms2")?;
-    assert_eq!(spectrum.len(), 1);
+pub fn confirm_charge_state_simulation(
+) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+    let spectra =
+        carina::mzml::MzMlReader::read_ms2("tests/b1906_293T_proteinID_01A_QE3_122212.mzML")?;
+    assert_eq!(spectra.len(), 1);
 
     let sp = SpectrumProcessor::new(100, 2, 1500.0);
-    let processed = sp.process(spectrum[0].clone());
+    let processed = sp.process(spectra[0].clone()).unwrap();
     assert!(processed.peaks.len() <= 300);
 
     let peptide = Peptide::try_from(&Digest {

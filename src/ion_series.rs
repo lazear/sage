@@ -1,7 +1,9 @@
-use crate::mass::{Mass, H2O};
+use serde::Serialize;
+
+use crate::mass::Mass;
 use crate::peptide::Peptide;
 
-#[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Serialize)]
 pub enum Kind {
     B,
     Y,
@@ -70,7 +72,7 @@ mod test {
 
     use super::*;
     use crate::{
-        mass::{Residue, PROTON},
+        mass::{Residue, H2O, PROTON},
         peptide::Peptide,
     };
 

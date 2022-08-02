@@ -3,17 +3,19 @@ use std::path::Path;
 
 pub struct Fasta {
     pub proteins: Vec<(String, String)>,
+    pub has_decoys: bool,
 }
 
 impl Fasta {
     /// Open and parse a fasta file
-    pub fn open<P: AsRef<Path>>(path: P) -> io::Result<Fasta> {
+    pub fn open<P: AsRef<Path>>(path: P, decoy_prefix: &str) -> io::Result<Fasta> {
         let buf = std::fs::read_to_string(path)?;
 
         let mut map = Vec::new();
         let mut iter = buf.as_str().lines();
         let mut last_id = iter.next().unwrap();
         let mut s = String::new();
+        let mut has_decoys = false;
 
         for line in iter {
             if line.is_empty() {
@@ -21,11 +23,10 @@ impl Fasta {
             }
             if let Some(id) = line.strip_prefix('>') {
                 if !s.is_empty() {
-                    if last_id.starts_with("Reverse") {
-                        s.clear();
-                        continue;
+                    let acc: String = last_id.split_ascii_whitespace().next().unwrap().into();
+                    if acc.starts_with(decoy_prefix) {
+                        has_decoys = true;
                     }
-                    let acc = last_id.split('|').nth(1).unwrap().into();
                     map.push((acc, std::mem::take(&mut s)));
                 }
                 last_id = id;
@@ -34,7 +35,30 @@ impl Fasta {
             }
         }
 
-        Ok(Fasta { proteins: map })
+        if !s.is_empty() {
+            let acc = last_id.split('|').nth(1).unwrap().into();
+            map.push((acc, s));
+        }
+
+        Ok(Fasta {
+            proteins: map,
+            has_decoys,
+        })
+    }
+
+    pub fn make_decoys(&mut self, decoy_prefix: &str) {
+        if self.has_decoys {
+            return;
+        }
+        let current = std::mem::take(&mut self.proteins);
+        let mut new = current
+            .iter()
+            .map(|(p, s)| (format!("{}{}", decoy_prefix, p), s.clone()))
+            .collect::<Vec<_>>();
+        new.extend(current);
+
+        self.proteins = new;
+        self.has_decoys = true;
     }
 }
 
@@ -74,7 +98,7 @@ impl<'s> std::hash::Hash for Digest<'s> {
 }
 
 impl Trypsin {
-    fn inner<'s>(&self, sequence: &'s str) -> Vec<std::ops::Range<usize>> {
+    fn inner(&self, sequence: &str) -> Vec<std::ops::Range<usize>> {
         let mut digests = Vec::new();
         let mut left = 0;
         for (right, ch) in sequence.chars().enumerate() {
@@ -121,9 +145,26 @@ impl Trypsin {
     }
 }
 
+pub struct Kmer {
+    pub size: usize,
+}
+
+impl Kmer {
+    pub fn digest<'a>(&self, protein: &'a str, sequence: &'a str) -> Vec<Digest<'a>> {
+        let mut digests = Vec::new();
+        for i in 0..sequence.len().saturating_sub(self.size - 1) {
+            digests.push(Digest {
+                protein,
+                sequence: &sequence[i..i + self.size],
+            })
+        }
+        digests
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::Trypsin;
+    use super::{Kmer, Trypsin};
     use std::collections::HashSet;
 
     #[test]
@@ -241,6 +282,23 @@ mod tests {
         assert_eq!(
             trypsin
                 .digest("".into(), sequence.into())
+                .into_iter()
+                .map(|d| d.sequence)
+                .collect::<Vec<_>>(),
+            expected
+        );
+    }
+
+    #[test]
+    fn kmer() {
+        let kmer = Kmer { size: 8 };
+        let sequence = "MADEEKLPPGWEKRMSRS";
+        let expected = [
+            "MADEEKLP", "ADEEKLPP", "DEEKLPPG", "EEKLPPGW", "EKLPPGWE", "KLPPGWEK", "LPPGWEKR",
+            "PPGWEKRM", "PGWEKRMS", "GWEKRMSR", "WEKRMSRS",
+        ];
+        assert_eq!(
+            kmer.digest("".into(), sequence.into())
                 .into_iter()
                 .map(|d| d.sequence)
                 .collect::<Vec<_>>(),

@@ -1,7 +1,7 @@
 use carina::database::{IndexedDatabase, PeptideIx, Theoretical};
 use carina::ion_series::Kind;
-use carina::mass::{Tolerance, NEUTRON, PROTON};
-use carina::spectrum::{read_ms2, ProcessedSpectrum, SpectrumProcessor};
+use carina::mass::{Tolerance, PROTON};
+use carina::spectrum::{ProcessedSpectrum, SpectrumProcessor};
 use clap::{Arg, Command};
 use log::info;
 use rayon::prelude::*;
@@ -93,7 +93,7 @@ impl<'db> Scorer<'db> {
     }
 
     /// Score a single [`ProcessedSpectrum`] against the database
-    pub fn score<'s>(&self, query: &ProcessedSpectrum) -> Vec<Percolator<'db>> {
+    pub fn score(&self, query: &ProcessedSpectrum) -> Vec<Percolator<'db>> {
         // Create a new `IndexedQuery`
 
         let candidates = self.db.query(
@@ -244,7 +244,7 @@ pub struct Search {
     max_peaks: usize,
     report_psms: usize,
     process_files_parallel: bool,
-    ms2_paths: Vec<PathBuf>,
+    mzml_paths: Vec<PathBuf>,
     pin_paths: Vec<PathBuf>,
     search_time: f32,
 
@@ -264,7 +264,7 @@ struct Input {
     isotope_errors: Option<(i8, i8)>,
     process_files_parallel: Option<bool>,
     output_directory: Option<PathBuf>,
-    ms2_paths: Vec<PathBuf>,
+    mzml_paths: Vec<PathBuf>,
 }
 
 impl Search {
@@ -286,7 +286,7 @@ impl Search {
             max_fragment_charge: request.max_fragment_charge.unwrap_or(3),
             isotope_errors: request.isotope_errors.unwrap_or((0, 0)),
             pin_paths: Vec::new(),
-            ms2_paths: request.ms2_paths,
+            mzml_paths: request.mzml_paths,
             process_files_parallel: request.process_files_parallel.unwrap_or(true),
             output_directory: request.output_directory,
             search_time: 0.0,
@@ -294,7 +294,7 @@ impl Search {
     }
 }
 
-fn process_ms2_file<P: AsRef<Path>>(
+fn process_mzml_file<P: AsRef<Path>>(
     p: P,
     scorer: &Scorer,
 ) -> Result<PathBuf, Box<dyn std::error::Error + Send + Sync + 'static>> {
@@ -304,11 +304,22 @@ fn process_ms2_file<P: AsRef<Path>>(
         scorer.search.database.fragment_max_mz,
     );
 
-    let mut scores = read_ms2(&p)?
+    if p.as_ref()
+        .extension()
+        .expect("expecting .mzML files as input!")
+        .to_ascii_lowercase()
+        != "mzml"
+    {
+        panic!("expecting .mzML files as input!")
+    }
+
+    let mut scores = carina::mzml::MzMlReader::read_ms2(&p)?
         .into_par_iter()
-        .filter(|spec| spec.peaks.len() >= scorer.search.min_peaks)
-        .flat_map(|spec| scorer.score(&sp.process(spec)))
+        .filter(|spec| spec.mz.len() >= scorer.search.min_peaks)
+        .filter_map(|spec| sp.process(spec))
+        .flat_map(|spec| scorer.score(&spec))
         .collect::<Vec<_>>();
+
     (&mut scores).par_sort_unstable_by(|a, b| b.hyperscore.total_cmp(&a.hyperscore));
     let passing_psms = scorer.assign_q_values(&mut scores);
 
@@ -378,14 +389,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let output_paths = match search.process_files_parallel {
         true => search
-            .ms2_paths
+            .mzml_paths
             .par_iter()
-            .map(|ms2_path| process_ms2_file(ms2_path, &scorer))
+            .map(|ms2_path| process_mzml_file(ms2_path, &scorer))
             .collect::<Vec<_>>(),
         false => search
-            .ms2_paths
+            .mzml_paths
             .iter()
-            .map(|ms2_path| process_ms2_file(ms2_path, &scorer))
+            .map(|ms2_path| process_mzml_file(ms2_path, &scorer))
             .collect::<Vec<_>>(),
     };
 
@@ -393,7 +404,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut failures = 0;
     search.pin_paths = search
-        .ms2_paths
+        .mzml_paths
         .iter()
         .zip(output_paths.into_iter())
         .filter_map(|(input, output)| match output {

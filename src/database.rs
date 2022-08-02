@@ -28,14 +28,14 @@ pub struct Builder {
     peptide_min_mass: Option<f32>,
     /// Maximum peptide monoisotopic mass that will be fragmented
     peptide_max_mass: Option<f32>,
-    /// Use target-decoy
-    decoy: Option<bool>,
     /// How many missed cleavages to use
     missed_cleavages: Option<u8>,
     /// Static modification to add to the N-terminus of a peptide
     n_term_mod: Option<f32>,
     /// Static modifications to add to matching amino acids
     static_mods: Option<HashMap<char, f32>>,
+    /// Use this prefix for decoy proteins
+    decoy_prefix: Option<String>,
     /// Path to fasta database
     fasta: PathBuf,
 }
@@ -64,7 +64,7 @@ impl Builder {
             peptide_max_len: self.peptide_max_len.unwrap_or(65),
             peptide_min_mass: self.peptide_min_mass.unwrap_or(500.0),
             peptide_max_mass: self.peptide_max_mass.unwrap_or(5000.0),
-            decoy: self.decoy.unwrap_or(true),
+            decoy_prefix: self.decoy_prefix.unwrap_or_else(|| "rev_".into()),
             missed_cleavages: self.missed_cleavages.unwrap_or(0),
             n_term_mod: self.n_term_mod,
             static_mods,
@@ -82,10 +82,10 @@ pub struct Parameters {
     peptide_max_len: usize,
     peptide_min_mass: f32,
     peptide_max_mass: f32,
-    decoy: bool,
     missed_cleavages: u8,
     n_term_mod: Option<f32>,
     static_mods: HashMap<char, f32>,
+    decoy_prefix: String,
     pub fasta: PathBuf,
 }
 
@@ -107,31 +107,6 @@ impl Parameters {
             .flat_map(|(protein, sequence)| trypsin.digest(protein, sequence))
             .collect::<HashSet<_>>();
 
-        // Handle reversed/decoy sequences separately
-        // We want to make sure that there is no decoy peptide with the
-        // exact sequence as a target peptide - so this leads to some
-        // code duplication due to the dependency
-        let reversed = fasta
-            .proteins
-            .par_iter()
-            .map(|(acc, sequence)| {
-                let sequence = sequence.chars().rev().collect::<String>();
-                (format!("DECOY_{}", acc), sequence)
-            })
-            .collect::<Vec<_>>();
-
-        let decoys = reversed
-            .par_iter()
-            .flat_map(|(protein, sequence)| trypsin.digest(protein, &sequence))
-            .filter(|digest| !targets.contains(digest))
-            .collect::<HashSet<_>>();
-
-        log::trace!(
-            "generated {} target and {} decoy peptides",
-            targets.len(),
-            decoys.len()
-        );
-
         // From our set of unique peptide sequence, apply any modifications
         // and convert to [`TargetDecoy`] enum
         let mut target_decoys = targets
@@ -152,41 +127,20 @@ impl Parameters {
                 }
 
                 // If this is a reversed digest, annotate it as a Decoy
-                TargetDecoy::Target(peptide)
+                match peptide.protein.starts_with("rev") {
+                    true => TargetDecoy::Decoy(peptide),
+                    false => TargetDecoy::Target(peptide),
+                }
             })
             .collect::<Vec<TargetDecoy>>();
-
-        target_decoys.extend(
-            decoys
-                .par_iter()
-                .filter_map(|f| Peptide::try_from(f).ok())
-                .filter(|p| {
-                    p.monoisotopic >= self.peptide_min_mass
-                        && p.monoisotopic <= self.peptide_max_mass
-                })
-                .map(|mut peptide| {
-                    // First modification we apply takes priority
-                    if let Some(m) = self.n_term_mod {
-                        peptide.set_nterm_mod(m);
-                    }
-
-                    // Apply any relevant static modifications
-                    for (resi, mass) in &self.static_mods {
-                        peptide.static_mod(*resi, *mass);
-                    }
-
-                    // If this is a reversed digest, annotate it as a Decoy
-                    TargetDecoy::Decoy(peptide)
-                })
-                .collect::<Vec<TargetDecoy>>(),
-        );
-
         (&mut target_decoys).par_sort_unstable_by(|a, b| a.neutral().total_cmp(&b.neutral()));
         target_decoys
     }
 
     pub fn build(self) -> Result<IndexedDatabase, Box<dyn std::error::Error>> {
-        let fasta = Fasta::open(&self.fasta)?;
+        let mut fasta = Fasta::open(&self.fasta, &self.decoy_prefix)?;
+        fasta.make_decoys(&self.decoy_prefix);
+
         let target_decoys = self.digest(&fasta);
         let mut fragments = Vec::new();
 
@@ -272,11 +226,11 @@ impl Parameters {
     }
 }
 
-#[derive(Hash, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Hash, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize)]
 #[repr(transparent)]
 pub struct PeptideIx(pub u32);
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize)]
 pub struct Theoretical {
     pub peptide_index: PeptideIx,
     pub fragment_mz: f32,
@@ -309,7 +263,7 @@ impl IndexedDatabase {
             &self.peptides,
             |p, bounds| p.neutral().total_cmp(bounds),
             precursor_lo - (NEUTRON * max_isotope_err as f32).abs(),
-            precursor_hi + (NEUTRON * min_isotope_err as f32).abs()
+            precursor_hi + (NEUTRON * min_isotope_err as f32).abs(),
         );
 
         IndexedQuery {
@@ -393,8 +347,7 @@ impl<'d, 'q> IndexedQuery<'d, 'q> {
                 (self.min_isotope_err..=self.max_isotope_err).any(|isotope_err| {
                     let delta = isotope_err as f32 * NEUTRON;
                     (neutral >= precursor_lo - delta) && (neutral <= precursor_hi - delta)
-                })
-                    && neutral <= precursor_hi
+                }) && neutral <= precursor_hi
                     && frag.fragment_mz >= fragment_lo
                     && frag.fragment_mz <= fragment_hi
             })

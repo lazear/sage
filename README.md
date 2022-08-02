@@ -25,7 +25,7 @@ Carina has excellent performance characteristics (5-10x faster, 2-3x reduction i
 
 ## Limitations
 
-- Only uses MS2 files
+- Only uses mzML files
 - Only Percolator PIN output
 - Only outputs 1 protein ID even if the peptide is shared by multiple proteins :)
 - Probably has some calculation errors :)
@@ -51,13 +51,12 @@ Performance results: (Intel i7-12700KF + 32GB RAM)
 
 - ~15 seconds to process 12 files in narrow search, using less than 2GB of RAM (can be tuned to run files in parallel... ~9s and ~3GB of RAM)
 - Active scanning: ~50,000 scans/s for narrow window (can be tuned to use more RAM and go even faster!)
-
 - ~120 seconds to process 12 files in open search (50 Da precursor window), using less than 2GB of RAM (can be tuned to run files in parallel... ~9s and ~3GB of RAM)
 
 
 ### Search methods
 
-- MS2 files generated using the [ProteoWizard MSConvert tool](http://www.proteowizard.org/download.html)
+- mzML files generated using the [ProteoWizard MSConvert tool](http://www.proteowizard.org/download.html)
 - MSFragger and Comet were configured with analogous parameters (+/- 1.25 Da precursor tolerance, +/- 10 ppm fragment tolerance - or for Comet setting `fragment_bin_tol` to 0.02 Da).
 - [Mokapot](https://github.com/wfondrie/mokapot) was then used to refine FDR for all search results
 - Parameter files for all engines can be found in the `figures/benchmark_params` folder!
@@ -66,45 +65,46 @@ Carina search settings file:
 ```json
 {
   "database": {
-    "bucket_size": 16384,
-    "fragment_min_mz": 150.0,
+    "bucket_size": 4096,
+    "fragment_min_mz": 75.0,
     "fragment_max_mz": 1500.0,
-    "peptide_min_len": 7,
+    "peptide_min_len": 5,
     "peptide_max_len": 50,
-    "peptide_min_mass": 200.0,
-    "peptide_max_mass": 5000.0,
-    "decoy": true,
     "missed_cleavages": 1,
     "n_term_mod": 229.1629,
     "static_mods": {
       "K": 229.1629,
       "C": 57.0215
     },
-    "fasta": "UP000005640_9606.fasta"
+    "decoy_prefix": "rev_",
+    "fasta": "tests/2022-07-23-decoys-reviewed-UP000005640.fas"
   },
   "precursor_tol": {
-    "da": 1.25
+    "ppm": [-20, 20]
   },
   "fragment_tol": {
-    "ppm": 10.0
+    "ppm": [-10.0, 10.0]
   },
-  "max_fragment_charge": 1,
-  "min_peaks": 15,
-  "max_peaks": 150,
+  "isotope_errors": [
+    -1,
+    3
+  ],
   "report_psms": 1,
-  "ms2_paths": [
-    "./tmt_analysis/raw/dq_00082_11cell_90min_hrMS2_A1.ms2",
-    "./tmt_analysis/raw/dq_00083_11cell_90min_hrMS2_A3.ms2",
-    "./tmt_analysis/raw/dq_00084_11cell_90min_hrMS2_A5.ms2",
-    "./tmt_analysis/raw/dq_00085_11cell_90min_hrMS2_A7.ms2",
-    "./tmt_analysis/raw/dq_00086_11cell_90min_hrMS2_A9.ms2",
-    "./tmt_analysis/raw/dq_00087_11cell_90min_hrMS2_A11.ms2",
-    "./tmt_analysis/raw/dq_00088_11cell_90min_hrMS2_B1.ms2",
-    "./tmt_analysis/raw/dq_00089_11cell_90min_hrMS2_B3.ms2",
-    "./tmt_analysis/raw/dq_00090_11cell_90min_hrMS2_B5.ms2",
-    "./tmt_analysis/raw/dq_00091_11cell_90min_hrMS2_B7.ms2",
-    "./tmt_analysis/raw/dq_00092_11cell_90min_hrMS2_B9.ms2",
-    "./tmt_analysis/raw/dq_00093_11cell_90min_hrMS2_B11.ms2"
+  "max_fragment_charge": 3,
+  "process_files_parallel": true,
+  "mzml_paths": [
+    "./tests/tmt_raw/dq_00082_11cell_90min_hrMS2_A1.mzML",
+    "./tests/tmt_raw/dq_00083_11cell_90min_hrMS2_A3.mzML",
+    "./tests/tmt_raw/dq_00084_11cell_90min_hrMS2_A5.mzML",
+    "./tests/tmt_raw/dq_00085_11cell_90min_hrMS2_A7.mzML",
+    "./tests/tmt_raw/dq_00086_11cell_90min_hrMS2_A9.mzML",
+    "./tests/tmt_raw/dq_00087_11cell_90min_hrMS2_A11.mzML",
+    "./tests/tmt_raw/dq_00088_11cell_90min_hrMS2_B1.mzML",
+    "./tests/tmt_raw/dq_00089_11cell_90min_hrMS2_B3.mzML",
+    "./tests/tmt_raw/dq_00090_11cell_90min_hrMS2_B5.mzML",
+    "./tests/tmt_raw/dq_00091_11cell_90min_hrMS2_B7.mzML",
+    "./tests/tmt_raw/dq_00092_11cell_90min_hrMS2_B9.mzML",
+    "./tests/tmt_raw/dq_00093_11cell_90min_hrMS2_B11.mzML"
   ]
 }
 ```
