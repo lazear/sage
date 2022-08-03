@@ -1,0 +1,157 @@
+/* Article sections */
+body {
+    font-family: "Segoe UI", Roboto, "Droid Sans", Arial, Helvetica, sans-serif;
+    font-weight: 400;
+    text-rendering: optimizeLegibility;
+    color: #111111;
+    background-color: #fffff8;
+    font-size: 1.0rem;
+    line-height: 1.5rem;
+    counter-reset: footnotes;
+}
+
+.container {
+    width: auto;
+    margin: 0 auto;
+    position: relative;
+    max-width: 1470px;
+}
+
+
+.footer {
+    padding: 3rem 1.5rem 6rem;
+    text-align: center;
+}
+
+
+/* Images */
+img {
+    max-width: 100%;
+    margin-top: 1rem;
+}
+
+
+figcaption {
+    text-align: center;
+    margin-bottom: 1rem;
+    font: italic smaller sans-serif;
+}
+
+code {
+    /* background-color: white; */
+    background: white;
+}
+
+code > p {
+    margin-top: 0px;
+    margin-bottom: 0px;
+}
+
+/* .endnote::before {
+    counter-increment: footnotes;
+    content: "[" counter(footnotes, lower-alpha) "]";
+    position: relative;
+} */
+
+.endnote {
+    padding-bottom: 1rem;
+
+}
+
+
+.footnote {
+    position: absolute;
+    right: 0%;
+}
+
+.footnote {
+    display: none;
+    font-size: 0.75rem;
+    line-height: 1.0rem;
+    padding-right: 0.5rem;
+    margin-top: calc(-1.2rem - 2px);
+}
+
+.article {
+    text-align: left;
+    max-width: 100%;
+    padding: 0.5rem;
+}
+
+.article .section:not(:first-child) {
+    margin-top: 1em;
+    padding-top: 1em;
+    border-top: 1px solid #cccccc;
+}
+
+
+blockquote {
+    border-left: #111111 1px solid;
+    padding-left: 0.5rem;
+    font-style: italic;
+}
+
+/* .row {
+    display: flex;
+    flex-wrap: wrap;
+    position: relative;
+} */
+
+    .nav-items {
+        display: flex;
+        flex-wrap: wrap;
+        align-content: center;
+    }
+
+    .nav-items > div {
+        margin-left: 1rem;
+    }
+
+/* Breakpoints */
+@media screen and (min-width: 720px) {
+    .article {
+        max-width: 75%;
+    }
+
+    .footnote {
+        display: block;
+        width: 22%;
+    }
+
+}
+
+@media screen and (min-width: 960px) {
+    .article {
+        max-width: 66%;
+    }
+
+    .footnote {
+        width: 30%;
+    }
+
+    .large {
+        max-width: 125%;
+    }
+
+
+}
+
+
+@media screen and (min-width: 1280px) {
+    .article {
+        max-width: 50%;
+        margin-left: 16.66%;
+    }
+
+    .large {
+        margin-left: -16.66%;
+        max-width: 133%;
+    }
+
+
+    .nav-items {
+        display: block;
+        position: absolute;
+    }
+
+}

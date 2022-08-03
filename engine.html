@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <link rel="stylesheet" href="engine.css">
+</head>
+
+<body>
+  <main>
+    <div class="container">
+      <div class="nav-items">
+        <div><a href="https://github.com/lazear"><img src="github-brands.svg" style="width: 24px"></a></div>
+        <div><a href="https://twitter.com/michaellazear?lang=en"><img src="twitter-brands.svg" style="width: 24px"></a>
+        </div>
+        <div><a href="https://www.linkedin.com/in/michael-lazear-27781282/"><img src="linkedin-brands.svg"
+              style="width: 24px"></a></div>
+        <div><a href="https://orcid.org/0000-0001-5313-4262"><img src="orcid-brands.svg" style="width: 24px"></a></div>
+      </div>
+      <!-- <div class="row"> -->
+      <article class="article">
+        <section class="section">
+          <h1>Proteomics searching so fast it seems like Magic</h1>
+          <em>Introducing Sage: a new cross-platform, extremely performant, open source proteomics search database;
+            written in
+            Rust</em>
+
+          <p>I wanted to see what how far I could get in the creation of a proteomics search engine in a weekend, and
+            1000 lines of code, and this is the result!</p>
+          <p>Here are some of the features (and anti-features) of Sage</p>
+          <ul>
+            <li>Super-ultrafast<sup class="footnote-ref"></sup>
+              <aside class="footnote">What? MSFragger already took "ultrafast"</aside>, and light on RAM usage (you
+              have 3 GB of RAM, right?)
+            </li>
+            <li>Small and simple <a href="https://github.com/lazear/sage">codebase</a>, including comments & tests</li>
+            <li>Fragment based search</li>
+            <li>Configuration by JSON files</li>
+            <li>X!Tandem hyperscore function</li>
+            <li>Internal q-value/FDR calculation using target-decoy competition</li>
+            <li>Percolator/Mokapot compatible output</li>
+            <li>Accepts mzML files as input</li>
+          </ul>
+
+          <p>First, some disclaimers and forewords:</p>
+          <ul>
+            <li>This search tool is not full featured, and you probably shouldn't use it for real use cases at this
+              time!</li>
+            <li>I made best efforts to benchmark Comet and MSFragger in good faith, including reaching out to their
+              maintainers to check parameters - that being said, it is totally possible that I have misconfigured them.
+              You can find the benchmarking parameters (along with all of the code!) in the <a
+                href="https://github.com/lazear/sage/tree/master/figures/benchmark_params">Sage GitHub
+                repository</a>. They are both great, widely-used, full-featured tools and I recommend incorporating them
+              into your workflows!</li>
+            <li>This project was undertaken largely for fun and self-learning purposes - as such, this isn't a
+              peer-reviewed project. However, hopefully it can serve as a
+              pedagogical tool, as I have tried to keep the codebase small (~1000 loc), well commented, and tested.
+            </li>
+          </ul>
+
+          Now that the boilerplate is out of the way, you can head <a href="#standoff">below</a> if you want to skip
+          right to the showdown at high noon, otherwise,
+          you can read through the full post to see a graphical depiction of the algorithm used here (spoiler: it's a
+          clean-room implementation of the MSFragger algorithm, but open-source).
+        </section>
+        <section class="section">
+          <h1><a id="intro"></a>Proteomics database searching</h1>
+          <div>
+            I had recently been playing around with the idea of writing my own proteomics search engine<sup
+              class="footnote-ref"></sup>
+            , so I started
+            digging into the literature.
+            <aside class="footnote"> Given that my PhD revolved around proteomics, and I currently work as a software
+              engineer/informatics
+              scientist at a <a href="https://www.belharratx.com/">proteomics-based drug discovery company</a>, I
+              figured
+              this is
+              something I should understand well enough to implement from scratch :)
+            </aside>
+
+            One weekend (and some change) of flow-state coding later, and I accidentally created something
+            that blows it's competitors to smithereens in the speed and memory-efficiency department. Oh, and it will
+            run on
+            Windows, MacOS, and Linux as a native binary, as well as take advantage of Rust's fantastic "fearless
+            concurrency" to utilize as close to 100% of available CPUs as possible.
+          </div>
+
+
+
+          Since the introduction of SEQUEST<sup><a href="https://pubmed.ncbi.nlm.nih.gov/24226387/">1</a></sup> in
+          1994, proteomics has generally relied on the concept of database searching for peptide identification<sup><a
+              href="https://pubmed.ncbi.nlm.nih.gov/18505281/">2,</a></sup><sup><a
+              href="https://pubmed.ncbi.nlm.nih.gov/25358478/">3,</a></sup><sup><a
+              href="https://pubmed.ncbi.nlm.nih.gov/23148064/">4,</a></sup><sup><a
+              href="https://pubmed.ncbi.nlm.nih.gov/19029910/">5</a></sup>
+          where a spectrum is compared against all theoretical
+          peptide candidates within a precursor tolerance window and scored for spectral similarity.<sup
+            class="footnote-ref"></sup>
+          <aside class="footnote">
+            This approach has had great success, but it is exhaustive, and thus slow. Every candidate peptide within
+            the precursor tolerance window is compared against the experimental spectrum, even if there are no shared
+            fragment peaks
+          </aside> There are also additional approaches like <i>de novo</i> peptide sequencing, or using machine
+          learning models for embedding spectra, but those are outside the scope of this work.
+
+          <p>
+            <img src="Figure 1.png" class="large" />
+          <figcaption>Cartoon schematic of a typical proteomics workflow</figcaption>
+          </p>
+          <p>Andy Kong and Alexey Nesvizhskii from
+            UMich presented an alternate approach in their <a href="https://pubmed.ncbi.nlm.nih.gov/28394336/">2017
+              paper</a> detailing their new database search tool:
+            MSFragger. Rather than exhaustively search through all candidate peptides based on precursor mass,
+            they instead combine all theoretical fragments from every peptide in the database - and then search
+            by fragment m/z and filter by precursor mass: "In the MSFragger strategy, theoretical spectra that
+            share no common fragments are effectively bypassed". They spend a couple paragraphs in the methods
+            section outlining the algorithm and search steps, but the codebase itself is <strong>closed source</strong>
+            and
+            binaries are only freely available for non-commercial use. Regardless, it's an elegant and performant
+            reformulation of database searching, and it captured my imagination enough that I had to try my hand at
+            implementing it.</p>
+
+          <h2><a id="data-structure"></a>Fragment Index data structure</h2>
+          <blockquote>
+            <p>"Show me your code and conceal your
+              data structures, and I shall continue to be mystified. Show me your data structures, and I won't
+              usually need your code; it'll be obvious."</p>
+            - <a href="https://lwn.net/Articles/193244/">Altered quote</a> by Fred Brooks
+          </blockquote>
+          <div>Despite (perhaps, because of) the code
+            for this important piece of scientific software being <strong>closed source</strong>, I spent a weekend
+            creating my
+            own implementation of the "fragment index" algorithm - it's a multi-level B-tree laid out as an
+            in-memory array, supporting range queries. We will walk through both the construction of the data
+            structure, as well as the algorithm for running a search.<sup class="footnote-ref"></sup>
+            <aside class="footnote">There are some low-level performance tricks that we won't discuss in detail, since
+              they aren't relevant to data structure itself</aside>
+          </div>
+          <div style="margin-top: 1rem;">For the sake of concise examples, we will
+            be using the sequence of <a href="https://www.uniprot.org/uniprotkb/Q99536/entry">Human VAT1</a> as
+            our FASTA database.<sup class="footnote-ref"></sup>
+            <aside class="footnote">
+              Normally, we would use the entire human proteome.
+              To further simplify matters, we will also only cover charge state = 1, and we will ignore missed
+              cleavages.
+            </aside>
+          </div>
+          <img src="Figure 2.png" />
+          <figcaption>FASTA database is digested into theoretical tryptic peptides. b-/y-ions are then generated
+            for each peptide</figcaption>
+          <p>
+          <h3>Data structure construction:</h3>
+          <ol>
+            <li>After <em>in silico</em> digestion
+              of our database (using trypsin with 0 missed cleavages, in this case), we de-duplicate our list
+              of peptides and then sort them by mass.</li>
+            <li>Next, we generate all theoretical
+              b- and y- fragment ions for each peptide in our list, collecting them in an array.</li>
+            <li>After every fragment ion has been
+              generated for all peptides in the database, we sort the entire list by <strong>fragment
+                mass</strong>.</li>
+            <li>The following step is key: we
+              create discrete bins of fragments (16 fragments/bin in this example, or 1 row), and within each
+              bin we now sort by <strong>precursor mass</strong>.</li>
+          </ol>
+          </p>
+          <img src="Figure 3.png" class="large" />
+          <figcaption>Graphical representation of the algorithm for constructing the fragment tree data
+            structure.
+            Peptides are colored by increasing
+            mass, with an example peptide - LQSRPAAPPAPGPGQLTLR - in blue to enable easier dissection of the steps. Each
+            ball represents a single fragment ion (either b or y), colored by precursor mass.
+          </figcaption>
+          <p>We now have our 2 level binary tree:
+            the outer level acts as a B+ tree, allowing us to rapidly select bins containing fragments within a given
+            window, and
+            within each bin we can run a binary search for fragments whose precursor is within our desired tolerance.
+          </p>
+
+          <img src="Figure 4.png" />
+          <figcaption>Optimally assigning peptide-spectrum matches just involves a series of binary searches,
+            followed by a scoring function</figcaption>
+          <h3>The real deal</h3>
+          <p>Finally, here is what our example
+            peptide-spectrum match looks like after annotated with matching peaks: there are ~4000 potential
+            candidates based solely on precursor mass - our algorithm only ends up scoring ~1500 of them,
+            because the remainder do not have any fragment peaks in common with our experimental spectrum! And
+            for those ~1500, on average only 1-2 fragments are actually compared. This is in stark contrast to
+            how SEQUEST or Comet would score the same spectrum: comparing all fragments for all 4000 peptides.
+          </p>
+          <img src="LQSRPAAPPAPGPGQLTLR.png" />
+          <figcaption>Human VAT1 peptide annotated by Sage</figcaption>
+        </section>
+        <section class="section" id="standoff">
+          <h1>Benchmarking Results</h1>
+
+          My proteomics engine is based off of MSFragger's algorithm, so it would be reasonable to expect them to have similar
+          performance - however, this is where Rust really shines!
+          On standard searches, Sage absolutely dominates in terms of speed and memory usage - however, MSFragger
+          starts to catch up as windows get larger, and is juuuuuust (~25s) behind Sage in a -100 to +500 Da precursor
+          search.<sup class="footnote-ref"></sup>
+          <aside class="footnote">I suspect this is largely due to their <a
+              href="https://pubmed.ncbi.nlm.nih.gov/33332123/">fast deisotoping algorithm</a>, since that can
+            significantly reduce the number of fragment peaks in a spectrum</aside> I will let the results speak for
+          themselves, though!
+
+          <div style="margin-top: 1rem">
+            <ul>
+
+              <li>All searches were run on a c5ad.8xlarge EC2 spot instance (32 vCPU cores, 64 GB RAM, NVMe disks)
+                using:</li>
+              <li>the same
+                FASTA database,<sup class="footnote-ref"></sup>
+                <aside class="footnote">
+                  Most recent reviewed Human FASTA file, with decoys concatenated. Database prepared using <a
+                    href="https://github.com/Nesvilab/philosopher">Philosopher</a>
+                </aside>
+              </li>
+              <li>and the same input mzML files (processed using <a
+                  href="https://proteowizard.sourceforge.io/download.html">MSConvert</a>).
+              </li>
+              <li>
+
+                Post search FDR refinement was performed using Will Fondrie's excellent <a
+                  href="https://github.com/wfondrie/mokapot">Mokapot</a> tool.
+              </li>
+
+              <li>In general, I stuck to default search parameters/workflows for Comet & MSFragger, where possible -
+                changing things only to match them across engines. You can find the benchmarking parameters (along with
+                all of the code!) in the <a
+                  href="https://github.com/lazear/sage/tree/master/figures/benchmark_params">Sage GitHub
+                  repository</a>.
+              </li>
+              <li>Performance will vary across systems - Sage performs best on amd64 systems running *nix operating
+                systems - but it will also run pretty well on aarch64 or Windows setups!</li>
+              <li>Comet & Sage were both compiled from source on the EC2 instance, MSFragger jar was used as
+                downloaded</li>
+            </ul>
+          </div>
+
+
+          <p>To benchmark TMT search performance versus <a href="https://msfragger.nesvilab.org/">MSFragger</a> (closed
+            source) and <a href="https://github.com/UWPR/Comet">Comet</a> (open source), I downloaded
+            data
+            from the paper <a
+              href="https://pubs.acs.org/doi/10.1021/acs.analchem.9b05685?goto=supporting-info">Benchmarking the
+              Orbitrap
+              Tribrid Eclipse for Next Generation Multiplexed Proteomics</a> from PRIDE <a
+              href="http://proteomecentral.proteomexchange.org/cgi/GetDataset?ID=PXD016766">PXD016766</a>
+          </p>
+
+
+          <h4>If MSFragger is "ultrafast", what is Sage?</h4>
+
+          <p>I half-joke: MSFragger really is fast! Sage is about 5x faster than MSFragger, and 25x faster than Comet
+            for a typical TMT search,
+            and identifies slightly more PSMs at a 1% FDR than both. On our EC2 instance, we could process around 4,800
+            of these raw files in an hour - for $0.75. Not bad!
+          </p>
+
+
+          <img src="tmt_search.png" class="large" />
+          <figcaption>Yeah, it's pretty fast</figcaption>
+
+
+          For a proteomics experiment, performance isn't everything... peptide-spectrum matches are! Sage also
+          exhibits very good PSM
+          identification rates and identity overlap when compared against both Comet and MSFragger
+
+          <img src="venn.png" />
+          <figcaption>Fig. Mokapot outputs merged by ExpMass + ScanNr, and peptide identity overlap visualized
+          </figcaption>
+
+          <h3>Open search</h3>
+
+          To benchmark open search performance, I used the same file MSFragger used in their paper: the first dataset
+          (b1906_293T_proteinID_01A_QE3_122212.mzXML)
+          from the paper <a href="https://www.ncbi.nlm.nih.gov/pubmed?term=26076430">An Ultra-tolerant Database Search
+            Identifies more than 100,000 Modified Peptides</a> (<a
+            href="http://proteomecentral.proteomexchange.org/cgi/GetDataset?ID=PXD001468">PXD001468</a>)
+
+          <img src="open_search.png" class="large" />
+          <figcaption>MSFragger takes the lead on PSM identification by a couple hundred IDs once we start hitting
+            open-search</figcaption>
+
+          <h3>Now, let's go really open</h3>
+
+          This is where MSFragger really shines - it identifies ~2500 extra PSMs from this single file search when we
+          really open up the precursor window. Room for improvement for Sage!
+          You'll note that Comet isn't in this graph - I don't think there's any point in benchmarking it, timewise, and
+          it also doesn't seem amenable to doing a non-symmetrical precursor window.
+          <img src="500_search.png" class="large" />
+          <figcaption>MSFragger widens it's lead as the precursor windows get wider - we are still a bit faster though
+            :)</figcaption>
+        </section>
+        <section class="section">
+          <h1>Conclusions</h1>
+          <p>Writing a proteomics search engine actually ended up being easier than I thought, and it was indeed a
+            fantastic learning experience.
+            Rust has been my daily-driver programming language of choice for 5 years now, and it really makes writing
+            performant software a breeze, especially with fantastic packages like Rayon! If you haven't given it a try,
+            I highly recommend it.
+          </p>
+          <p>To wrap things up, I will concede that MSFragger is indeed "ultrafast", and has much better PSM
+            identification at the widest open windows - I think there is room for improvement for Sage here.
+            Until then, I recommend continuing to use MSFragger if you're doing wide-open searches.<sup
+              class="footnote-ref"></sup>
+          <aside class="footnote">
+            I never intended to a production-ready tool, but I think with some additional work, Sage could get there
+          </aside>
+          </p>
+          <p>If you would like to try out Sage yourself, you only need to do a couple steps:</p>
+          <p>First, head on over to <a href="https://rustup.rs/">rustup.rs</a> and install Rust/Cargo</p>
+          <p>
+            Then, run the following commands:<br>
+            <code>
+              git clone https://github.com/lazear/sage.git<br>
+              cd sage<br>
+              cargo run --release tmt.json
+            </code>
+          </p>
+          Example tmt.json file:
+          <script src="https://gist.github.com/lazear/8dc144fb57a74ec32bc72e1f03d96950.js"></script>
+        </section>
+        <section class="section" id="footnote-section">
+          <h3>Footnotes</h3>
+
+        </section>
+      </article>
+      <!-- </div> -->
+      <footer class="footer">
+        <p>Copyright Michael Lazear, 2022. Website content is licensed <a
+            href="http://creativecommons.org/licenses/by/4.0/">CC BY
+            4.0</a>.
+        </p>
+      </footer>
+    </div>
+  </main>
+  <script src="engine.js"></script>
+</body>
+
+</html>
