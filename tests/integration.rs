@@ -1,9 +1,9 @@
-use carina::database::{binary_search_slice, PeptideIx, Theoretical};
-use carina::fasta::{Digest, Trypsin};
-use carina::ion_series::{IonSeries, Kind};
-use carina::mass::Tolerance;
-use carina::peptide::Peptide;
-use carina::spectrum::SpectrumProcessor;
+use sage::database::{binary_search_slice, PeptideIx, Theoretical};
+use sage::fasta::{Digest, Trypsin};
+use sage::ion_series::{IonSeries, Kind};
+use sage::mass::Tolerance;
+use sage::peptide::Peptide;
+use sage::spectrum::SpectrumProcessor;
 use std::collections::HashMap;
 use std::io::BufReader;
 
@@ -21,8 +21,7 @@ VWPFEKVADAMKQMQEKKNVGKVLLVPGPEKEN";
 /// Data from PXD001468 - searched with 10ppm precursor and fragment tolerance
 /// Top hit after FDR refinement using [mokapot](https://github.com/wfondrie/mokapot)
 pub fn peptide_id() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-    let spectra =
-        carina::mzml::MzMlReader::read_ms2("tests/b1906_293T_proteinID_01A_QE3_122212.mzML")?;
+    let spectra = sage::mzml::MzMlReader::read_ms2("tests/LQSRPAAPPAPGPGQLTLR.mzML")?;
     assert_eq!(spectra.len(), 1);
 
     let sp = SpectrumProcessor::new(100, 2, 1500.0);
@@ -54,7 +53,6 @@ pub fn peptide_id() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'sta
                 .chain(IonSeries::new(peptide, Kind::Y))
                 .map(move |ion| Theoretical {
                     peptide_index: PeptideIx::for_testing_only_seriously_though(idx),
-                    // precursor_mz: peptide.monoisotopic,
                     fragment_mz: ion.monoisotopic_mass,
                     kind: ion.kind,
                 })
@@ -109,8 +107,7 @@ pub fn peptide_id() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'sta
 // Confirm that we see the right ID's!
 pub fn confirm_charge_state_simulation(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-    let spectra =
-        carina::mzml::MzMlReader::read_ms2("tests/b1906_293T_proteinID_01A_QE3_122212.mzML")?;
+    let spectra = sage::mzml::MzMlReader::read_ms2("tests/LQSRPAAPPAPGPGQLTLR.mzML")?;
     assert_eq!(spectra.len(), 1);
 
     let sp = SpectrumProcessor::new(100, 2, 1500.0);
@@ -128,7 +125,6 @@ pub fn confirm_charge_state_simulation(
         .chain(IonSeries::new(&peptide, Kind::Y))
         .map(move |ion| Theoretical {
             peptide_index: PeptideIx::for_testing_only_seriously_though(0),
-            // precursor_mz: peptide.monoisotopic,
             fragment_mz: ion.monoisotopic_mass / 2.0,
             kind: ion.kind,
         })

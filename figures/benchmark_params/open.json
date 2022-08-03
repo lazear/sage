@@ -1,0 +1,41 @@
+{
+  "database": {
+    "bucket_size": 8192,
+    "fragment_min_mz": 150.0,
+    "fragment_max_mz": 1500.0,
+    "peptide_min_len": 5,
+    "peptide_max_len": 50,
+    "peptide_min_mass": 500.0,
+    "peptide_max_mass": 5000.0,
+    "missed_cleavages": 1,
+    "static_mods": {
+      "C": 57.0215
+    },
+    "decoy_prefix": "rev_",
+    "fasta": "2022-07-23-decoys-reviewed-UP000005640.fas"
+  },
+  "precursor_tol": {
+    "da": [
+      -100.0,
+      500.0
+    ]
+  },
+  "fragment_tol": {
+    "ppm": [
+      -20.0,
+      20.0
+    ]
+  },
+  "max_fragment_charge": 3,
+  "isotope_errors": [
+    0,
+    0
+  ],
+  "min_peaks": 15,
+  "max_peaks": 150,
+  "report_psms": 1,
+  "process_files_parallel": false,
+  "mzml_paths": [
+    "b1906_293T_proteinID_01A_QE3_122212.mzML"
+  ]
+}

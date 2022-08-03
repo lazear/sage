@@ -1,10 +1,10 @@
-use carina::database::{IndexedDatabase, PeptideIx, Theoretical};
-use carina::ion_series::Kind;
-use carina::mass::{Tolerance, PROTON};
-use carina::spectrum::{ProcessedSpectrum, SpectrumProcessor};
 use clap::{Arg, Command};
 use log::info;
 use rayon::prelude::*;
+use sage::database::{IndexedDatabase, PeptideIx, Theoretical};
+use sage::ion_series::Kind;
+use sage::mass::{Tolerance, PROTON};
+use sage::spectrum::{ProcessedSpectrum, SpectrumProcessor};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::time::{self, Instant};
@@ -235,7 +235,7 @@ impl<'db> Scorer<'db> {
 
 #[derive(Serialize)]
 pub struct Search {
-    database: carina::database::Parameters,
+    database: sage::database::Parameters,
     precursor_tol: Tolerance,
     fragment_tol: Tolerance,
     max_fragment_charge: u8,
@@ -254,7 +254,7 @@ pub struct Search {
 
 #[derive(Deserialize)]
 struct Input {
-    database: carina::database::Builder,
+    database: sage::database::Builder,
     precursor_tol: Tolerance,
     fragment_tol: Tolerance,
     report_psms: Option<usize>,
@@ -313,7 +313,7 @@ fn process_mzml_file<P: AsRef<Path>>(
         panic!("expecting .mzML files as input!")
     }
 
-    let mut scores = carina::mzml::MzMlReader::read_ms2(&p)?
+    let mut scores = sage::mzml::MzMlReader::read_ms2(&p)?
         .into_par_iter()
         .filter(|spec| spec.mz.len() >= scorer.search.min_peaks)
         .filter_map(|spec| sp.process(spec))
@@ -324,7 +324,7 @@ fn process_mzml_file<P: AsRef<Path>>(
     let passing_psms = scorer.assign_q_values(&mut scores);
 
     let mut path = p.as_ref().to_path_buf();
-    path.set_extension("carina.pin");
+    path.set_extension("sage.pin");
 
     if let Some(mut directory) = scorer.search.output_directory.clone() {
         directory.push(path.file_name().expect("BUG: should be a filename!"));
@@ -352,12 +352,12 @@ fn process_mzml_file<P: AsRef<Path>>(
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let env = env_logger::Env::default().filter_or("CARINA_LOG", "info");
+    let env = env_logger::Env::default().filter_or("sage_LOG", "info");
     env_logger::init_from_env(env);
 
     let start = time::Instant::now();
 
-    let matches = Command::new("carina")
+    let matches = Command::new("sage")
         .author("Michael Lazear <michaellazear92@gmail.com>")
         .arg(Arg::new("parameters").required(true))
         .get_matches();

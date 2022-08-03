@@ -53,7 +53,7 @@ impl Fasta {
         let current = std::mem::take(&mut self.proteins);
         let mut new = current
             .iter()
-            .map(|(p, s)| (format!("{}{}", decoy_prefix, p), s.clone()))
+            .map(|(p, s)| (format!("{}{}", decoy_prefix, p), s.chars().rev().collect()))
             .collect::<Vec<_>>();
         new.extend(current);
 

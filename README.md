@@ -1,6 +1,6 @@
-# Proteomics Search Engine with *Stellar* Performance
+# Proteomics Search Engine with Magical Performance
 
-[![Rust](https://github.com/lazear/carina/actions/workflows/rust.yml/badge.svg)](https://github.com/lazear/carina/actions/workflows/rust.yml)
+[![Rust](https://github.com/lazear/sage/actions/workflows/rust.yml/badge.svg)](https://github.com/lazear/sage/actions/workflows/rust.yml)
 
 <img src="figures/TMT_Panel.png" width="800">
 
@@ -8,10 +8,10 @@ I wanted to see how far I could take a proteomics search engine in ~1000 lines o
 
 I was inspired by the elegant data structure discussed in the [MSFragger paper](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5409104/), and decided to implement an (open source) version of it in Rust - with great results.
 
-Carina has excellent performance characteristics (5-10x faster, 2-3x reduction in memory use compared to - the closed source - MSFragger), but does not sacrifice code quality or size to do so!
-- MSFragger can still come out on top time-wise during wider open searchs (>250 Da window) due to deisotoping (Carina does not yet have de-isotoping, which is a massive performance hit)
+Sage has excellent performance characteristics (5-10x faster, 2-3x reduction in memory use compared to - the closed source - MSFragger), but does not sacrifice code quality or size to do so!
+- MSFragger can still come out on top time-wise during wider open searchs (>250 Da window) due to deisotoping (Sage does not yet have de-isotoping, which is a massive performance hit)
  
-## Features
+## Features & Anti-Features
 
 - Search by fragment, filter by precursor: blazing fast performance
 - Effortlessly cross-platform, effortlessly parallel
@@ -22,19 +22,15 @@ Carina has excellent performance characteristics (5-10x faster, 2-3x reduction i
 - Internal q-value/FDR calculation using a target-decoy competition approach
 - Percolator/mokapot compatible output
 - Unsafe free
-
-## Limitations
-
 - Only uses mzML files
 - Only Percolator PIN output
-- Only outputs 1 protein ID even if the peptide is shared by multiple proteins :)
-- Probably has some calculation errors :)
+- Only outputs 1 protein ID even if the peptide is shared by multiple proteins
 
 # Usage 
 
-Carina takes a single command line argument: a path to a JSON-encoded parameter file (see below). A new file (`results.json`) will be created that details input/output paths and all search parameters used for the search
+Sage takes a single command line argument: a path to a JSON-encoded parameter file (see below). A new file (`results.json`) will be created that details input/output paths and all search parameters used for the search
 
-Example usage: `carina tmt.json`
+Example usage: `sage tmt.json`
 
 # Performance
 
@@ -43,16 +39,14 @@ Multiplexed Proteomics](https://pubs.acs.org/doi/10.1021/acs.analchem.9b05685?go
 
 Data repository: [PXD016766](http://proteomecentral.proteomexchange.org/cgi/GetDataset?ID=PXD016766)
 
-***Carina* has good peptide identity overlap**
+**Sage has good peptide identity overlap**
 
 <img src="figures/TMT_IDs.png" width="600">
 
-Performance results: (Intel i7-12700KF + 32GB RAM)
+Performance results: (c5ad.8xlarge, 32 vCPUs)
 
-- ~15 seconds to process 12 files in narrow search, using less than 2GB of RAM (can be tuned to run files in parallel... ~9s and ~3GB of RAM)
-- Active scanning: ~50,000 scans/s for narrow window (can be tuned to use more RAM and go even faster!)
-- ~120 seconds to process 12 files in open search (50 Da precursor window), using less than 2GB of RAM (can be tuned to run files in parallel... ~9s and ~3GB of RAM)
-
+- ~11 seconds to process 12 files in narrow search, using less than ~3GB of RAM - 3s of this is generating the fragment index, so it's really ~750ms/mzML file
+- Active scanning: ~50,000 scans/s for narrow window
 
 ### Search methods
 
@@ -60,12 +54,13 @@ Performance results: (Intel i7-12700KF + 32GB RAM)
 - MSFragger and Comet were configured with analogous parameters (+/- 1.25 Da precursor tolerance, +/- 10 ppm fragment tolerance - or for Comet setting `fragment_bin_tol` to 0.02 Da).
 - [Mokapot](https://github.com/wfondrie/mokapot) was then used to refine FDR for all search results
 - Parameter files for all engines can be found in the `figures/benchmark_params` folder!
+- All searches for benchmarking were run on an c5ad.8xlarge (32 vCPU, 64 GB RAM, NVMe drives) EC2 instance
 
-Carina search settings file:
+Sage search settings file:
 ```json
 {
   "database": {
-    "bucket_size": 4096,
+    "bucket_size": 8192,
     "fragment_min_mz": 75.0,
     "fragment_max_mz": 1500.0,
     "peptide_min_len": 5,

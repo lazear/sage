@@ -2,8 +2,8 @@
 # Comet MS/MS search engine parameters file.
 # Everything following the '#' symbol is treated as a comment.
 
-database_name = raw/UP000005640_9606.fasta
-decoy_search = 1                       # 0=no (default), 1=concatenated search, 2=separate search
+database_name = 2022-07-23-decoys-reviewed-UP000005640.fas
+decoy_search = 0                       # 0=no (default), 1=concatenated search, 2=separate search
 peff_format = 0                        # 0=no (normal fasta, default), 1=PEFF PSI-MOD, 2=PEFF Unimod
 peff_obo =                             # path to PSI Mod or Unimod OBO file
 
@@ -12,12 +12,12 @@ num_threads = 0                        # 0=poll CPU to set num threads; else spe
 #
 # masses
 #
-peptide_mass_tolerance = 1.25 
+peptide_mass_tolerance = 50
 peptide_mass_units = 0                 # 0=amu, 1=mmu, 2=ppm
 mass_type_parent = 1                   # 0=average masses, 1=monoisotopic masses
 mass_type_fragment = 1                 # 0=average masses, 1=monoisotopic masses
 precursor_tolerance_type = 0           # 0=MH+ (default), 1=precursor m/z; only valid for amu/mmu tolerances
-isotope_error = 3                      # 0=off, 1=0/1 (C13 error), 2=0/1/2, 3=0/1/2/3, 4=-8/-4/0/4/8 (for +4/+8 labeling)
+isotope_error = 0                      # 0=off, 1=0/1 (C13 error), 2=0/1/2, 3=0/1/2/3, 4=-8/-4/0/4/8 (for +4/+8 labeling)
 
 #
 # search enzyme
@@ -88,7 +88,7 @@ activation_method = ALL                # activation method; used if activation m
 #
 # misc parameters
 #
-digest_mass_range = 200.0 5000.0       # MH+ peptide mass range to analyze
+digest_mass_range = 500.0 5000.0       # MH+ peptide mass range to analyze
 peptide_length_range = 7 50            # minimum and maximum peptide length to analyze (default 1 63; max length 63)
 num_results = 100                      # number of search hits to store internally
 max_duplicate_proteins = 20            # maximum number of additional duplicate protein names to report for each peptide ID; -1 reports all duplicates
@@ -97,7 +97,7 @@ max_precursor_charge = 6               # set maximum precursor charge state to a
 nucleotide_reading_frame = 0           # 0=proteinDB, 1-6, 7=forward three, 8=reverse three, 9=all six
 clip_nterm_methionine = 0              # 0=leave protein sequences as-is; 1=also consider sequence w/o N-term methionine
 spectrum_batch_size = 15000            # max. # of spectra to search at a time; 0 to search the entire scan range in one loop
-decoy_prefix = DECOY_                  # decoy entries are denoted by this string which is pre-pended to each protein accession
+decoy_prefix = rev_                  # decoy entries are denoted by this string which is pre-pended to each protein accession
 equal_I_and_L = 1                      # 0=treat I and L as different; 1=treat I and L as same
 output_suffix =                        # add a suffix to output base names i.e. suffix "-C" generates base-C.pep.xml from base.mzXML input
 mass_offsets =                         # one or more mass offsets to search (values substracted from deconvoluted precursor mass)
@@ -117,7 +117,7 @@ clear_mz_range = 0.0 0.0               # for iTRAQ/TMT type data; will clear out
 #
 
 add_Cterm_peptide = 0.0
-add_Nterm_peptide = 229.1629
+add_Nterm_peptide = 0.0
 add_Cterm_protein = 0.0
 add_Nterm_protein = 0.0
 
@@ -133,7 +133,7 @@ add_I_isoleucine = 0.0000              # added to I - avg. 113.1576, mono. 113.0
 add_N_asparagine = 0.0000              # added to N - avg. 114.1026, mono. 114.04293
 add_D_aspartic_acid = 0.0000           # added to D - avg. 115.0874, mono. 115.02694
 add_Q_glutamine = 0.0000               # added to Q - avg. 128.1292, mono. 128.05858
-add_K_lysine = 229.1629                  # added to K - avg. 128.1723, mono. 128.09496
+add_K_lysine = 0.0                  # added to K - avg. 128.1723, mono. 128.09496
 add_E_glutamic_acid = 0.0000           # added to E - avg. 129.1140, mono. 129.04259
 add_M_methionine = 0.0000              # added to M - avg. 131.1961, mono. 131.04048
 add_H_histidine = 0.0000               # added to H - avg. 137.1393, mono. 137.05891
