@@ -24,13 +24,13 @@
             written in
             Rust</em>
 
-          <p>I wanted to see what how far I could get in the creation of a proteomics search engine in a weekend (or
+          <!-- <p>I wanted to see what how far I could get in the creation of a proteomics search engine in a weekend (or
             two), and
-            ~1500 lines of code, and this is the result!</p>
+            ~1500 lines of code, and this is the result!</p> -->
           <p>Here are some of the features (and anti-features) of Sage</p>
           <ul>
             <li>Super-ultrafast<sup class="footnote-ref"></sup>
-              <aside class="footnote">What? MSFragger already took "ultrafast"</aside>, and light on RAM usage (you
+              <aside class="footnote">What? MSFragger already took <i>ultrafast</i></aside>, and light on RAM usage (you
               have 3 GB of RAM, right?)
             </li>
             <li>Small and simple <a href="https://github.com/lazear/sage">codebase</a>, including comments & tests</li>
@@ -45,7 +45,7 @@
           <p>First, some disclaimers and forewords:</p>
           <ul>
             <li>This search tool is not full featured, and you probably shouldn't use it for real use cases at this
-              time!</li>
+              time! For instance, I haven't implemented variable modifications yet.</li>
             <li>I made best efforts to benchmark Comet and MSFragger in good faith, including reaching out to their
               maintainers to check parameters - that being said, it is totally possible that I have misconfigured them.
               You can find the benchmarking parameters (along with all of the code!) in the <a
@@ -54,7 +54,8 @@
               into your workflows!</li>
             <li>This project was undertaken largely for fun and self-learning purposes - as such, this isn't a
               peer-reviewed project. However, hopefully it can serve as a
-              pedagogical tool, as I have tried to keep the codebase small (~1500 loc), well commented, and tested.
+              pedagogical tool, as I have tried to keep the codebase small (~1500 loc), well commented, tested, and
+              amenable to hacking on.
             </li>
           </ul>
 
@@ -224,7 +225,7 @@
           <div style="margin-top: 1rem">
             <ul>
 
-              <li>All searches were run on a c5ad.8xlarge EC2 spot instance (32 vCPU cores, 64 GB RAM, NVMe disks)
+              <li>All searches were run on c5ad.8xlarge EC2 spot instances (32 vCPU cores, 64 GB RAM, NVMe disks)
                 using:</li>
               <li>the same
                 FASTA database,<sup class="footnote-ref"></sup>
@@ -252,6 +253,12 @@
                 systems - but it will also run pretty well on aarch64 or Windows setups!</li>
               <li>Comet & Sage were both compiled from source on the EC2 instance, MSFragger jar was used as
                 downloaded</li>
+              <li>I was going to benchmark MSGF+ as well, but it is <strong>ultraslow</strong> (it took over 12 minutes
+                for a
+                <i>single</i> mzML file from the TMT dataset - about 750x slower than Sage)</strong>. Given that EC2
+                instances aren't free,
+                I will let the reader spend $1 to run a single replicate of this benchmark themselves :)
+              </li>
             </ul>
           </div>
 
@@ -361,9 +368,17 @@
           <figcaption># of correctly identified PSMs from ProteomeTools HCD Synthetic Spectral Library - Sage correctly
             identifies an extra 5,000 PSMs</figcaption>
 
-          <p>I wasn't satisfied with 260,000 spectra - luckily for me, MassIVE also hosts a 2.1 million spectra HCD library from <i>in vivo</i> proteomics experiments, which I
-            downloaded next.</p>
-          <p>(NB: no variable mods (only cysteine carbidomethylation) and only 1 missed cleavage were used in search, which will reduce the # of possible correct matches to 1,148,452). Here are
+          <div>I wasn't satisfied with 260,000 spectra - luckily for me, MassIVE also hosts a 2.1 million spectra HCD
+            library from <i>in vivo</i> proteomics experiments, which I
+            downloaded next. Sage cranked through 2.1M spectra in 78 seconds - 48 seconds of which was spent just
+            parsing the mzML file<sup class="footnote-ref"></sup>
+            <aside class="footnote">
+              I promised myself I wouldn't get started on a rant about XML based file formats...
+            </aside> - yes, that's 70k spectra/s on a c5ad.8xlarge instance (I've seen speeds up to 2,500
+            specta/CPU-second)
+          </div>
+          <p>(NB: no variable mods (only cysteine carbidomethylation) and only 1 missed cleavage were used in search,
+            which will reduce the # of possible correct matches to ~1.5M). Here are
             the number of correct PSM identifications:</p>
 
           <strong>±20 ppm precursor, ±10 ppm fragment window:</strong>
@@ -408,7 +423,8 @@
               </tr>
             </tbody>
           </table>
-          <figcaption>*Notably, searching with a -1.2 to 3.6 Da precursor window, rather than -1 to 3 isotope error improved
+          <figcaption>*Notably, searching with a -1.2 to 3.6 Da precursor window, rather than -1 to 3 isotope error
+            improved
             Sage's PSM performance while having minimal impact on resource usage</figcaption>
 
           <p>All of the engines performed within 2% with regards to correct PSM identifications for both the synthetic
@@ -428,18 +444,22 @@
             Until then, I recommend continuing to use MSFragger if you're doing wide-open searches.<sup
               class="footnote-ref"></sup>
           <aside class="footnote">
-            I never intended to a production-ready tool, but I think with some additional work, Sage could get there
+            Or if you need to use variable mods, or an enzyme that's not Trypsin, etc etc.<br>
+            I did not originally intend to develop a production-ready tool, but I think with some additional work, Sage
+            could get there
           </aside>
           </p>
           <p>If you would like to try out Sage yourself, you only need to do a couple steps:</p>
           <p>First, head on over to <a href="https://rustup.rs/">rustup.rs</a> and install Rust/Cargo</p>
           <p>
             Then, run the following commands:<br>
+          <div class="codeblock">
             <code>
               git clone https://github.com/lazear/sage.git<br>
               cd sage<br>
               cargo run --release tmt.json
             </code>
+          </div>
           </p>
           Example tmt.json file:
           <script src="https://gist.github.com/lazear/8dc144fb57a74ec32bc72e1f03d96950.js"></script>
