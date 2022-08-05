@@ -56,7 +56,7 @@ table {
 }
 
 thead th:nth-child(1) {
-  width: 30%;
+  width: 20%;
 }
 
 thead th:nth-child(2) {
@@ -64,11 +64,15 @@ thead th:nth-child(2) {
 }
 
 thead th:nth-child(3) {
-  width: 15%;
+  width: 20%;
 }
 
 thead th:nth-child(4) {
-  width: 35%;
+  width: 20%;
+}
+
+thead th:nth-child(5) {
+  width: 20%;
 }
 
 th, td {
@@ -80,6 +84,13 @@ th, td {
     content: "[" counter(footnotes, lower-alpha) "]";
     position: relative;
 } */
+
+.codeblock {
+    border: 1px dashed black;
+    background-color: white;
+    font-family: 'Courier New', Courier, monospace;
+    font-style: italic;
+}
 
 .endnote {
     padding-bottom: 1rem;

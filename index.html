@@ -177,6 +177,22 @@
             within each bin we can run a binary search for fragments whose precursor is within our desired tolerance.
           </p>
 
+          <p>Here is the simplified search algorithm in pseudocode:</p>
+          <div class="codeblock">
+            <code>
+              function assignFragments(precursorMz, spectrum):<br>
+              &nbsp;&nbsp;scores <- {}<br>
+              &nbsp;&nbsp;for fragmentMz, fragmentInt in spectrum:<br>
+              &nbsp;&nbsp;&nbsp;&nbsp;innerBTree <- binarySearch(outerBTree, fragmentMz +/- tolerance)<br>
+               &nbsp;&nbsp;&nbsp;&nbsp;theoretical <- binarySearch(innerBTree, precursorMz +/- tolerance)<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;for candidate in theoretical:<br>
+                 &nbsp;&nbsp;&nbsp;&nbsp; &nbsp;&nbsp;scores[candidate] += fragmentInt<br>
+<br>
+                sort(scores)<br>
+                best <- scores[0]<br>
+            </code>
+          </div>
+
           <img src="Figure 4.png" />
           <figcaption>Optimally assigning peptide-spectrum matches just involves a series of binary searches,
             followed by a scoring function</figcaption>
@@ -301,16 +317,21 @@
           a sample.
 
           <p>
-          The <a href="https://www.nature.com/articles/nmeth.4153">ProteomeTools</a> project out of TUM has been building a
-          complete synthetic human proteome. To test it out, I downloaded the ProteomeTools HCD Spectral Library (some 260,000 spectra) from <a
-            href="https://massive.ucsd.edu/ProteoSAFe/static/massive-kb-libraries.jsp">MassIVE</a> and used MSConvert to convert the MGF file to an mzML.
-</p>
+            The <a href="https://www.nature.com/articles/nmeth.4153">ProteomeTools</a> project out of TUM has been
+            building a
+            complete synthetic human proteome. To test it out, I downloaded the ProteomeTools HCD Spectral Library (some
+            260,000 spectra) from <a
+              href="https://massive.ucsd.edu/ProteoSAFe/static/massive-kb-libraries.jsp">MassIVE</a> and used MSConvert
+            to convert the MGF file to an mzML.
+          </p>
           <p>This dataset allows us to actually determine if our PSM identifications match up to what they "should" be -
-          each spectrum is annotated with the sequence of it's sequence peptide precursor.
-          I started Sage, and 10 seconds later we correctly identified 215,281 PSMs with a 1% FDR - there were 1,055
-          PSMs that were correctly ID'ed with q > 0.01 (for a total of 216,336 correct PSMs). I left Comet out of the last comparison, so we'll bring it back into the fold for this experiment:
+            each spectrum is annotated with the sequence of it's synthetic peptide precursor.
+            I started Sage, and 10 seconds later we correctly identified 215,281 PSMs with a 1% FDR - there were 1,055
+            PSMs that were correctly ID'ed with q > 0.01 (for a total of 216,336 correct PSMs). I left Comet out of the
+            last comparison, so we'll bring it back into the fold for this experiment:
           </p>
 
+          <strong>±20 ppm precursor, ±10 ppm fragment window:</strong>
           <table>
             <thead>
               <tr>
@@ -323,22 +344,75 @@
             <tbody>
               <tr>
                 <td>Comet</td>
-                <td>130s</td>
+                <td>130 s</td>
                 <td>210,190</td>
                 <td>210,688</td>
               </tr>
               <tr>
                 <td>Sage</td>
-                <td>10s</td>
+                <td>10 s</td>
                 <td>215,281</td>
                 <td>216,336</td>
               </tr>
             </tbody>
           </table>
 
-          <img src="MassIVE_1.png" />
+          <!-- <img src="MassIVE_1.png" /> -->
           <figcaption># of correctly identified PSMs from ProteomeTools HCD Synthetic Spectral Library - Sage correctly
             identifies an extra 5,000 PSMs</figcaption>
+
+          <p>MassIVE also hosts a 2.1 million spectra HCD library from <i>in vivo</i> proteomics experiments, which I
+            downloaded next.</p>
+          <p>(NB: no variable mods were used in search, which will reduce the # of possible correct matches). Here are
+            the number of correct PSM identifications:</p>
+
+          <strong>±20 ppm precursor, ±10 ppm fragment window:</strong>
+          <table>
+            <thead>
+              <tr>
+                <th>Engine</th>
+                <th>Runtime</th>
+                <!-- <th>Memory</th> -->
+                <th>1% FDR</th>
+                <th>All</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Comet</td>
+                <td>1286 s</td>
+                <!-- <td>5.5 GB</td> -->
+                <td>787,541</td>
+                <td>815,261</td>
+              </tr>
+              <tr>
+                <td>MSFragger</td>
+                <td>221 s</td>
+                <!-- <td>16.9 GB</td> -->
+                <td>777,186</td>
+                <td>795,633</td>
+              </tr>
+              <tr>
+                <td>Sage</td>
+                <td>78 s</td>
+                <!-- <td>5.6 GB</td> -->
+                <td>769,452</td>
+                <td>806,108</td>
+              </tr>
+              <tr>
+                <td>Sage*</td>
+                <td>83 s</td>
+                <!-- <td>5.7 GB</td> -->
+                <td>778,719</td>
+                <td>821,451</td>
+              </tr>
+            </tbody>
+          </table>
+          <figcaption>*Notably, searching with a -1.2 to 3.6 Da precursor window, rather than -1 to 3 isotope error improved
+            Sage's PSM performance while having minimal impact on resource usage</figcaption>
+
+          <p>All of the engines performed within 2% with regards to correct PSM identifications for both the synthetic
+            and <i>in vivo</i> spectral libraries</p>
 
         </section>
         <section class="section">
