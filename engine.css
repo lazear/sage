@@ -138,32 +138,9 @@ blockquote {
 /* Breakpoints */
 @media screen and (min-width: 720px) {
     .article {
-        max-width: 75%;
+        max-width: 90%;
     }
-
-    .footnote {
-        display: block;
-        width: 22%;
-    }
-
 }
-
-@media screen and (min-width: 960px) {
-    .article {
-        max-width: 66%;
-    }
-
-    .footnote {
-        width: 30%;
-    }
-
-    .large {
-        max-width: 125%;
-    }
-
-
-}
-
 
 @media screen and (min-width: 1280px) {
     .article {
@@ -174,6 +151,11 @@ blockquote {
     .large {
         margin-left: -16.66%;
         max-width: 133%;
+    }
+
+    .footnote {
+        display: block;
+        width: 30%;
     }
 
 
