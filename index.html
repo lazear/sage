@@ -180,7 +180,7 @@
           <p>Here is the simplified search algorithm in pseudocode:</p>
           <div class="codeblock">
             <code>
-              function assignFragments(precursorMz, spectrum):<br>
+              function scoreSpectrum(precursorMz, spectrum):<br>
               &nbsp;&nbsp;scores <- {}<br>
               &nbsp;&nbsp;for fragmentMz, fragmentInt in spectrum:<br>
               &nbsp;&nbsp;&nbsp;&nbsp;innerBTree <- binarySearch(outerBTree, fragmentMz +/- tolerance)<br>
@@ -361,9 +361,9 @@
           <figcaption># of correctly identified PSMs from ProteomeTools HCD Synthetic Spectral Library - Sage correctly
             identifies an extra 5,000 PSMs</figcaption>
 
-          <p>MassIVE also hosts a 2.1 million spectra HCD library from <i>in vivo</i> proteomics experiments, which I
+          <p>I wasn't satisfied with 260,000 spectra - luckily for me, MassIVE also hosts a 2.1 million spectra HCD library from <i>in vivo</i> proteomics experiments, which I
             downloaded next.</p>
-          <p>(NB: no variable mods were used in search, which will reduce the # of possible correct matches). Here are
+          <p>(NB: no variable mods (only cysteine carbidomethylation) and only 1 missed cleavage were used in search, which will reduce the # of possible correct matches to 1,148,452). Here are
             the number of correct PSM identifications:</p>
 
           <strong>±20 ppm precursor, ±10 ppm fragment window:</strong>
