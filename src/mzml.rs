@@ -169,20 +169,22 @@ impl MzMlReader {
                                 }
                                 None => {
                                     // fallback, try and extract from index
-                                    let index = extract!(ev, b"id");
+                                    let index = extract!(ev, b"index");
                                     let index = std::str::from_utf8(&index)?.parse::<usize>()?;
                                     spectrum.scan_id = index + 1;
                                 }
                             }
                         }
                         b"precursor" => {
-                            let scan = extract!(ev, b"spectrumRef");
-                            let scan = std::str::from_utf8(&scan)?;
-                            spectrum.precursor_scan = scan_id_regex
-                                .captures(scan)
-                                .and_then(|c| c.get(1))
-                                .map(|m| m.as_str().parse::<usize>())
-                                .transpose()?;
+                            // Not all precursor fields have a spectrumRef
+                            if let Some(scan) = ev.try_get_attribute(b"spectrumRef")? {
+                                let scan = std::str::from_utf8(&scan.value)?;
+                                spectrum.precursor_scan = scan_id_regex
+                                    .captures(scan)
+                                    .and_then(|c| c.get(1))
+                                    .map(|m| m.as_str().parse::<usize>())
+                                    .transpose()?;
+                            }
                         }
                         _ => {}
                     }
