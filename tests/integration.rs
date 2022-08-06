@@ -24,7 +24,7 @@ pub fn peptide_id() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'sta
     let spectra = sage::mzml::MzMlReader::read_ms2("tests/LQSRPAAPPAPGPGQLTLR.mzML")?;
     assert_eq!(spectra.len(), 1);
 
-    let sp = SpectrumProcessor::new(100, 2, 1500.0);
+    let sp = SpectrumProcessor::new(100, 1500.0);
     let processed = sp.process(spectra[0].clone()).unwrap();
     assert!(processed.peaks.len() <= 300);
 
@@ -96,74 +96,8 @@ pub fn peptide_id() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'sta
 
     assert_eq!(
         scores[&PeptideIx::for_testing_only_seriously_though(hit_index)],
-        27
+        26
     );
 
     Ok(())
-}
-
-#[test]
-// We use a funky strategy to simulate charge states (see [`SpectrumProcessor`])
-// Confirm that we see the right ID's!
-pub fn confirm_charge_state_simulation(
-) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-    let spectra = sage::mzml::MzMlReader::read_ms2("tests/LQSRPAAPPAPGPGQLTLR.mzML")?;
-    assert_eq!(spectra.len(), 1);
-
-    let sp = SpectrumProcessor::new(100, 2, 1500.0);
-    let processed = sp.process(spectra[0].clone()).unwrap();
-
-    let peptide = Peptide::try_from(&Digest {
-        protein: "Q99536",
-        sequence: "LQSRPAAPPAPGPGQLTLR".into(),
-    })
-    .unwrap();
-
-    // Manually generate charge state 2
-    let mut fragments = IonSeries::new(&peptide, Kind::B)
-        .chain(IonSeries::new(&peptide, Kind::Y))
-        .map(move |ion| Theoretical {
-            peptide_index: PeptideIx::for_testing_only_seriously_though(0),
-            fragment_mz: ion.monoisotopic_mass / 2.0,
-            kind: ion.kind,
-        })
-        .collect::<Vec<Theoretical>>();
-
-    fragments.sort_by(|a, b| a.fragment_mz.total_cmp(&b.fragment_mz));
-    assert_eq!(fragments.len(), 36);
-
-    let (matched_b, matched_y) = match_peaks(&fragments, &processed.peaks, 10.0);
-    assert_eq!(matched_b + matched_y, 8);
-
-    Ok(())
-}
-
-fn match_peaks(fragments: &[Theoretical], peaks: &[Peak], ppm: f32) -> (usize, usize) {
-    let mut matched_b = 0;
-    let mut matched_y = 0;
-    for Peak {
-        mass: mz,
-        intensity: int,
-    } in peaks
-    {
-        let (low, high) = Tolerance::Ppm(-ppm, ppm).bounds(*mz);
-        let (i, j) = binary_search_slice(&fragments, |f, x| f.fragment_mz.total_cmp(x), low, high);
-        for fragment in fragments[i..j]
-            .iter()
-            .filter(|frag| frag.fragment_mz >= low && frag.fragment_mz <= high)
-        {
-            eprintln!(
-                "m/z {} matched {} ({}) int {}",
-                mz,
-                fragment.fragment_mz,
-                (mz - fragment.fragment_mz).abs(),
-                int
-            );
-            match fragment.kind {
-                Kind::B => matched_b += 1,
-                Kind::Y => matched_y += 1,
-            }
-        }
-    }
-    (matched_b, matched_y)
 }

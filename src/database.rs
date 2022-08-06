@@ -58,10 +58,10 @@ impl Builder {
         }
         Parameters {
             bucket_size,
-            fragment_min_mz: self.fragment_min_mz.unwrap_or(75.0),
-            fragment_max_mz: self.fragment_max_mz.unwrap_or(2500.0),
+            fragment_min_mz: self.fragment_min_mz.unwrap_or(150.0),
+            fragment_max_mz: self.fragment_max_mz.unwrap_or(2000.0),
             peptide_min_len: self.peptide_min_len.unwrap_or(5),
-            peptide_max_len: self.peptide_max_len.unwrap_or(65),
+            peptide_max_len: self.peptide_max_len.unwrap_or(50),
             peptide_min_mass: self.peptide_min_mass.unwrap_or(500.0),
             peptide_max_mass: self.peptide_max_mass.unwrap_or(5000.0),
             decoy_prefix: self.decoy_prefix.unwrap_or_else(|| "rev_".into()),
@@ -228,7 +228,7 @@ impl Parameters {
 
 #[derive(Hash, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize)]
 #[repr(transparent)]
-pub struct PeptideIx(pub u32);
+pub struct PeptideIx(pub(crate) u32);
 
 #[derive(Copy, Clone, Debug, PartialEq, Serialize)]
 pub struct Theoretical {

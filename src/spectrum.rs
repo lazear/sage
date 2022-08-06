@@ -18,7 +18,6 @@ struct Deisotoped {
 
 pub struct SpectrumProcessor {
     take_top_n: usize,
-    max_fragment_charge: u8,
     max_fragment_mz: f32,
 }
 
@@ -32,10 +31,9 @@ pub struct ProcessedSpectrum {
 }
 
 impl SpectrumProcessor {
-    pub fn new(take_top_n: usize, max_fragment_charge: u8, max_fragment_mz: f32) -> Self {
+    pub fn new(take_top_n: usize, max_fragment_mz: f32) -> Self {
         Self {
             take_top_n,
-            max_fragment_charge,
             max_fragment_mz,
         }
     }
@@ -89,13 +87,11 @@ impl SpectrumProcessor {
             return None;
         }
 
+        // Calculate bounds for clearing precursor mz
         let precursor = (s.precursor_mz? - PROTON) * s.precursor_charge? as f32;
         let (prec_lo, prec_hi) = Tolerance::Ppm(-1.5, 1.5).bounds(precursor);
 
-        // let charge = self
-            // .max_fragment_charge
-            // .min(s.precursor_charge?.saturating_sub(1).max(1));
-        let charge = s.precursor_charge?.saturating_sub(1).max(1);
+        let charge = s.precursor_charge.unwrap_or(2).saturating_sub(1).max(1);
 
         let mut peaks = Self::deisotope(&s.mz, &s.intensity, charge, 5.0);
 
@@ -106,39 +102,18 @@ impl SpectrumProcessor {
             .filter(|peak| !peak.envelope)
             .take(self.take_top_n)
             .filter_map(|peak| {
+                // Convert from MH* to M
                 let fragment_mass = (peak.mz - PROTON) * peak.charge.unwrap_or(1) as f32;
-                let mass_filter = fragment_mass <= self.max_fragment_mz && (fragment_mass < prec_lo || fragment_mass > prec_hi);
+                let mass_filter = fragment_mass <= self.max_fragment_mz
+                    && (fragment_mass < prec_lo || fragment_mass > prec_hi);
                 match mass_filter {
-                    true => Some(Peak { mass: fragment_mass, intensity: peak.intensity.sqrt() }),
-                    false => None
+                    true => Some(Peak {
+                        mass: fragment_mass,
+                        intensity: peak.intensity.sqrt(),
+                    }),
+                    false => None,
                 }
             })
-            // .flat_map(|peak| {
-            //     (1..=charge).filter_map(move |charge| {
-            //         // OK, this bit is kinda weird - to save memory, instead of calculating theoretical
-            //         // m/z's for different charge states, we instead resample the experimental spectra
-            //         //
-            //         // We assume that the m/z we are observing are potentially at charge state >1, and we
-            //         // want to convert them to charge state = 1 (well, really neutral monoisotopic mass)
-            //         // in order to simulate a calculated theoretical fragment with a higher charge
-            //         let fragment_mass = (peak.mz - PROTON) * charge as f32;
-            //         let mass_filter = fragment_mass <= self.max_fragment_mz
-            //             && (fragment_mass < prec_lo || fragment_mass > prec_hi);
-            //         // match (fragment_mass <= self.max_fragment_mz)
-            //         // && (fragment_mass > prec_hi || fragment_mass < prec_lo)
-            //         match (mass_filter, peak.charge) {
-            //             (true, Some(c)) if c == charge => Some(Peak {
-            //                 mass: fragment_mass,
-            //                 intensity: peak.intensity.sqrt(),
-            //             }),
-            //             (true, None) => Some(Peak {
-            //                 mass: fragment_mass,
-            //                 intensity: peak.intensity.sqrt(),
-            //             }),
-            //             (_, _) => None,
-            //         }
-            //     })
-            // })
             .collect::<Vec<Peak>>();
 
         Some(ProcessedSpectrum {
