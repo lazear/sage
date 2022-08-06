@@ -20,7 +20,7 @@
       <article class="article">
         <section class="section">
           <h1>Proteomics searching so fast it seems like Magic</h1>
-          <em>Introducing Sage: a new cross-platform, extremely performant, open source proteomics search database;
+          <em>Introducing Sage: a new cross-platform, extremely performant, open source proteomics search engine;
             written in
             Rust</em>
 
@@ -40,21 +40,26 @@
             <li>Internal q-value/FDR calculation using target-decoy competition</li>
             <li>Percolator/Mokapot compatible output</li>
             <li>Accepts mzML files as input</li>
-            <li><a href="https://opensource.org/osd">Open Source</a> & Free Software</li>
+            <li><a href="https://opensource.org/osd">Open Source</a> & Free Software<sup class="footnote-ref"></sup>
+              <aside class="footnote">
+                MSFragger is not <a href="https://www.fsf.org/">Free Software</a> despite what others may claim<sup><a
+                    href="https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6469856/">1</a></sup> - it's not even open
+                source! There are also a significant number of closed source proteomics tools in general - I tend to believe that scientific software (and science, in general) should be Open and Free!
+              </aside>
+            </li>
           </ul>
 
           <p>First, some disclaimers and forewords:</p>
           <ul>
-            <li>This search tool is not full featured, and you probably shouldn't use it for real use cases at this
-              time! For instance, I haven't implemented variable modifications yet.</li>
+            <li><i>Caveat emptor</i> - Sage has incredible performance, but it is still missing some features found in many other search engines. Use it at your own risk (if you do decide to try it out, please don't hesitate to contact me!)</li>
             <li>I made best efforts to benchmark Comet and MSFragger in good faith, including reaching out to their
               maintainers to check parameters - that being said, it is totally possible that I have misconfigured them.
               You can find the benchmarking parameters (along with all of the code!) in the <a
                 href="https://github.com/lazear/sage/tree/master/figures/benchmark_params">Sage GitHub
                 repository</a>. They are both great, widely-used, full-featured tools and I recommend incorporating them
               into your workflows!</li>
-            <li>This project was undertaken largely for fun and self-learning purposes - as such, this isn't a
-              peer-reviewed project. However, hopefully it can serve as a
+            <li>This was undertaken largely for fun and self-learning purposes - as such, this isn't a
+              peer-reviewed project (yet). However, hopefully it can serve as a
               pedagogical tool, as I have tried to keep the codebase small (~1500 loc), well commented, tested, and
               amenable to hacking on.
             </li>
@@ -77,7 +82,7 @@
               scientist at a <a href="https://www.belharratx.com/">proteomics-based drug discovery company</a>, I
               figured
               this is
-              something I should understand well enough to implement from scratch :)
+              something I should understand well enough to implement from scratch. I also just really enjoying building things.
             </aside>
 
             One weekend (and some change) of flow-state coding later, and I accidentally created something
@@ -89,12 +94,12 @@
 
 
 
-          Since the introduction of SEQUEST<sup><a href="https://pubmed.ncbi.nlm.nih.gov/24226387/">1</a></sup> in
+          Since the introduction of SEQUEST<sup><a href="https://pubmed.ncbi.nlm.nih.gov/24226387/">2</a></sup> in
           1994, proteomics has generally relied on the concept of database searching for peptide identification<sup><a
-              href="https://pubmed.ncbi.nlm.nih.gov/18505281/">2,</a></sup><sup><a
-              href="https://pubmed.ncbi.nlm.nih.gov/25358478/">3,</a></sup><sup><a
-              href="https://pubmed.ncbi.nlm.nih.gov/23148064/">4,</a></sup><sup><a
-              href="https://pubmed.ncbi.nlm.nih.gov/19029910/">5</a></sup>
+              href="https://pubmed.ncbi.nlm.nih.gov/18505281/">3,</a></sup><sup><a
+              href="https://pubmed.ncbi.nlm.nih.gov/25358478/">4,</a></sup><sup><a
+              href="https://pubmed.ncbi.nlm.nih.gov/23148064/">5,</a></sup><sup><a
+              href="https://pubmed.ncbi.nlm.nih.gov/19029910/">6</a></sup>
           where a spectrum is compared against all theoretical
           peptide candidates within a precursor tolerance window and scored for spectral similarity.<sup
             class="footnote-ref"></sup>
@@ -102,7 +107,7 @@
             This approach has had great success, but it is exhaustive, and thus slow. Every candidate peptide within
             the precursor tolerance window is compared against the experimental spectrum, even if there are no shared
             fragment peaks
-          </aside> There are also additional approaches like <i>de novo</i> peptide sequencing, or using machine
+          </aside> There are also additional approaches like <i>de novo</i> peptide sequencing, spectral library matching, and using machine
           learning models for embedding spectra, but those are outside the scope of this work.
 
           <p>
@@ -118,7 +123,7 @@
             share no common fragments are effectively bypassed". They spend a couple paragraphs in the methods
             section outlining the algorithm and search steps, but the codebase itself is <strong>closed source</strong>
             and
-            binaries are only freely available for non-commercial use. Regardless, it's an elegant and performant
+            binaries are only freely available for non-commercial use (which Alexey kindly reminded me of when I emailed him about benchmarking MSFragger). Regardless, it's an elegant and performant
             reformulation of database searching, and it captured my imagination enough that I had to try my hand at
             implementing it.</p>
 
@@ -216,10 +221,10 @@
           similar
           performance - however, this is where Rust really shines!
           On standard searches, Sage absolutely dominates in terms of speed and memory usage - however, MSFragger
-          starts to catch up as windows get larger, and is juuuuuust (~25s) behind Sage in a -100 to +500 Da precursor
+          starts to catch up as windows get larger, and is juust (~35s) behind Sage in a -100 to +500 Da precursor
           search.<sup class="footnote-ref"></sup>
-          <aside class="footnote">Perhaps this is due to their <a
-              href="https://pubmed.ncbi.nlm.nih.gov/33332123/">fast deisotoping algorithm</a>, which is certainly more advanced that 
+          <aside class="footnote">Perhaps this is due to their <a href="https://pubmed.ncbi.nlm.nih.gov/33332123/">fast
+              deisotoping algorithm</a>, which is certainly more advanced that
             what I have implemented.</aside> I will let the results speak for
           themselves, though!
 
@@ -227,7 +232,8 @@
             <ul>
 
               <li>All searches were run on c5ad.8xlarge EC2 spot instances (32 vCPU cores, 64 GB RAM, NVMe disks)
-                using:</li>
+                using:
+                <ul>
               <li>the same
                 FASTA database,<sup class="footnote-ref"></sup>
                 <aside class="footnote">
@@ -237,6 +243,8 @@
               </li>
               <li>and the same input mzML files (processed using <a
                   href="https://proteowizard.sourceforge.io/download.html">MSConvert</a>).
+              </li>
+            </ul>
               </li>
               <li>
 
@@ -322,16 +330,12 @@
           <h3>Benchmarking against synthetic peptide datasets</h3>
 
           With many proteomics searches, we often don't have a "ground truth" for which peptides are actually present in
-          a sample.
-
-          <p>
-            The <a href="https://www.nature.com/articles/nmeth.4153">ProteomeTools</a> project out of TUM has been
+          a sample - lucky for us, the <a href="https://www.nature.com/articles/nmeth.4153">ProteomeTools</a> project out of TUM has been
             building a
             complete synthetic human proteome. To test it out, I downloaded the ProteomeTools HCD Spectral Library (some
             260,000 spectra) from <a
               href="https://massive.ucsd.edu/ProteoSAFe/static/massive-kb-libraries.jsp">MassIVE</a> and used MSConvert
             to convert the MGF file to an mzML.
-          </p>
           <p>This dataset allows us to actually determine if our PSM identifications match up to what they "should" be -
             each spectrum is annotated with the sequence of it's synthetic peptide precursor.
             I started Sage, and 10 seconds later we correctly identified 215,281 PSMs with a 1% FDR - there were 1,055
@@ -382,8 +386,9 @@
             which will reduce the # of possible correct matches to ~1.5M). Here are
             the number of correct PSM identifications:</p>
 
-          <img src="Massive_2.png" class="large"/>
-          <figcaption>Left panel: Distribution of q-values for correctly identified PSMs. Middle panel: I would call this super-ultrafast</figcaption>
+          <img src="Massive_2.png" class="large" />
+          <figcaption>Left panel: Distribution of q-values for correctly identified PSMs. Middle panel: I would call
+            this super-ultrafast</figcaption>
 
           <strong>±20 ppm precursor, ±10 ppm fragment window:</strong>
           <table>
