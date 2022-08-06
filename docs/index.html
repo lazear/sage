@@ -74,7 +74,7 @@
           clean-room implementation of the MSFragger algorithm, but open-source).
         </section>
         <section class="section">
-          <h1><a id="intro"></a>Proteomics database searching</h1>
+          <h2><a id="intro"></a>Proteomics database searching</h2>
           <div>
             I had recently been playing around with the idea of writing my own proteomics search engine<sup
               class="footnote-ref"></sup>
@@ -133,6 +133,8 @@
             reformulation of database searching, and it captured my imagination enough that I had to try my hand at
             implementing it.</p>
 
+          </section>
+          <section class="section">
           <h2><a id="data-structure"></a>Fragment Index data structure</h2>
           <blockquote>
             <p>"Show me your code and conceal your
@@ -221,7 +223,7 @@
           <figcaption>Human VAT1 peptide annotated by Sage</figcaption>
         </section>
         <section class="section" id="standoff">
-          <h1>Benchmarking Results</h1>
+          <h2>Benchmarking Results</h2>
 
           My proteomics engine is based off of MSFragger's algorithm, so it would be reasonable to expect them to have
           similar
@@ -266,7 +268,8 @@
               </li>
               <li>Performance will vary across systems - Sage performs best on amd64 systems running *nix operating
                 systems - but it will also run pretty well on aarch64 or Windows setups!</li>
-              <li>Comet & Sage were both compiled from source on the EC2 instance, MSFragger jar was used as
+              <li><a href="https://github.com/UWPR/Comet">Comet</a> & Sage were both compiled from source on the EC2
+                instance, <a href="https://msfragger.nesvilab.org/">MSFragger</a> jar was used as
                 downloaded, <a href="https://github.com/levitsky/identipy">IdentiPy</a> was installed via pip.</li>
               <li>I was going to benchmark MSGF+ as well, but it is <strong>ultraslow</strong> (it took over 12 minutes
                 for a
@@ -277,11 +280,7 @@
             </ul>
           </div>
 
-
-          <p>To benchmark TMT search performance versus <a href="https://msfragger.nesvilab.org/">MSFragger</a> (closed
-            source) and <a href="https://github.com/UWPR/Comet">Comet</a> (open source), I downloaded
-            data
-            from the paper <a
+          <p>To benchmark TMT search performance, I downloaded high res TMT-MS2 data from the paper <a
               href="https://pubs.acs.org/doi/10.1021/acs.analchem.9b05685?goto=supporting-info">Benchmarking the
               Orbitrap
               Tribrid Eclipse for Next Generation Multiplexed Proteomics</a> from PRIDE <a
@@ -348,7 +347,8 @@
               </tr>
             </tbody>
           </table>
-          <figcaption>† plus licensing fee, presumably<br><sup>#</sup> benchmarking terminated after first file due to cost, results
+          <figcaption>† plus licensing fee, presumably<br><sup>#</sup> benchmarking terminated after first file due to
+            cost, results
             are estimates</figcaption>
 
 
@@ -382,8 +382,10 @@
           <img src="500_search.png" class="large" />
           <figcaption>MSFragger widens it's lead as the precursor windows get wider - we are still a bit faster though
             :)</figcaption>
-
-          <h3>Benchmarking against synthetic peptide datasets</h3>
+          
+          </section>
+          <section class="section">
+          <h2>Benchmarking against synthetic peptide datasets</h2>
 
           With many proteomics searches, we often don't have a "ground truth" for which peptides are actually present in
           a sample - lucky for us, the <a href="https://www.nature.com/articles/nmeth.4153">ProteomeTools</a> project
@@ -482,6 +484,32 @@
 
           <p>All of the engines performed within 2% with regards to correct PSM identifications for both the synthetic
             and <i>in vivo</i> spectral libraries</p>
+        </section>
+        <section class="section">
+          <h2>Chimeric spectra with Sage</h2>
+          I was able to add in matching of chimeric spectra to Sage in ~55 lines of code (a nice benefit to writing your
+          own search engine!). The algorithm is straight forward: after finding the best candidate for a spectrum,
+          remove peaks assigned to that candidate, and search it again!
+          <br>This works quite well in practice (although refining FDR is tricky). Here are some nice examples of
+          spectra that can have multiple candidate peptides assigned (from the first file of the TMT benchmark data set)
+
+          <img src="chimera_25457.png">
+          <!-- <img src="chimera_27525.png"> -->
+          <img src="chimera_29213.png">
+          <!-- <img src="chimera_31327.png"> -->
+          <img src="chimera_34766.png">
+
+
+          We can run the chimeric search on our non-TMT labeled dataset as well (<a
+            href="http://proteomecentral.proteomexchange.org/cgi/GetDataset?ID=PXD001468">PXD001468</a>), and we
+          identify some ~1,800 scans with chimeric spectra (1% FDR as scored by Sage) - this only takes an additional 3 seconds over a standard narrow search.
+          <img src="chimera_b49707.png">
+          <figcaption>Example of a chimeric spectra from PXD001468</figcaption>
+
+          Running these chimeric spectra through the <a href="https://iomics.ugent.be/deeplc/">DeepLC</a> retention time
+          predictor shows that many of these chimeric spectra also make sense from a co-elution perspective.
+          <img src="chimera_rt.png">
+
 
         </section>
         <section class="section">
