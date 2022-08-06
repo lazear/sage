@@ -27,6 +27,10 @@ impl Tolerance {
             Tolerance::Da(lo, hi) => (center + lo, center + hi),
         }
     }
+
+    pub fn ppm_to_delta_mass(center: f32, ppm: f32) -> f32 {
+        ppm * center / 1_000_000.0
+    }
 }
 
 pub trait Mass {

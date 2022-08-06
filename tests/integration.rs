@@ -3,7 +3,7 @@ use sage::fasta::{Digest, Trypsin};
 use sage::ion_series::{IonSeries, Kind};
 use sage::mass::Tolerance;
 use sage::peptide::Peptide;
-use sage::spectrum::SpectrumProcessor;
+use sage::spectrum::{Peak, SpectrumProcessor};
 use std::collections::HashMap;
 use std::io::BufReader;
 
@@ -76,7 +76,7 @@ pub fn peptide_id() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'sta
     // Track scores for all peptides in this protein
     let mut scores = HashMap::new();
 
-    for (mz, _) in processed.peaks {
+    for Peak { mass: mz, .. } in processed.peaks {
         let (low, high) = Tolerance::Ppm(-10.0, 10.0).bounds(mz);
         let (i, j) = binary_search_slice(&fragments, |f, x| f.fragment_mz.total_cmp(x), low, high);
         for fragment in fragments[i..j]
@@ -112,7 +112,6 @@ pub fn confirm_charge_state_simulation(
 
     let sp = SpectrumProcessor::new(100, 2, 1500.0);
     let processed = sp.process(spectra[0].clone()).unwrap();
-    assert!(processed.peaks.len() <= 300);
 
     let peptide = Peptide::try_from(&Digest {
         protein: "Q99536",
@@ -139,10 +138,14 @@ pub fn confirm_charge_state_simulation(
     Ok(())
 }
 
-fn match_peaks(fragments: &[Theoretical], peaks: &[(f32, f32)], ppm: f32) -> (usize, usize) {
+fn match_peaks(fragments: &[Theoretical], peaks: &[Peak], ppm: f32) -> (usize, usize) {
     let mut matched_b = 0;
     let mut matched_y = 0;
-    for (mz, int) in peaks {
+    for Peak {
+        mass: mz,
+        intensity: int,
+    } in peaks
+    {
         let (low, high) = Tolerance::Ppm(-ppm, ppm).bounds(*mz);
         let (i, j) = binary_search_slice(&fragments, |f, x| f.fragment_mz.total_cmp(x), low, high);
         for fragment in fragments[i..j]
