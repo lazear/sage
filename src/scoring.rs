@@ -128,7 +128,7 @@ impl<'db> Scorer<'db> {
             query,
             self.precursor_tol,
             self.fragment_tol,
-            self.max_isotope_err,
+            self.min_isotope_err,
             self.max_isotope_err,
         );
 
