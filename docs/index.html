@@ -44,14 +44,17 @@
               <aside class="footnote">
                 MSFragger is not <a href="https://www.fsf.org/">Free Software</a> despite what others may claim<sup><a
                     href="https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6469856/">1</a></sup> - it's not even open
-                source! There are also a significant number of closed source proteomics tools in general - I tend to believe that scientific software (and science, in general) should be Open and Free!
+                source! There are also a significant number of closed source proteomics tools in general - I tend to
+                believe that scientific software (and science, in general) should be Open and Free!
               </aside>
             </li>
           </ul>
 
           <p>First, some disclaimers and forewords:</p>
           <ul>
-            <li><i>Caveat emptor</i> - Sage has incredible performance, but it is still missing some features found in many other search engines. Use it at your own risk (if you do decide to try it out, please don't hesitate to contact me!)</li>
+            <li><i>Caveat emptor</i> - Sage has incredible performance, but it is still missing some features found in
+              many other search engines. Use it at your own risk (if you do decide to try it out, please don't hesitate
+              to contact me!)</li>
             <li>I made best efforts to benchmark Comet and MSFragger in good faith, including reaching out to their
               maintainers to check parameters - that being said, it is totally possible that I have misconfigured them.
               You can find the benchmarking parameters (along with all of the code!) in the <a
@@ -82,7 +85,8 @@
               scientist at a <a href="https://www.belharratx.com/">proteomics-based drug discovery company</a>, I
               figured
               this is
-              something I should understand well enough to implement from scratch. I also just really enjoying building things.
+              something I should understand well enough to implement from scratch. I also just really enjoying building
+              things.
             </aside>
 
             One weekend (and some change) of flow-state coding later, and I accidentally created something
@@ -107,7 +111,8 @@
             This approach has had great success, but it is exhaustive, and thus slow. Every candidate peptide within
             the precursor tolerance window is compared against the experimental spectrum, even if there are no shared
             fragment peaks
-          </aside> There are also additional approaches like <i>de novo</i> peptide sequencing, spectral library matching, and using machine
+          </aside> There are also additional approaches like <i>de novo</i> peptide sequencing, spectral library
+          matching, and using machine
           learning models for embedding spectra, but those are outside the scope of this work.
 
           <p>
@@ -123,7 +128,8 @@
             share no common fragments are effectively bypassed". They spend a couple paragraphs in the methods
             section outlining the algorithm and search steps, but the codebase itself is <strong>closed source</strong>
             and
-            binaries are only freely available for non-commercial use (which Alexey kindly reminded me of when I emailed him about benchmarking MSFragger). Regardless, it's an elegant and performant
+            binaries are only freely available for non-commercial use (which Alexey kindly reminded me of when I emailed
+            him about benchmarking MSFragger). Regardless, it's an elegant and performant
             reformulation of database searching, and it captured my imagination enough that I had to try my hand at
             implementing it.</p>
 
@@ -234,17 +240,17 @@
               <li>All searches were run on c5ad.8xlarge EC2 spot instances (32 vCPU cores, 64 GB RAM, NVMe disks)
                 using:
                 <ul>
-              <li>the same
-                FASTA database,<sup class="footnote-ref"></sup>
-                <aside class="footnote">
-                  Most recent reviewed Human FASTA file, with decoys concatenated. Database prepared using <a
-                    href="https://github.com/Nesvilab/philosopher">Philosopher</a>
-                </aside>
-              </li>
-              <li>and the same input mzML files (processed using <a
-                  href="https://proteowizard.sourceforge.io/download.html">MSConvert</a>).
-              </li>
-            </ul>
+                  <li>the same
+                    FASTA database,<sup class="footnote-ref"></sup>
+                    <aside class="footnote">
+                      Most recent reviewed Human FASTA file, with decoys concatenated. Database prepared using <a
+                        href="https://github.com/Nesvilab/philosopher">Philosopher</a>
+                    </aside>
+                  </li>
+                  <li>and the same input mzML files (processed using <a
+                      href="https://proteowizard.sourceforge.io/download.html">MSConvert</a>).
+                  </li>
+                </ul>
               </li>
               <li>
 
@@ -261,7 +267,7 @@
               <li>Performance will vary across systems - Sage performs best on amd64 systems running *nix operating
                 systems - but it will also run pretty well on aarch64 or Windows setups!</li>
               <li>Comet & Sage were both compiled from source on the EC2 instance, MSFragger jar was used as
-                downloaded</li>
+                downloaded, <a href="https://github.com/levitsky/identipy">IdentiPy</a> was installed via pip.</li>
               <li>I was going to benchmark MSGF+ as well, but it is <strong>ultraslow</strong> (it took over 12 minutes
                 for a
                 <i>single</i> mzML file from the TMT dataset - about 750x slower than Sage)</strong>. Given that EC2
@@ -285,16 +291,66 @@
 
           <h4>If MSFragger is "ultrafast", what is Sage?</h4>
 
-          <p>I half-joke: MSFragger really is fast! But, Sage is about 5x faster than MSFragger and 25x faster than
-            Comet
-            for a typical TMT search,
-            and identifies slightly more PSMs at a 1% FDR than both. On our EC2 instance, we could process around 4,800
-            of these raw files in an hour - for $0.51. Not bad!
+          <p>I half-joke: MSFragger really is fast! But, Sage is about 5x faster than MSFragger, 25x faster than
+            Comet, 300x faster than IdentiPy, and 750x faster than MSGF+ on
+            a typical TMT search
+            and identifies a similar number of PSMs at 1% FDR.
+          </p>
+          <p>Sage is so fast that computational cost of searching becomes irrelevant - you could
+            re-process all of PRIDE's annotated PSMs
+            (580,917,172 at current count) using Sage for less than $3, assuming you had the bandwidth to keep the
+            engine fed!
           </p>
 
 
           <img src="tmt_search.png" class="large" />
-          <figcaption>Yeah, it's pretty fast</figcaption>
+          <figcaption>Yeah, it's pretty fast - note that the times on the graph are log2 transformed!</figcaption>
+
+          <table>
+            <thead>
+              <tr>
+                <th>Engine</th>
+                <th>Runtime</th>
+                <th>Cost to process 12 mzML files</th>
+                <th>PSMs at 1% FDR</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Sage</td>
+                <td>11 s</td>
+                <td>$0.0015</td>
+                <td>97,046</td>
+              </tr>
+              <tr>
+                <td>MSFragger</td>
+                <td>60 s</td>
+                <td>$0.0085†</td>
+                <td>97,844</td>
+              </tr>
+              <tr>
+                <td>Comet</td>
+                <td>305 s</td>
+                <td>$0.0432</td>
+                <td>92,333</td>
+              </tr>
+              <tr>
+                <td>IdentiPy</td>
+                <td>3088 s</td>
+                <td>$0.4375</td>
+                <td>96,465</td>
+              </tr>
+              <tr>
+                <td>MSGF+</td>
+                <td>9000 s<sup>#</sup></td>
+                <td>$1.2750</td>
+                <td>-</td>
+              </tr>
+            </tbody>
+          </table>
+          <figcaption>† plus licensing fee, presumably<br><sup>#</sup> benchmarking terminated after first file due to cost, results
+            are estimates</figcaption>
+
 
 
           For a proteomics experiment, performance isn't everything... peptide-spectrum matches are! Sage also
@@ -330,12 +386,13 @@
           <h3>Benchmarking against synthetic peptide datasets</h3>
 
           With many proteomics searches, we often don't have a "ground truth" for which peptides are actually present in
-          a sample - lucky for us, the <a href="https://www.nature.com/articles/nmeth.4153">ProteomeTools</a> project out of TUM has been
-            building a
-            complete synthetic human proteome. To test it out, I downloaded the ProteomeTools HCD Spectral Library (some
-            260,000 spectra) from <a
-              href="https://massive.ucsd.edu/ProteoSAFe/static/massive-kb-libraries.jsp">MassIVE</a> and used MSConvert
-            to convert the MGF file to an mzML.
+          a sample - lucky for us, the <a href="https://www.nature.com/articles/nmeth.4153">ProteomeTools</a> project
+          out of TUM has been
+          building a
+          complete synthetic human proteome. To test it out, I downloaded the ProteomeTools HCD Spectral Library (some
+          260,000 spectra) from <a
+            href="https://massive.ucsd.edu/ProteoSAFe/static/massive-kb-libraries.jsp">MassIVE</a> and used MSConvert
+          to convert the MGF file to an mzML.
           <p>This dataset allows us to actually determine if our PSM identifications match up to what they "should" be -
             each spectrum is annotated with the sequence of it's synthetic peptide precursor.
             I started Sage, and 10 seconds later we correctly identified 215,281 PSMs with a 1% FDR - there were 1,055
@@ -355,16 +412,16 @@
             </thead>
             <tbody>
               <tr>
-                <td>Comet</td>
-                <td>130 s</td>
-                <td>210,190</td>
-                <td>210,688</td>
-              </tr>
-              <tr>
                 <td>Sage</td>
                 <td>10 s</td>
                 <td>215,281</td>
                 <td>216,336</td>
+              </tr>
+              <tr>
+                <td>Comet</td>
+                <td>130 s</td>
+                <td>210,190</td>
+                <td>210,688</td>
               </tr>
             </tbody>
           </table>
@@ -403,25 +460,22 @@
             </thead>
             <tbody>
               <tr>
-                <td>Comet</td>
-                <td>1286 s</td>
-                <!-- <td>5.5 GB</td> -->
-                <td>787,541</td>
-                <td>815,261</td>
+                <td>Sage</td>
+                <td>78 s</td>
+                <td>782,049</td>
+                <td>815,548</td>
               </tr>
               <tr>
                 <td>MSFragger</td>
                 <td>221 s</td>
-                <!-- <td>16.9 GB</td> -->
                 <td>777,186</td>
                 <td>795,633</td>
               </tr>
               <tr>
-                <td>Sage</td>
-                <td>78 s</td>
-                <!-- <td>5.6 GB</td> -->
-                <td>782,049</td>
-                <td>815,548</td>
+                <td>Comet</td>
+                <td>1286 s</td>
+                <td>787,541</td>
+                <td>815,261</td>
               </tr>
             </tbody>
           </table>
