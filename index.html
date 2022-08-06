@@ -29,8 +29,8 @@
             ~1500 lines of code, and this is the result!</p> -->
           <p>Here are some of the features (and anti-features) of Sage</p>
           <ul>
-            <li>Super-ultrafast<sup class="footnote-ref"></sup>
-              <aside class="footnote">What? MSFragger already took <i>ultrafast</i></aside>, and light on RAM usage (you
+            <li>Super-<i>ultrafast</i><sup class="footnote-ref"></sup>,
+              <aside class="footnote">What? MSFragger already took <i>ultrafast</i></aside>and light on RAM usage (you
               have 3 GB of RAM, right?)
             </li>
             <li>Small and simple <a href="https://github.com/lazear/sage">codebase</a>, including comments & tests</li>
@@ -40,6 +40,7 @@
             <li>Internal q-value/FDR calculation using target-decoy competition</li>
             <li>Percolator/Mokapot compatible output</li>
             <li>Accepts mzML files as input</li>
+            <li><a href="https://opensource.org/osd">Open Source</a> & Free Software</li>
           </ul>
 
           <p>First, some disclaimers and forewords:</p>
@@ -217,9 +218,9 @@
           On standard searches, Sage absolutely dominates in terms of speed and memory usage - however, MSFragger
           starts to catch up as windows get larger, and is juuuuuust (~25s) behind Sage in a -100 to +500 Da precursor
           search.<sup class="footnote-ref"></sup>
-          <aside class="footnote">I suspect this is largely due to their <a
-              href="https://pubmed.ncbi.nlm.nih.gov/33332123/">fast deisotoping algorithm</a>, since that can
-            significantly reduce the number of fragment peaks in a spectrum</aside> I will let the results speak for
+          <aside class="footnote">Perhaps this is due to their <a
+              href="https://pubmed.ncbi.nlm.nih.gov/33332123/">fast deisotoping algorithm</a>, which is certainly more advanced that 
+            what I have implemented.</aside> I will let the results speak for
           themselves, though!
 
           <div style="margin-top: 1rem">
@@ -381,6 +382,9 @@
             which will reduce the # of possible correct matches to ~1.5M). Here are
             the number of correct PSM identifications:</p>
 
+          <img src="Massive_2.png" class="large"/>
+          <figcaption>Left panel: Distribution of q-values for correctly identified PSMs. Middle panel: I would call this super-ultrafast</figcaption>
+
           <strong>±20 ppm precursor, ±10 ppm fragment window:</strong>
           <table>
             <thead>
@@ -411,21 +415,11 @@
                 <td>Sage</td>
                 <td>78 s</td>
                 <!-- <td>5.6 GB</td> -->
-                <td>769,452</td>
-                <td>806,108</td>
-              </tr>
-              <tr>
-                <td>Sage*</td>
-                <td>83 s</td>
-                <!-- <td>5.7 GB</td> -->
-                <td>778,719</td>
-                <td>821,451</td>
+                <td>782,049</td>
+                <td>815,548</td>
               </tr>
             </tbody>
           </table>
-          <figcaption>*Notably, searching with a -1.2 to 3.6 Da precursor window, rather than -1 to 3 isotope error
-            improved
-            Sage's PSM performance while having minimal impact on resource usage</figcaption>
 
           <p>All of the engines performed within 2% with regards to correct PSM identifications for both the synthetic
             and <i>in vivo</i> spectral libraries</p>
