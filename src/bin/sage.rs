@@ -88,10 +88,10 @@ fn process_mzml_file<P: AsRef<Path>>(
         .into_par_iter()
         .filter(|spec| spec.mz.len() >= search.min_peaks)
         .filter_map(|spec| sp.process(spec))
-        .flat_map(|spec| scorer.score(&spec, search.report_psms))
+        .flat_map(|spec| scorer.score_chimeric(&spec))
         .collect::<Vec<_>>();
 
-    (&mut scores).par_sort_unstable_by(|a, b| b.hyperscore.total_cmp(&a.hyperscore));
+    (&mut scores).par_sort_unstable_by(|a, b| b.delta_matched.total_cmp(&a.delta_matched));
     let passing_psms = assign_q_values(&mut scores);
 
     let mut path = p.as_ref().to_path_buf();

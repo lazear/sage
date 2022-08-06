@@ -1,4 +1,4 @@
-use crate::database::{IndexedDatabase, PeptideIx, Theoretical};
+use crate::database::{binary_search_slice, IndexedDatabase, PeptideIx, Theoretical};
 use crate::ion_series::Kind;
 use crate::mass::{Tolerance, PROTON};
 use crate::spectrum::ProcessedSpectrum;
@@ -18,6 +18,8 @@ struct Score {
 #[derive(Serialize)]
 /// Features of a candidate peptide spectrum match
 pub struct Percolator<'db> {
+    #[serde(skip_serializing)]
+    pub peptide_idx: PeptideIx,
     /// Peptide sequence, including modifications e.g.: NC(+57.021)HK
     pub peptide: String,
     /// Name of *a* protein containing this peptide sequence
@@ -202,6 +204,7 @@ impl<'db> Scorer<'db> {
 
             let peptide = self.db[better.peptide].peptide();
             reporting.push(Percolator {
+                peptide_idx: better.peptide,
                 peptide: peptide.to_string(),
                 proteins: &peptide.protein,
                 specid: 0,
@@ -224,6 +227,55 @@ impl<'db> Scorer<'db> {
             })
         }
         reporting
+    }
+
+    /// Return 2 PSMs for each spectra - first is the best match, second PSM is the best match
+    /// after all theoretical peaks assigned to the best match are removed
+    pub fn score_chimeric(&self, query: &ProcessedSpectrum) -> Vec<Percolator<'db>> {
+        let mut scores = self.score(query, 1);
+        if scores.is_empty() {
+            return scores;
+        }
+
+        let best = &scores[0];
+        let mut subtracted = ProcessedSpectrum {
+            scan: query.scan,
+            monoisotopic_mass: query.monoisotopic_mass,
+            charge: query.charge,
+            rt: query.rt,
+            peaks: Vec::new(),
+        };
+
+        let peptide = &self.db[best.peptide_idx];
+
+        let mut theo = [Kind::B, Kind::Y]
+            .iter()
+            .flat_map(|kind| {
+                crate::ion_series::IonSeries::new(peptide.peptide(), *kind).map(|ion| Theoretical {
+                    peptide_index: PeptideIx(0),
+                    fragment_mz: ion.monoisotopic_mass,
+                    kind: ion.kind,
+                })
+            })
+            .collect::<Vec<_>>();
+        theo.sort_unstable_by(|a, b| a.fragment_mz.total_cmp(&b.fragment_mz));
+
+        for peak in &query.peaks {
+            let (low, high) = self.fragment_tol.bounds(peak.mass);
+            let slice = binary_search_slice(&theo, |a, x| a.fragment_mz.total_cmp(x), low, high);
+            let mut allow = true;
+            for frag in &theo[slice.0..slice.1] {
+                if frag.fragment_mz >= low && frag.fragment_mz <= high {
+                    allow = false;
+                }
+            }
+            if allow {
+                subtracted.peaks.push(*peak);
+            }
+        }
+
+        scores.extend(self.score(&subtracted, 1));
+        scores
     }
 }
 

@@ -1,14 +1,14 @@
 use crate::mass::{Tolerance, NEUTRON, PROTON};
 
 /// A charge-less peak at monoisotopic mass
-#[derive(PartialEq, PartialOrd, Clone, Default, Debug)]
+#[derive(PartialEq, PartialOrd, Copy, Clone, Default, Debug)]
 pub struct Peak {
     pub mass: f32,
     pub intensity: f32,
 }
 
 /// A de-isotoped peak, that might have some charge state information
-#[derive(PartialEq, PartialOrd, Debug)]
+#[derive(PartialEq, PartialOrd, Debug, Copy, Clone)]
 struct Deisotoped {
     mz: f32,
     intensity: f32,
