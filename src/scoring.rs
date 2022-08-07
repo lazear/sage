@@ -22,6 +22,8 @@ pub struct Percolator<'db> {
     pub peptide_idx: PeptideIx,
     /// Peptide sequence, including modifications e.g.: NC(+57.021)HK
     pub peptide: String,
+    /// Peptide length
+    pub peptide_len: usize,
     /// Name of *a* protein containing this peptide sequence
     pub proteins: &'db str,
     /// Arbitrary spectrum id
@@ -48,13 +50,10 @@ pub struct Percolator<'db> {
     pub matched_peaks: u32,
     /// Fraction of matched MS2 intensity
     pub matched_intensity_pct: f32,
-    /// Difference between # of matched peaks for this candidate,
-    /// and the # of matched peaks for the average candidate
-    pub delta_matched: f32,
     /// Number of scored candidates for this spectrum
     pub scored_candidates: usize,
-    /// Estimated spectrum z score using hyperscore
-    pub spectrum_z_score: f32,
+    /// Probability of matching N peaks across all candidates
+    pub poisson: f32,
     /// Assigned q_value
     pub q_value: f32,
 }
@@ -141,8 +140,12 @@ impl<'db> Scorer<'db> {
 
         let mut total_intensity = 0.0;
         let mut matches = 0;
+        let mut summed_mz_range = 0.0;
         for peak in query.peaks.iter() {
             total_intensity += peak.intensity;
+
+            let (lo, hi) = self.fragment_tol.bounds(peak.mass);
+            summed_mz_range += hi - lo;
             for frag in candidates.page_search(peak.mass) {
                 let idx = frag.peptide_index.0 as usize - candidates.pre_idx_lo;
                 let mut sc = score_vector[idx].take().unwrap_or_else(|| Score::new(frag));
@@ -181,14 +184,9 @@ impl<'db> Scorer<'db> {
 
         scores.sort_unstable_by(|b, a| a.hyperscore.total_cmp(&b.hyperscore));
 
-        // Calculate median & std deviation of hyperscores
-        let median = scores[scores.len() / 2].hyperscore;
-        let mut sd = scores
-            .iter()
-            .fold(0.0f32, |sum, x| sum + (x.hyperscore - median).powi(2));
-        sd = (sd / scores.len().saturating_sub(1) as f32).sqrt();
-
         let mut reporting = Vec::new();
+
+        let lambda = matches as f32 / scores.len() as f32;
 
         for idx in 0..report_psms.min(scores.len()) {
             let better = scores[idx];
@@ -197,15 +195,17 @@ impl<'db> Scorer<'db> {
                 .map(|score| score.hyperscore)
                 .unwrap_or_default();
 
-            let z_score = match sd.is_finite() && sd > 0.0 {
-                true => (better.hyperscore - median) / sd,
-                false => 0.1,
-            };
-
             let peptide = self.db[better.peptide].peptide();
+            let k = (better.matched_b + better.matched_y) as usize;
+
+            // Poisson distribution probability mass function
+            let poisson = lambda.powi(k as i32) * f32::exp(-lambda)
+                / self.factorial[k.min(self.factorial.len() - 1)];
+
             reporting.push(Percolator {
                 peptide_idx: better.peptide,
                 peptide: peptide.to_string(),
+                peptide_len: peptide.sequence.len(),
                 proteins: &peptide.protein,
                 specid: 0,
                 scannr: query.scan,
@@ -217,12 +217,10 @@ impl<'db> Scorer<'db> {
                 delta_mass: (query.monoisotopic_mass - peptide.monoisotopic).abs(),
                 hyperscore: better.hyperscore,
                 delta_hyperscore: better.hyperscore - next,
-                matched_peaks: (better.matched_b + better.matched_y) as u32,
+                matched_peaks: k as u32,
                 matched_intensity_pct: (better.summed_b + better.summed_y) / total_intensity,
-                delta_matched: (better.matched_b + better.matched_y) as f32
-                    / (matches as f32 / scores.len() as f32),
+                poisson,
                 scored_candidates: scores.len(),
-                spectrum_z_score: z_score,
                 q_value: 1.0,
             })
         }
@@ -239,11 +237,9 @@ impl<'db> Scorer<'db> {
 
         let best = &scores[0];
         let mut subtracted = ProcessedSpectrum {
-            scan: query.scan,
-            monoisotopic_mass: query.monoisotopic_mass,
-            charge: query.charge,
-            rt: query.rt,
+            monoisotopic_mass: query.monoisotopic_mass + 0.005,
             peaks: Vec::new(),
+            ..*query
         };
 
         let peptide = &self.db[best.peptide_idx];
