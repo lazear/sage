@@ -15,6 +15,19 @@ struct Score {
     hyperscore: f32,
 }
 
+impl Default for Score {
+    fn default() -> Self {
+        Self {
+            peptide: PeptideIx(u32::MAX),
+            matched_b: Default::default(),
+            matched_y: Default::default(),
+            summed_b: Default::default(),
+            summed_y: Default::default(),
+            hyperscore: Default::default(),
+        }
+    }
+}
+
 #[derive(Serialize)]
 /// Features of a candidate peptide spectrum match
 pub struct Percolator<'db> {
@@ -48,11 +61,15 @@ pub struct Percolator<'db> {
     pub delta_hyperscore: f32,
     /// Number of matched theoretical fragment ions
     pub matched_peaks: u32,
+    /// Longest b-ion series
+    pub longest_b: usize,
+    /// Longest y-ion series
+    pub longest_y: usize,
     /// Fraction of matched MS2 intensity
     pub matched_intensity_pct: f32,
     /// Number of scored candidates for this spectrum
     pub scored_candidates: usize,
-    /// Probability of matching N peaks across all candidates
+    /// Probability of matching exactly N peaks across all candidates Pr(x=k)
     pub poisson: f32,
     /// Assigned q_value
     pub q_value: f32,
@@ -71,17 +88,6 @@ impl Score {
             score
         } else {
             f32::MAX
-        }
-    }
-
-    pub fn new(peptide: &Theoretical) -> Self {
-        Score {
-            peptide: peptide.peptide_index,
-            matched_b: 0,
-            matched_y: 0,
-            summed_b: 0.0,
-            summed_y: 0.0,
-            hyperscore: 0.0,
         }
     }
 }
@@ -150,19 +156,17 @@ impl<'db> Scorer<'db> {
         // Allocate space for all potential candidates - many potential candidates
         // will not have fragments matched, so we use `Option<Score>`
         let potential = candidates.pre_idx_hi - candidates.pre_idx_lo + 1;
-        let mut score_vector: Vec<Option<Score>> = vec![None; potential];
+        let mut score_vector: Vec<Score> = vec![Score::default(); potential];
 
         let mut total_intensity = 0.0;
         let mut matches = 0;
-        let mut summed_mz_range = 0.0;
         for peak in query.peaks.iter() {
             total_intensity += peak.intensity;
 
-            let (lo, hi) = self.fragment_tol.bounds(peak.mass);
-            summed_mz_range += hi - lo;
             for frag in candidates.page_search(peak.mass) {
                 let idx = frag.peptide_index.0 as usize - candidates.pre_idx_lo;
-                let mut sc = score_vector[idx].take().unwrap_or_else(|| Score::new(frag));
+                let mut sc = &mut score_vector[idx];
+                sc.peptide = frag.peptide_index;
 
                 match frag.kind {
                     Kind::B => {
@@ -175,7 +179,6 @@ impl<'db> Scorer<'db> {
                     }
                 }
 
-                score_vector[idx] = Some(sc);
                 matches += 1;
             }
         }
@@ -184,27 +187,41 @@ impl<'db> Scorer<'db> {
             return Vec::new();
         }
 
-        // Now that we have processed all candidates, calculate the hyperscore
-        let mut scores = score_vector
-            .into_iter()
-            .filter_map(|s| match s {
-                Some(mut sc) => {
-                    sc.hyperscore = sc.hyperscore(&self.factorial);
-                    Some(sc)
-                }
-                None => None,
-            })
-            .collect::<Vec<_>>();
+        // Calculating hyperscore is expensive, and if we have 1500 candidates but only report 1 ...
+        // we can probably get away with a fast approximation. Hyperscore & final poisson PMF are dominated by
+        // the number of matched peaks - ideally the best spectrum will be a clear winner.
+        // Sort our scores highest # of matched peaks to lowest, then eliminate all candidates with no matched peaks
+        // Performance profiling showed that we spend about 10% of runtime just calculating hyperscore for all matches
+        score_vector
+            .sort_unstable_by(|a, b| (b.matched_b + b.matched_y).cmp(&(a.matched_b + a.matched_y)));
+        let idx = score_vector
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s.matched_b + s.matched_y == 0)
+            .map(|(i, _)| i)
+            .next()
+            .unwrap_or(score_vector.len());
 
-        scores.sort_unstable_by(|b, a| a.hyperscore.total_cmp(&b.hyperscore));
+        score_vector.truncate(idx);
+        let n = score_vector.len();
+
+        // Calculate hyperscore for at least 50 hits (or 2x number of reported PSMs)
+        // then sort that chunk of the vector - we will never actually look at the rest anyway!
+        let actually_calculate = 50.max(report_psms * 2).min(n);
+
+        for i in 0..actually_calculate {
+            score_vector[i].hyperscore = score_vector[i].hyperscore(&self.factorial);
+        }
+        score_vector[..actually_calculate]
+            .sort_unstable_by(|a, b| b.hyperscore.total_cmp(&a.hyperscore));
 
         let mut reporting = Vec::new();
 
-        let lambda = matches as f32 / scores.len() as f32;
+        let lambda = matches as f32 / score_vector.len() as f32;
 
-        for idx in 0..report_psms.min(scores.len()) {
-            let better = scores[idx];
-            let next = scores
+        for idx in 0..report_psms.min(score_vector.len()) {
+            let better = score_vector[idx];
+            let next = score_vector
                 .get(idx + 1)
                 .map(|score| score.hyperscore)
                 .unwrap_or_default();
@@ -216,9 +233,7 @@ impl<'db> Scorer<'db> {
             let poisson = lambda.powi(k as i32) * f32::exp(-lambda)
                 / self.factorial[k.min(self.factorial.len() - 1)];
 
-            // bonferroni correction
-            let eval = (poisson * scores.len() as f32).min(1.0);
-
+            let (b, y) = self.rescore(query, peptide);
             reporting.push(Percolator {
                 peptide_idx: better.peptide,
                 peptide: peptide.to_string(),
@@ -236,8 +251,10 @@ impl<'db> Scorer<'db> {
                 delta_hyperscore: better.hyperscore - next,
                 matched_peaks: k as u32,
                 matched_intensity_pct: (better.summed_b + better.summed_y) / total_intensity,
-                poisson: eval,
-                scored_candidates: scores.len(),
+                poisson,
+                longest_b: b,
+                longest_y: y,
+                scored_candidates: n,
                 q_value: 1.0,
             })
         }
@@ -289,6 +306,55 @@ impl<'db> Scorer<'db> {
 
         scores.extend(self.score_standard(&subtracted, 1));
         scores
+    }
+
+    /// Calculate the longest continous chain of B or Y fragment ions
+    fn longest_series(&self, mz: &[f32], kind: Kind, peptide: &crate::peptide::Peptide) -> usize {
+        let mut current_start = mz.len();
+        let mut run = 0;
+        let mut longest_run = 0;
+        for (idx, frag) in crate::ion_series::IonSeries::new(peptide, kind)
+            .map(|ion| Theoretical {
+                peptide_index: PeptideIx(0),
+                fragment_mz: ion.monoisotopic_mass,
+                kind: ion.kind,
+            })
+            .enumerate()
+        {
+            let (lo, hi) = self.precursor_tol.bounds(frag.fragment_mz);
+            let window = binary_search_slice(&mz, |a, b| a.total_cmp(b), lo, hi);
+            if mz[window.0..window.1]
+                .iter()
+                .filter(|&mz| *mz >= lo && *mz <= hi)
+                .count()
+                > 0
+            {
+                run += 1;
+                if current_start + run == idx {
+                    longest_run = longest_run.max(run);
+                    continue;
+                }
+            }
+            current_start = idx;
+            run = 0;
+        }
+
+        longest_run
+    }
+
+    /// Rescore a candidate peptide selected for final reporting:
+    /// calculate the longest (b, y) continous fragment ion series
+    fn rescore(
+        &self,
+        query: &ProcessedSpectrum,
+        candidate: &crate::peptide::Peptide,
+    ) -> (usize, usize) {
+        let mut mz = query.peaks.iter().map(|peak| peak.mass).collect::<Vec<_>>();
+        mz.sort_unstable_by(|a, b| a.total_cmp(&b));
+
+        let b = self.longest_series(&mz, Kind::B, candidate);
+        let y = self.longest_series(&mz, Kind::Y, candidate);
+        (b, y)
     }
 }
 

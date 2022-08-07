@@ -102,7 +102,7 @@ impl SpectrumProcessor {
                     .zip(s.intensity.iter())
                     .map(|(mz, int)| Deisotoped {
                         mz: *mz,
-                        intensity: int.sqrt(),
+                        intensity: *int,
                         charge: None,
                         envelope: false,
                     })
