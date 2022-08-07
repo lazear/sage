@@ -35,6 +35,7 @@
             </li>
             <li>Small and simple <a href="https://github.com/lazear/sage">codebase</a>, including comments & tests</li>
             <li>Fragment based search</li>
+            <li>Can assign multiple peptides to a single spectrum (chimeric spectra)</li>
             <li>Configuration by JSON files</li>
             <li>X!Tandem hyperscore function</li>
             <li>Internal q-value/FDR calculation using target-decoy competition</li>
@@ -229,7 +230,7 @@
           similar
           performance - however, this is where Rust really shines!
           On standard searches, Sage absolutely dominates in terms of speed and memory usage - however, MSFragger
-          starts to catch up as windows get larger, and is juust (~35s) behind Sage in a -100 to +500 Da precursor
+          starts to catch up as windows get larger, and is only 22% slower than Sage in a -100 to +500 Da precursor
           search.<sup class="footnote-ref"></sup>
           <aside class="footnote">Perhaps this is due to their <a href="https://pubmed.ncbi.nlm.nih.gov/33332123/">fast
               deisotoping algorithm</a>, which is certainly more advanced that
@@ -257,8 +258,7 @@
               <li>
 
                 Post search FDR refinement was performed using Will Fondrie's excellent <a
-                  href="https://github.com/wfondrie/mokapot">Mokapot</a> tool - Sage's default scoring function performs
-                quite well for FDR calculation; Mokapot generally only improves PSM counts by ~2% for Sage.
+                  href="https://github.com/wfondrie/mokapot">Mokapot</a> tool
               </li>
 
               <li>In general, I stuck to default search parameters/workflows for Comet & MSFragger, where possible -
@@ -349,20 +349,17 @@
             </tbody>
           </table>
           <figcaption>† plus licensing fee, presumably<br>
-            ‡ necessitates the use of a wider precursor window (-1.2 to 1.2 Da in this case). Without chimeric
-            searching, this same window yields 101,488 PSMs at 1% FDR<br>
             <sup>#</sup> benchmarking terminated after first file due to
-            cost, results
-            are estimates<br>
+            cost, time is extrapolated
           </figcaption>
 
 
 
           For a proteomics experiment, performance isn't everything... peptide-spectrum matches are! Sage also
           exhibits very good PSM
-          identification rates and identity overlap when compared against both Comet and MSFragger
+          identification rates and identity overlap when compared against both Comet and MSFragger<br>
 
-          <img src="venn.png" />
+          <img src="venn.png" width="80%"/>
           <figcaption>PSM identity overlap from Mokapot results
           </figcaption>
 
@@ -385,7 +382,7 @@
           You'll note that Comet isn't in this graph - I don't think there's any point in benchmarking it, timewise, and
           it also doesn't seem amenable to doing a non-symmetrical precursor window.
           <img src="500_search.png" class="large" />
-          <figcaption>MSFragger widens it's lead as the precursor windows get wider - we are still a bit faster though
+          <figcaption>MSFragger widens it's lead as the precursor windows get wider - we are still faster though
             :)</figcaption>
 
 
@@ -401,8 +398,8 @@
             <tbody>
               <tr>
                 <td>Sage</td>
-                <td>155 s</td>
-                <td>24,415</td>
+                <td>145 s</td>
+                <td>24,178</td>
               </tr>
               <tr>
                 <td>MSFragger</td>
@@ -411,8 +408,8 @@
               </tr>
               <tr>
                 <td><a href="#chimera">Sage Chimera</a></td>
-                <td>285 s</td>
-                <td><strong>26,946</strong></td>
+                <td>245 s</td>
+                <td><strong>26,822</strong></td>
               </tr>
             </tbody>
           </table>
@@ -558,8 +555,8 @@
             performant software a breeze, especially with fantastic packages like Rayon! If you haven't given it a try,
             I highly recommend it.
           </p>
-          <p>To wrap things up, I will concede that MSFragger is indeed "ultrafast", and has much better PSM
-            identification at the widest open windows - I think there is room for improvement for Sage here.
+          <p>To wrap things up, I will concede that MSFragger is indeed "ultrafast", and has better PSM
+            identification at the widest open windows - unless you turn on chimeric search!
             Until then, I recommend continuing to use MSFragger if you're doing wide-open searches.<sup
               class="footnote-ref"></sup>
           <aside class="footnote">
