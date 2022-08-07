@@ -1,5 +1,5 @@
 use clap::{Arg, Command};
-use log::info;
+use log::{info, warn};
 use rayon::prelude::*;
 use sage::mass::Tolerance;
 use sage::scoring::{assign_q_values, Scorer};
@@ -15,6 +15,8 @@ struct Search {
     precursor_tol: Tolerance,
     fragment_tol: Tolerance,
     isotope_errors: (i8, i8),
+    deisotope: bool,
+    chimera: bool,
     min_peaks: usize,
     max_peaks: usize,
     report_psms: usize,
@@ -34,9 +36,11 @@ struct Input {
     precursor_tol: Tolerance,
     fragment_tol: Tolerance,
     report_psms: Option<usize>,
+    chimera: Option<bool>,
     min_peaks: Option<usize>,
     max_peaks: Option<usize>,
     isotope_errors: Option<(i8, i8)>,
+    deisotope: Option<bool>,
     process_files_parallel: Option<bool>,
     output_directory: Option<PathBuf>,
     mzml_paths: Vec<PathBuf>,
@@ -59,6 +63,8 @@ impl Search {
             max_peaks: request.max_peaks.unwrap_or(150),
             min_peaks: request.min_peaks.unwrap_or(15),
             isotope_errors: request.isotope_errors.unwrap_or((0, 0)),
+            deisotope: request.deisotope.unwrap_or(true),
+            chimera: request.chimera.unwrap_or(false),
             pin_paths: Vec::new(),
             mzml_paths: request.mzml_paths,
             process_files_parallel: request.process_files_parallel.unwrap_or(true),
@@ -73,7 +79,11 @@ fn process_mzml_file<P: AsRef<Path>>(
     search: &Search,
     scorer: &Scorer,
 ) -> Result<PathBuf, Box<dyn std::error::Error + Send + Sync + 'static>> {
-    let sp = SpectrumProcessor::new(search.max_peaks, search.database.fragment_max_mz);
+    let sp = SpectrumProcessor::new(
+        search.max_peaks,
+        search.database.fragment_max_mz,
+        search.deisotope,
+    );
 
     if p.as_ref()
         .extension()
@@ -88,7 +98,6 @@ fn process_mzml_file<P: AsRef<Path>>(
         .into_par_iter()
         .filter(|spec| spec.mz.len() >= search.min_peaks)
         .filter_map(|spec| sp.process(spec))
-        // .flat_map(|spec| scorer.score_chimeric(&spec))
         .flat_map(|spec| scorer.score(&spec, search.report_psms))
         .collect::<Vec<_>>();
 
@@ -147,12 +156,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         (Instant::now() - start).as_millis()
     );
 
+    let precursor_tol = if search.chimera && search.isotope_errors.1 < 1 {
+        match search.precursor_tol {
+            Tolerance::Ppm(_, _) => {
+                warn!("chimeric search turned on, but provided precursor window is less than 2.5 Da wide - overriding");
+                Tolerance::Da(-1.25, 1.25)
+            }
+            Tolerance::Da(lo, hi) => {
+                if lo > -1.25 || hi < 1.25 {
+                    warn!("chimeric search turned on, but provided precursor window is less than 2.5 Da wide - overriding")
+                }
+                Tolerance::Da(lo.min(-1.25), hi.max(1.25))
+            }
+        }
+    } else {
+        search.precursor_tol
+    };
+
+    if search.chimera && search.report_psms != 1 {
+        warn!("chimeric search turned on, but report_psms is not 1 - overriding");
+    }
+
     let scorer = Scorer::new(
         &db,
-        search.precursor_tol,
+        precursor_tol,
         search.fragment_tol,
         search.isotope_errors.0,
         search.isotope_errors.1,
+        search.chimera,
     );
 
     let output_paths = match search.process_files_parallel {

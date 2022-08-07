@@ -93,6 +93,7 @@ pub struct Scorer<'db> {
     min_isotope_err: i8,
     max_isotope_err: i8,
     factorial: [f32; 32],
+    chimera: bool,
 }
 
 impl<'db> Scorer<'db> {
@@ -102,6 +103,7 @@ impl<'db> Scorer<'db> {
         fragment_tol: Tolerance,
         min_isotope_err: i8,
         max_isotope_err: i8,
+        chimera: bool,
     ) -> Self {
         let mut factorial = [1.0f32; 32];
         for i in 1..32 {
@@ -118,11 +120,23 @@ impl<'db> Scorer<'db> {
             min_isotope_err,
             max_isotope_err,
             factorial,
+            chimera,
+        }
+    }
+
+    pub fn score(&self, query: &ProcessedSpectrum, report_psms: usize) -> Vec<Percolator> {
+        match self.chimera {
+            true => self.score_chimera(query),
+            false => self.score_standard(query, report_psms),
         }
     }
 
     /// Score a single [`ProcessedSpectrum`] against the database
-    pub fn score(&self, query: &ProcessedSpectrum, report_psms: usize) -> Vec<Percolator<'db>> {
+    pub fn score_standard(
+        &self,
+        query: &ProcessedSpectrum,
+        report_psms: usize,
+    ) -> Vec<Percolator<'db>> {
         // Create a new `IndexedQuery`
 
         let candidates = self.db.query(
@@ -202,6 +216,9 @@ impl<'db> Scorer<'db> {
             let poisson = lambda.powi(k as i32) * f32::exp(-lambda)
                 / self.factorial[k.min(self.factorial.len() - 1)];
 
+            // bonferroni correction
+            let eval = (poisson * scores.len() as f32).min(1.0);
+
             reporting.push(Percolator {
                 peptide_idx: better.peptide,
                 peptide: peptide.to_string(),
@@ -219,7 +236,7 @@ impl<'db> Scorer<'db> {
                 delta_hyperscore: better.hyperscore - next,
                 matched_peaks: k as u32,
                 matched_intensity_pct: (better.summed_b + better.summed_y) / total_intensity,
-                poisson,
+                poisson: eval,
                 scored_candidates: scores.len(),
                 q_value: 1.0,
             })
@@ -229,8 +246,8 @@ impl<'db> Scorer<'db> {
 
     /// Return 2 PSMs for each spectra - first is the best match, second PSM is the best match
     /// after all theoretical peaks assigned to the best match are removed
-    pub fn score_chimeric(&self, query: &ProcessedSpectrum) -> Vec<Percolator<'db>> {
-        let mut scores = self.score(query, 1);
+    pub fn score_chimera(&self, query: &ProcessedSpectrum) -> Vec<Percolator<'db>> {
+        let mut scores = self.score_standard(query, 1);
         if scores.is_empty() {
             return scores;
         }
@@ -270,7 +287,7 @@ impl<'db> Scorer<'db> {
             }
         }
 
-        scores.extend(self.score(&subtracted, 1));
+        scores.extend(self.score_standard(&subtracted, 1));
         scores
     }
 }

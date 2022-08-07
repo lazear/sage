@@ -19,6 +19,7 @@ struct Deisotoped {
 pub struct SpectrumProcessor {
     take_top_n: usize,
     max_fragment_mz: f32,
+    deisotope: bool,
 }
 
 #[derive(Clone, Default, Debug)]
@@ -31,10 +32,11 @@ pub struct ProcessedSpectrum {
 }
 
 impl SpectrumProcessor {
-    pub fn new(take_top_n: usize, max_fragment_mz: f32) -> Self {
+    pub fn new(take_top_n: usize, max_fragment_mz: f32, deisotope: bool) -> Self {
         Self {
             take_top_n,
             max_fragment_mz,
+            deisotope,
         }
     }
 
@@ -93,7 +95,20 @@ impl SpectrumProcessor {
 
         let charge = s.precursor_charge.unwrap_or(2).saturating_sub(1).max(1);
 
-        let mut peaks = Self::deisotope(&s.mz, &s.intensity, charge, 5.0);
+        let mut peaks = match self.deisotope {
+            true => Self::deisotope(&s.mz, &s.intensity, charge, 5.0),
+            false => {
+                s.mz.iter()
+                    .zip(s.intensity.iter())
+                    .map(|(mz, int)| Deisotoped {
+                        mz: *mz,
+                        intensity: int.sqrt(),
+                        charge: None,
+                        envelope: false,
+                    })
+                    .collect()
+            }
+        };
 
         peaks.sort_unstable_by(|a, b| b.intensity.total_cmp(&a.intensity));
 
