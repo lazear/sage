@@ -85,7 +85,7 @@ report_alternative_proteins = 1			# Report alternative proteins for peptides tha
 precursor_charge = 1 4			# Assumed range of potential precursor charge states. Only relevant when override_charge is set to 1.
 override_charge = 0			# Ignores precursor charge and uses charge state specified in precursor_charge range (0 or 1).
 
-digest_min_length = 7			# Minimum length of peptides to be generated during in-silico digestion.
+digest_min_length = 5			# Minimum length of peptides to be generated during in-silico digestion.
 digest_max_length = 50			# Maximum length of peptides to be generated during in-silico digestion.
 digest_mass_range = 500.0 5000.0			# Mass range of peptides to be generated during in-silico digestion in Daltons.
 max_fragment_charge = 2			# Maximum charge state for theoretical fragments to match (1-4).

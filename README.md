@@ -2,29 +2,34 @@
 
 [![Rust](https://github.com/lazear/sage/actions/workflows/rust.yml/badge.svg)](https://github.com/lazear/sage/actions/workflows/rust.yml)
 
-<img src="figures/TMT_Panel.png" width="800">
+Check out the [blog post](https://lazear.github.io/sage/) for more information and full benchmarks!
 
-I wanted to see how far I could take a proteomics search engine in ~1000 lines of code, and spending a little more than a weekend on it. 
+<img src="figures/TMT_Panel.png" width="800">
 
 I was inspired by the elegant data structure discussed in the [MSFragger paper](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5409104/), and decided to implement an (open source) version of it in Rust - with great results.
 
-Sage has excellent performance characteristics (5-10x faster, 2-3x reduction in memory use compared to - the closed source - MSFragger), but does not sacrifice code quality or size to do so!
-- MSFragger can still come out on top time-wise during wider open searchs (>250 Da window) due to deisotoping (Sage does not yet have de-isotoping, which is a massive performance hit)
+Sage has excellent performance characteristics (2-5x faster, 2-3x reduction in memory use compared to - the closed source - MSFragger), but does not sacrifice code quality or size to do so!
  
 ## Features & Anti-Features
 
-- Search by fragment, filter by precursor: blazing fast performance
+- Incredible performance out of the box
+- Fragment index search
+- Assign chimeric spectra
 - Effortlessly cross-platform, effortlessly parallel
-  - Performance on wider searches appears to be significantly better on Unix systems (potentially a Rayon issue)
 - Small and simple codebase
 - Configuration by JSON files
 - X!Tandem hyperscore function
 - Internal q-value/FDR calculation using a target-decoy competition approach
-- Percolator/mokapot compatible output
+- Percolator/Mokapot compatible output
 - Unsafe free
 - Only uses mzML files
 - Only Percolator PIN output
 - Only outputs 1 protein ID even if the peptide is shared by multiple proteins
+
+
+<img src="figures/chimera_27525.png" width="800">
+
+Assign multiple peptides to complex spectra
 
 # Usage 
 
@@ -51,7 +56,7 @@ Performance results: (c5ad.8xlarge, 32 vCPUs)
 ### Search methods
 
 - mzML files generated using the [ProteoWizard MSConvert tool](http://www.proteowizard.org/download.html)
-- MSFragger and Comet were configured with analogous parameters (+/- 1.25 Da precursor tolerance, +/- 10 ppm fragment tolerance - or for Comet setting `fragment_bin_tol` to 0.02 Da).
+- MSFragger and Comet were configured with analogous parameters (+/- 20 ppm precursor tolerance, +/- 10 ppm fragment tolerance - or for Comet setting `fragment_bin_tol` to 0.02 Da).
 - [Mokapot](https://github.com/wfondrie/mokapot) was then used to refine FDR for all search results
 - Parameter files for all engines can be found in the `figures/benchmark_params` folder!
 - All searches for benchmarking were run on an c5ad.8xlarge (32 vCPU, 64 GB RAM, NVMe drives) EC2 instance
@@ -72,7 +77,7 @@ Sage search settings file:
       "C": 57.0215
     },
     "decoy_prefix": "rev_",
-    "fasta": "tests/2022-07-23-decoys-reviewed-UP000005640.fas"
+    "fasta": "2022-07-23-decoys-reviewed-UP000005640.fas"
   },
   "precursor_tol": {
     "ppm": [-20, 20]
@@ -85,21 +90,22 @@ Sage search settings file:
     3
   ],
   "report_psms": 1,
-  "max_fragment_charge": 3,
+  "chimera": false,
+  "deisotope": true,
   "process_files_parallel": true,
   "mzml_paths": [
-    "./tests/tmt_raw/dq_00082_11cell_90min_hrMS2_A1.mzML",
-    "./tests/tmt_raw/dq_00083_11cell_90min_hrMS2_A3.mzML",
-    "./tests/tmt_raw/dq_00084_11cell_90min_hrMS2_A5.mzML",
-    "./tests/tmt_raw/dq_00085_11cell_90min_hrMS2_A7.mzML",
-    "./tests/tmt_raw/dq_00086_11cell_90min_hrMS2_A9.mzML",
-    "./tests/tmt_raw/dq_00087_11cell_90min_hrMS2_A11.mzML",
-    "./tests/tmt_raw/dq_00088_11cell_90min_hrMS2_B1.mzML",
-    "./tests/tmt_raw/dq_00089_11cell_90min_hrMS2_B3.mzML",
-    "./tests/tmt_raw/dq_00090_11cell_90min_hrMS2_B5.mzML",
-    "./tests/tmt_raw/dq_00091_11cell_90min_hrMS2_B7.mzML",
-    "./tests/tmt_raw/dq_00092_11cell_90min_hrMS2_B9.mzML",
-    "./tests/tmt_raw/dq_00093_11cell_90min_hrMS2_B11.mzML"
+    "dq_00082_11cell_90min_hrMS2_A1.mzML",
+    "dq_00083_11cell_90min_hrMS2_A3.mzML",
+    "dq_00084_11cell_90min_hrMS2_A5.mzML",
+    "dq_00085_11cell_90min_hrMS2_A7.mzML",
+    "dq_00086_11cell_90min_hrMS2_A9.mzML",
+    "dq_00087_11cell_90min_hrMS2_A11.mzML",
+    "dq_00088_11cell_90min_hrMS2_B1.mzML",
+    "dq_00089_11cell_90min_hrMS2_B3.mzML",
+    "dq_00090_11cell_90min_hrMS2_B5.mzML",
+    "dq_00091_11cell_90min_hrMS2_B7.mzML",
+    "dq_00092_11cell_90min_hrMS2_B9.mzML",
+    "dq_00093_11cell_90min_hrMS2_B11.mzML"
   ]
 }
 ```
