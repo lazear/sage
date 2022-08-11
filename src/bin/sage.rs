@@ -95,8 +95,10 @@ fn process_mzml_file<P: AsRef<Path>>(
         panic!("expecting .mzML files as input!")
     }
 
-    let mut scores = sage::mzml::MzMlReader::read_ms2(&p)?
-        .into_par_iter()
+    let spectra = sage::mzml::MzMlReader::read(&p)?;
+    // let mut scores = sage::mzml::MzMlReader::read_ms2(&p)?
+    let mut scores = spectra
+        .par_iter()
         .filter(|spec| spec.mz.len() >= search.min_peaks)
         .filter_map(|spec| sp.process(spec))
         .flat_map(|spec| scorer.score(&spec, search.report_psms))
@@ -137,6 +139,52 @@ fn process_mzml_file<P: AsRef<Path>>(
         total_psms,
         passing_psms,
     );
+    Ok(path)
+}
+
+fn process_mzml_file_sps<P: AsRef<Path>>(
+    p: P,
+    search: &Search,
+    scorer: &Scorer,
+) -> Result<PathBuf, Box<dyn std::error::Error + Send + Sync + 'static>> {
+    let sp = SpectrumProcessor::new(
+        search.max_peaks,
+        search.database.fragment_min_mz,
+        search.database.fragment_max_mz,
+        search.deisotope,
+    );
+
+    if p.as_ref()
+        .extension()
+        .expect("expecting .mzML files as input!")
+        .to_ascii_lowercase()
+        != "mzml"
+    {
+        panic!("expecting .mzML files as input!")
+    }
+
+    let spectra = sage::mzml::MzMlReader::read(&p)?;
+    // let mut scores = sage::mzml::MzMlReader::read_ms2(&p)?
+    // let mut scores = spectra
+    // .par_iter()
+    // .filter(|spec| spec.mz.len() >= search.min_peaks)
+    // .filter_map(|spec| sp.process(spec))
+    // .flat_map(|spec| scorer.score(&spec, search.report_psms))
+    // .collect::<Vec<_>>();
+    let mut bad_scans = 0;
+    let mut total_scans = 0;
+    for spectrum in &spectra {
+        if spectrum.ms_level == 3 {
+            let r = scorer.calculate_sps_purity(&sp, &spectra, &spectrum);
+            total_scans += 1;
+        }
+    }
+
+    eprintln!("{} {}", bad_scans, total_scans);
+
+    let mut path = p.as_ref().to_path_buf();
+    path.set_extension("sage.pin");
+
     Ok(path)
 }
 
@@ -203,7 +251,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         false => search
             .mzml_paths
             .iter()
-            .map(|ms2_path| process_mzml_file(ms2_path, &search, &scorer))
+            .map(|ms2_path| process_mzml_file_sps(ms2_path, &search, &scorer))
             .collect::<Vec<_>>(),
     };
 

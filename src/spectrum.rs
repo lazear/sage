@@ -9,11 +9,14 @@ pub struct Peak {
 
 /// A de-isotoped peak, that might have some charge state information
 #[derive(PartialEq, PartialOrd, Debug, Copy, Clone)]
-struct Deisotoped {
-    mz: f32,
-    intensity: f32,
-    charge: Option<u8>,
-    envelope: bool,
+pub struct Deisotoped {
+    pub mz: f32,
+    // Cumulative intensity of all isotopic peaks in the envelope higher than this one
+    pub intensity: f32,
+    // Assigned charge
+    pub charge: Option<u8>,
+    // If `Some(idx)`, idx is the index of the parent isotopic envelope
+    pub envelope: Option<usize>,
 }
 
 pub struct SpectrumProcessor {
@@ -32,6 +35,62 @@ pub struct ProcessedSpectrum {
     pub peaks: Vec<Peak>,
 }
 
+/// Deisotope a set of peaks by attempting to find C13 peaks under a given `ppm` tolerance
+pub fn deisotope(mz: &[f32], int: &[f32], max_charge: u8, ppm: f32) -> Vec<Deisotoped> {
+    let mut peaks = mz
+        .iter()
+        .zip(int.iter())
+        .map(|(mz, int)| Deisotoped {
+            mz: *mz,
+            intensity: *int,
+            envelope: None,
+            charge: None,
+        })
+        .collect::<Vec<_>>();
+
+    // Is the peak at index `i` an isotopic peak?
+    for i in (0..mz.len()).rev() {
+        // Two pointer approach, j is fast pointer
+        let mut j = i.saturating_sub(1);
+        while mz[i] - mz[j] <= NEUTRON + Tolerance::ppm_to_delta_mass(mz[i], ppm) {
+            let delta = mz[i] - mz[j];
+            let tol = Tolerance::ppm_to_delta_mass(mz[i], ppm);
+            for charge in 1..=max_charge {
+                let iso = NEUTRON / charge as f32;
+                if (delta - iso).abs() <= tol && int[i] < int[j] {
+                    peaks[j].intensity += peaks[i].intensity;
+                    // Make sure this peak isn't already part of an isotopic envelope
+                    if let Some(existing) = peaks[i].charge {
+                        if existing != charge {
+                            continue;
+                        }
+                    }
+                    peaks[j].charge = Some(charge);
+                    peaks[i].charge = Some(charge);
+                    peaks[i].envelope = Some(j);
+                }
+            }
+            j = j.saturating_sub(1);
+            if j == 0 {
+                break;
+            }
+        }
+    }
+    peaks
+}
+
+/// Path compression of isotopic envelope links
+pub fn path_compression(peaks: &mut [Deisotoped]) {
+    for idx in 0..peaks.len() {
+        if let Some(parent) = peaks[idx].envelope {
+            if let Some(upper) = peaks[parent].envelope {
+                peaks[idx].envelope = Some(upper);
+            }
+            peaks[idx].intensity = 0.0;
+        }
+    }
+}
+
 impl SpectrumProcessor {
     pub fn new(
         take_top_n: usize,
@@ -47,51 +106,7 @@ impl SpectrumProcessor {
         }
     }
 
-    /// Deisotope a set of peaks by attempting to find C13 peaks under a given `ppm` tolerance
-    fn deisotope(mz: &[f32], int: &[f32], max_charge: u8, ppm: f32) -> Vec<Deisotoped> {
-        let mut peaks = mz
-            .iter()
-            .zip(int.iter())
-            .map(|(mz, int)| Deisotoped {
-                mz: *mz,
-                intensity: *int,
-                envelope: false,
-                charge: None,
-            })
-            .collect::<Vec<_>>();
-
-        // Is the peak at index `i` an isotopic peak?
-        for i in (0..mz.len()).rev() {
-            // Two pointer approach, j is fast pointer
-            let mut j = i.saturating_sub(1);
-            while mz[i] - mz[j] <= NEUTRON + Tolerance::ppm_to_delta_mass(mz[i], ppm) {
-                let delta = mz[i] - mz[j];
-                let tol = Tolerance::ppm_to_delta_mass(mz[i], ppm);
-                for charge in 1..=max_charge {
-                    let iso = NEUTRON / charge as f32;
-                    if (delta - iso).abs() <= tol && int[i] < int[j] {
-                        peaks[j].intensity += peaks[i].intensity;
-                        // Make sure this peak isn't already part of an isotopic envelope
-                        if let Some(existing) = peaks[i].charge {
-                            if existing != charge {
-                                continue;
-                            }
-                        }
-                        peaks[j].charge = Some(charge);
-                        peaks[i].charge = Some(charge);
-                        peaks[i].envelope = true;
-                    }
-                }
-                j = j.saturating_sub(1);
-                if j == 0 {
-                    break;
-                }
-            }
-        }
-        peaks
-    }
-
-    pub fn process(&self, s: crate::mzml::Spectrum) -> Option<ProcessedSpectrum> {
+    pub fn process(&self, s: &crate::mzml::Spectrum) -> Option<ProcessedSpectrum> {
         if s.ms_level != 2 {
             return None;
         }
@@ -106,7 +121,7 @@ impl SpectrumProcessor {
         let charge = precursor_charge.saturating_sub(1).max(1);
 
         let mut peaks = match self.deisotope {
-            true => Self::deisotope(&s.mz, &s.intensity, charge, 5.0),
+            true => deisotope(&s.mz, &s.intensity, charge, 5.0),
             false => {
                 s.mz.iter()
                     .zip(s.intensity.iter())
@@ -114,7 +129,7 @@ impl SpectrumProcessor {
                         mz: *mz,
                         intensity: *int,
                         charge: None,
-                        envelope: false,
+                        envelope: None,
                     })
                     .collect()
             }
@@ -124,7 +139,7 @@ impl SpectrumProcessor {
 
         let peaks = peaks
             .into_iter()
-            .filter(|peak| !peak.envelope)
+            .filter(|peak| peak.envelope.is_none())
             .take(self.take_top_n)
             .filter_map(|peak| {
                 // Convert from MH* to M
@@ -169,7 +184,8 @@ mod test {
             812.0 + NEUTRON / 2.0,
         ];
         let mut int = [1., 4., 3., 2., 1., 1., 9.0, 4.5];
-        let peaks = SpectrumProcessor::deisotope(&mut mz, &mut int, 2, 5.0);
+        let mut peaks = deisotope(&mut mz, &mut int, 2, 5.0);
+
         assert_eq!(
             peaks,
             vec![
@@ -177,49 +193,104 @@ mod test {
                     mz: 800.9,
                     intensity: 1.0,
                     charge: None,
-                    envelope: false
+                    envelope: None,
                 },
                 Deisotoped {
                     mz: 803.4080,
                     intensity: 10.0,
                     charge: Some(1),
-                    envelope: false
+                    envelope: None,
                 },
                 Deisotoped {
                     mz: 804.4108,
                     intensity: 6.0,
                     charge: Some(1),
-                    envelope: true
+                    envelope: Some(1),
                 },
                 Deisotoped {
                     mz: 805.4106,
                     intensity: 3.0,
                     charge: Some(1),
-                    envelope: true
+                    envelope: Some(2),
                 },
                 Deisotoped {
                     mz: 806.4116,
                     intensity: 1.0,
                     charge: Some(1),
-                    envelope: true
+                    envelope: Some(3),
                 },
                 Deisotoped {
                     mz: 810.0,
                     intensity: 1.0,
                     charge: None,
-                    envelope: false
+                    envelope: None,
                 },
                 Deisotoped {
                     mz: 812.0,
                     intensity: 13.5,
                     charge: Some(2),
-                    envelope: false
+                    envelope: None,
                 },
                 Deisotoped {
                     mz: 812.0 + NEUTRON / 2.0,
                     intensity: 4.5,
                     charge: Some(2),
-                    envelope: true
+                    envelope: Some(6),
+                }
+            ]
+        );
+
+        path_compression(&mut peaks);
+        assert_eq!(
+            peaks,
+            vec![
+                Deisotoped {
+                    mz: 800.9,
+                    intensity: 1.0,
+                    charge: None,
+                    envelope: None,
+                },
+                Deisotoped {
+                    mz: 803.4080,
+                    intensity: 10.0,
+                    charge: Some(1),
+                    envelope: None,
+                },
+                Deisotoped {
+                    mz: 804.4108,
+                    intensity: 0.0,
+                    charge: Some(1),
+                    envelope: Some(1),
+                },
+                Deisotoped {
+                    mz: 805.4106,
+                    intensity: 0.0,
+                    charge: Some(1),
+                    envelope: Some(1),
+                },
+                Deisotoped {
+                    mz: 806.4116,
+                    intensity: 0.0,
+                    charge: Some(1),
+                    envelope: Some(1),
+                },
+                Deisotoped {
+                    mz: 810.0,
+                    intensity: 1.0,
+                    charge: None,
+                    envelope: None,
+                },
+                Deisotoped {
+                    mz: 812.0,
+                    intensity: 13.5,
+                    charge: Some(2),
+                    envelope: None,
+                },
+                Deisotoped {
+                    mz: 812.0 + NEUTRON / 2.0,
+                    intensity: 0.0,
+                    charge: Some(2),
+                    envelope: Some(6),
                 }
             ]
         );

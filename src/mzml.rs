@@ -106,6 +106,20 @@ pub struct MzMlReader {
     ms_level: Option<usize>,
 }
 
+pub fn find_spectrum_by_id(spectra: &[Spectrum], scan_id: usize) -> Option<&Spectrum> {
+    // First try indexing by scan
+    if let Some(first) = spectra.get(scan_id.saturating_sub(1)) {
+        if first.scan_id == scan_id {
+            return Some(first);
+        }
+    }
+    // Fall back to binary search
+    let idx = spectra
+        .binary_search_by(|spec| spec.scan_id.cmp(&scan_id))
+        .ok()?;
+    spectra.get(idx)
+}
+
 impl MzMlReader {
     /// Create a new [`MzMlReader`] with a minimum MS level filter
     ///
@@ -125,6 +139,15 @@ impl MzMlReader {
         let file = std::fs::File::open(p)?;
         let reader = BufReader::new(file);
         Self::with_level_filter(2).parse(reader)
+    }
+
+    /// Convenience method
+    pub fn read<P: AsRef<Path>>(
+        p: P,
+    ) -> Result<Vec<Spectrum>, Box<dyn std::error::Error + Send + Sync + 'static>> {
+        let file = std::fs::File::open(p)?;
+        let reader = BufReader::new(file);
+        Self::default().parse(reader)
     }
 
     pub fn parse<B: BufRead>(

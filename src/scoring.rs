@@ -1,8 +1,8 @@
 use crate::database::{binary_search_slice, IndexedDatabase, PeptideIx, Theoretical};
-use crate::ion_series::Kind;
+use crate::ion_series::{IonSeries, Kind};
 use crate::mass::{Tolerance, PROTON};
 use crate::peptide::TargetDecoy;
-use crate::spectrum::ProcessedSpectrum;
+use crate::spectrum::{Deisotoped, ProcessedSpectrum, SpectrumProcessor};
 use serde::Serialize;
 
 /// Structure to hold temporary scores
@@ -384,6 +384,180 @@ impl<'db> Scorer<'db> {
         let y = self.longest_series(&mz, Kind::Y, candidate);
         (b, y)
     }
+
+    pub fn calculate_sps_purity(
+        &self,
+        processor: &crate::spectrum::SpectrumProcessor,
+        spectra: &[crate::mzml::Spectrum],
+        ms3_scan: &crate::mzml::Spectrum,
+    ) -> Option<f32> {
+        let first_precursor = ms3_scan
+            .precursor
+            .first()
+            .expect("MS3 scan without at least one precursor!");
+
+        let ms2 = crate::mzml::find_spectrum_by_id(
+            spectra,
+            first_precursor
+                .scan
+                .expect("MS3 scan without a MS2 precursor scan ID"),
+        )
+        .expect("Couldn't locate parent MS2 scan!");
+
+        let query = processor.process(ms2).expect("Not an MS2 spectra!");
+
+        let hit = self.score_chimera(&query);
+        let chimera = hit.get(1); //.map(|p| &p.peptide);
+        let hit = hit.first()?;
+
+        let peptide = &self.db[hit.peptide_idx];
+
+        let mut theoretical_peaks = IonSeries::new(peptide.peptide(), Kind::B).collect::<Vec<_>>();
+        if let Some(c_terminal) = peptide.peptide().sequence.last() {
+            match c_terminal {
+                crate::mass::Residue::Mod('K', _) => {
+                    theoretical_peaks.extend(IonSeries::new(peptide.peptide(), Kind::Y));
+                }
+                _ => {}
+            }
+        }
+
+        theoretical_peaks
+            .sort_unstable_by(|a, b| a.monoisotopic_mass.total_cmp(&b.monoisotopic_mass));
+        // dbg!(&theoretical_peaks);
+
+        eprintln!(
+            "processing scan {}, assigned peptide {} {} [MS2 #{}] [chimera {:?} {}]",
+            ms3_scan.scan_id,
+            peptide.peptide(),
+            hit.poisson,
+            ms2.scan_id,
+            chimera.map(|p| p.peptide.as_str()).unwrap_or_default(),
+            chimera.map(|p| p.poisson).unwrap_or_default(),
+        );
+
+        let mut deisotoped = crate::spectrum::deisotope(&ms2.mz, &ms2.intensity, hit.charge, 5.0);
+        crate::spectrum::path_compression(&mut deisotoped);
+
+        let mut explained_intensity = 0.0;
+        let mut interference = 0.0;
+
+        for precursor in ms3_scan.precursor.iter() {
+            // Spurious SPS precursor introduced by MSConvert
+            if precursor.scan? != ms2.scan_id {
+                // return None;
+                continue;
+            }
+
+            let (tolerance_lo, tolerance_hi) = self.fragment_tol.bounds(precursor.mz);
+
+            // This is really a m/z window, we haven't performed charge state deconvolution!
+            // Select a window of MS2 peaks that have been sampled for MS3
+            let isolation_window = Tolerance::Da(-1.0, 1.0).bounds(precursor.mz);
+
+            let (idx_lo, idx_hi) = binary_search_slice(
+                &deisotoped,
+                |peak, key| peak.mz.total_cmp(key),
+                isolation_window.0,
+                isolation_window.1,
+            );
+
+            let window = &deisotoped[idx_lo..idx_hi];
+
+            // Selected ion peak
+            let mut best_peak = select_closest_peak(&window, |peak| peak.mz, precursor.mz);
+
+            // We have already performed path compression on deisotoped peaks
+            if let Some(parent) = window[best_peak].envelope {
+                dbg!(window, best_peak);
+                best_peak = parent - idx_lo;
+            }
+
+            // Sum of intensities in the MS3 isolation window that do not
+            // correspond to either the selected ion peak, or one of it's isotopes
+            interference += window
+                .iter()
+                .enumerate()
+                .filter(|(idx, peak)| {
+                    *idx != best_peak
+                        && peak.envelope != Some(best_peak)
+                        && peak.mz >= tolerance_lo
+                        && peak.mz <= tolerance_hi
+                })
+                .map(|(_, peak)| peak.intensity)
+                .sum::<f32>();
+
+            // let purity = selected_intensity / summed_intensity;
+            explained_intensity = window[best_peak].intensity;
+
+            let matched = if let Some(charge) = window[best_peak].charge {
+                let fragment_mass = (window[best_peak].mz - PROTON) * charge as f32;
+
+                // Search for theoretical peaks matching this fragment
+                let (fragment_lo, fragment_hi) = self.fragment_tol.bounds(fragment_mass);
+
+                let (idx_lo, idx_hi) = binary_search_slice(
+                    &theoretical_peaks,
+                    |ion, mz| ion.monoisotopic_mass.total_cmp(mz),
+                    fragment_lo,
+                    fragment_hi,
+                );
+                theoretical_peaks[idx_lo..idx_hi]
+                    .iter()
+                    .filter(|ion| {
+                        ion.monoisotopic_mass >= isolation_window.0 - PROTON
+                            && ion.monoisotopic_mass <= isolation_window.1 - PROTON
+                    })
+                    .count()
+                    > 0
+            } else {
+                (1..hit.charge).any(|charge| {
+                    let fragment_mass = (window[best_peak].mz - PROTON) * charge as f32;
+
+                    // Search for theoretical peaks matching this fragment
+                    let (fragment_lo, fragment_hi) = self.fragment_tol.bounds(fragment_mass);
+
+                    let (idx_lo, idx_hi) = binary_search_slice(
+                        &theoretical_peaks,
+                        |ion, mz| ion.monoisotopic_mass.total_cmp(mz),
+                        fragment_lo,
+                        fragment_hi,
+                    );
+                    let best_fragment = select_closest_peak(
+                        &theoretical_peaks[idx_lo..idx_hi],
+                        |theo| theo.monoisotopic_mass,
+                        fragment_mass,
+                    );
+                    let best_fragment = theoretical_peaks[idx_lo + best_fragment];
+                    eprintln!(
+                        "\t\t{}/{} : {} ({:?})",
+                        fragment_mass, charge, best_fragment.monoisotopic_mass, best_fragment.kind
+                    );
+                    best_fragment.monoisotopic_mass >= fragment_lo
+                        && best_fragment.monoisotopic_mass <= fragment_hi
+                })
+            };
+
+            eprintln!("\tprecursor {}; matched: {}", precursor.mz, matched);
+        }
+
+        Some(explained_intensity / (explained_intensity + interference))
+    }
+}
+
+/// Linear search for closest peak - perform a binary search to narrow down
+/// window first
+fn select_closest_peak<T, F: Fn(&T) -> f32>(peaks: &[T], key: F, target: f32) -> usize {
+    let mut min_idx = 0;
+    let mut min_eps = f32::MAX;
+    for (idx, peak) in peaks.iter().map(key).enumerate() {
+        let eps = (target - peak).abs();
+        if eps <= min_eps {
+            min_eps = eps;
+            min_idx = idx;
+        }
+    }
+    min_idx
 }
 
 /// Assign q_values in place to a set of PSMs, returning the number of PSMs
