@@ -22,14 +22,19 @@ impl std::fmt::Display for MzMlError {
 
 impl std::error::Error for MzMlError {}
 
+#[derive(Default, Debug, Copy, Clone)]
+pub struct Precursor {
+    pub mz: f32,
+    pub intensity: Option<f32>,
+    pub charge: Option<u8>,
+    pub scan: Option<usize>,
+}
+
 #[derive(Default, Debug, Clone)]
 pub struct Spectrum {
     pub ms_level: usize,
     pub scan_id: usize,
-    pub precursor_mz: Option<f32>,
-    pub precursor_int: Option<f32>,
-    pub precursor_charge: Option<u8>,
-    pub precursor_scan: Option<usize>,
+    pub precursor: Vec<Precursor>,
     pub representation: Representation,
 
     // Scan start time
@@ -135,6 +140,7 @@ impl MzMlReader {
         let mut binary_array = BinaryKind::Intensity;
 
         let mut spectrum = Spectrum::default();
+        let mut precursor = Precursor::default();
         let mut spectra = Vec::new();
 
         let scan_id_regex = regex::Regex::new(r#"scan=(\d+)"#)?;
@@ -179,7 +185,7 @@ impl MzMlReader {
                             // Not all precursor fields have a spectrumRef
                             if let Some(scan) = ev.try_get_attribute(b"spectrumRef")? {
                                 let scan = std::str::from_utf8(&scan.value)?;
-                                spectrum.precursor_scan = scan_id_regex
+                                precursor.scan = scan_id_regex
                                     .captures(scan)
                                     .and_then(|c| c.get(1))
                                     .map(|m| m.as_str().parse::<usize>())
@@ -214,6 +220,12 @@ impl MzMlReader {
                             MS_LEVEL => {
                                 let level = extract!(ev, b"value");
                                 let level = std::str::from_utf8(&level)?.parse::<usize>()?;
+                                if let Some(filter) = self.ms_level {
+                                    if level != filter {
+                                        spectrum = Spectrum::default();
+                                        state = None;
+                                    }
+                                }
                                 spectrum.ms_level = level;
                             }
                             PROFILE => spectrum.representation = Representation::Profile,
@@ -227,9 +239,9 @@ impl MzMlReader {
                         let value = extract!(ev, b"value");
                         let value = std::str::from_utf8(&value)?;
                         match accession {
-                            SELECTED_ION_CHARGE => spectrum.precursor_charge = Some(value.parse()?),
-                            SELECTED_ION_MZ => spectrum.precursor_mz = Some(value.parse()?),
-                            SELECTED_ION_INT => spectrum.precursor_int = Some(value.parse()?),
+                            SELECTED_ION_CHARGE => precursor.charge = Some(value.parse()?),
+                            SELECTED_ION_MZ => precursor.mz = value.parse()?,
+                            SELECTED_ION_INT => precursor.intensity = Some(value.parse()?),
                             _ => {}
                         }
                     }
@@ -300,7 +312,13 @@ impl MzMlReader {
                     state = match (state, ev.name()) {
                         (Some(State::Binary), b"binary") => Some(State::BinaryDataArray),
                         (Some(State::BinaryDataArray), b"binaryDataArray") => Some(State::Spectrum),
-                        (Some(State::SelectedIon), b"selectedIon") => Some(State::Spectrum),
+                        (Some(State::SelectedIon), b"selectedIon") => {
+                            if precursor.mz != 0.0 {
+                                spectrum.precursor.push(precursor);
+                                precursor = Precursor::default();
+                            }
+                            Some(State::Spectrum)
+                        }
                         (Some(State::Scan), b"scan") => Some(State::Spectrum),
                         (_, b"spectrum") => {
                             match self.ms_level {

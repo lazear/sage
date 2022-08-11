@@ -96,11 +96,14 @@ impl SpectrumProcessor {
             return None;
         }
 
-        // Calculate bounds for clearing precursor mz
-        let precursor = (s.precursor_mz? - PROTON) * s.precursor_charge? as f32;
-        let (prec_lo, prec_hi) = Tolerance::Ppm(-1.5, 1.5).bounds(precursor);
+        let precursor = s.precursor.get(0)?;
 
-        let charge = s.precursor_charge.unwrap_or(2).saturating_sub(1).max(1);
+        // Calculate bounds for clearing precursor mz
+        let precursor_mz = (precursor.mz - PROTON) * precursor.charge.unwrap_or(2) as f32;
+        let precursor_charge = precursor.charge.unwrap_or(2);
+        let (prec_lo, prec_hi) = Tolerance::Ppm(-1.5, 1.5).bounds(precursor_mz);
+
+        let charge = precursor_charge.saturating_sub(1).max(1);
 
         let mut peaks = match self.deisotope {
             true => Self::deisotope(&s.mz, &s.intensity, charge, 5.0),
@@ -141,8 +144,8 @@ impl SpectrumProcessor {
 
         Some(ProcessedSpectrum {
             scan: s.scan_id as u32,
-            monoisotopic_mass: precursor,
-            charge: s.precursor_charge?,
+            monoisotopic_mass: precursor_mz,
+            charge: precursor_charge,
             rt: s.scan_start_time,
             peaks,
         })
