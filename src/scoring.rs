@@ -321,7 +321,7 @@ impl<'db> Scorer<'db> {
             })
             .enumerate()
         {
-            let (lo, hi) = self.precursor_tol.bounds(frag.fragment_mz);
+            let (lo, hi) = self.fragment_tol.bounds(frag.fragment_mz);
             let window = binary_search_slice(&mz, |a, b| a.total_cmp(b), lo, hi);
             if mz[window.0..window.1]
                 .iter()
