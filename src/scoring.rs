@@ -162,24 +162,27 @@ impl<'db> Scorer<'db> {
         let mut matches = 0;
         for peak in query.peaks.iter() {
             total_intensity += peak.intensity;
+            for charge in 1..query.charge {
+                // let charge = 1;
+                let mass = peak.mass * charge as f32;
+                for frag in candidates.page_search(mass) {
+                    let idx = frag.peptide_index.0 as usize - candidates.pre_idx_lo;
+                    let mut sc = &mut score_vector[idx];
+                    sc.peptide = frag.peptide_index;
 
-            for frag in candidates.page_search(peak.mass) {
-                let idx = frag.peptide_index.0 as usize - candidates.pre_idx_lo;
-                let mut sc = &mut score_vector[idx];
-                sc.peptide = frag.peptide_index;
+                    match frag.kind {
+                        Kind::B => {
+                            sc.matched_b += 1;
+                            sc.summed_b += peak.intensity
+                        }
+                        Kind::Y => {
+                            sc.matched_y += 1;
+                            sc.summed_y += peak.intensity
+                        }
+                    }
 
-                match frag.kind {
-                    Kind::B => {
-                        sc.matched_b += 1;
-                        sc.summed_b += peak.intensity
-                    }
-                    Kind::Y => {
-                        sc.matched_y += 1;
-                        sc.summed_y += peak.intensity
-                    }
+                    matches += 1;
                 }
-
-                matches += 1;
             }
         }
 

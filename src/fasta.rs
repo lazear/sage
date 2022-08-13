@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::io;
 use std::path::Path;
 
@@ -40,6 +41,8 @@ impl Fasta {
             map.push((acc, s));
         }
 
+        map.sort_unstable_by(|a, b| b.0.cmp(&a.0));
+
         Ok(Fasta {
             proteins: map,
             has_decoys,
@@ -50,14 +53,13 @@ impl Fasta {
         if self.has_decoys {
             return;
         }
-        let current = std::mem::take(&mut self.proteins);
-        let mut new = current
+        let new = self
+            .proteins
             .iter()
             .map(|(p, s)| (format!("{}{}", decoy_prefix, p), s.chars().rev().collect()))
             .collect::<Vec<_>>();
-        new.extend(current);
 
-        self.proteins = new;
+        self.proteins.extend(new);
         self.has_decoys = true;
     }
 }
@@ -304,5 +306,26 @@ mod tests {
                 .collect::<Vec<_>>(),
             expected
         );
+    }
+
+    #[test]
+    fn assert_reverse_order() {
+        let mut proteins = vec![
+            ("rev_sp", "YKYTATSEDRTIFKDRLLKALADKFEGVSFGKIQQKVTEFLHDYDLGNRESKVSRTICAKLLEQTWQSNSGEHHASSTREGGTNSSQLSATRPLVVRLKGNKVKKMDPKFSENISYTNDIDRTLIKYNCFSKLVLALDKYALKTQESIVQLTLHDSENFLTLVCTQFLTLEFILNTGDQIIYPSEVECHHLNWMPYLEKKSADSDEVKNQEHYNRLFQNWTDDMEQPLVFNKKVENSQQFVKPIRERDFILPFFSKSNNENYTKGFKVAAEINEYFSLFSAYKIRLDAMVEVPQFFQSLYPQYQDRYRMEDEQSVNTIIRQKFLEMLSDKYVPLIDKIFSSNQDSQLITKRFISREFFNPFTPLNVFKLRLIPLNENLYKIKMDRPLDKKTTKIKRVIIFLHSEFYKVYQEIAKSTSGLLNCLHYEISDSYIKLHDVNALQVVEDFLRETDHNSGYAAKLKESVADDCFEKFKSLMNKAEFANRFMLLSFHTETKFYREKEEDYTDKGIEIYESISKKNLLLHSIFLDNADSVWEPSFLSALLANRTLLVKFNKFTELRPRLNSEECYYQRLTKMYFDKPSLGEISFNCNSMIRLMPVEKELMTNTIPFMHIYHHITASVLTSFERGFHSKMCEFLKSDYYQFITLTEFGLEKRIMPYNVPVYSIIPGVAGMVYQFLKYFSTWNKPIIEYSYDCRTLFSLVHADIILKALEDCFEQFSLVIQHQHLLQFKKQKEDNGNFESNYPIYSKRQTLERCNNLMKPMLKRFKAAKEKNCELEKVDTETITEALTLHFFEHLEAIMTRYRPNREDNFKNYLGLANSASTERSISEHFGERKSVSENIM"),
+            ("sp", "MEKIKEKLNSLKLESESWQEKYEELREQLKELEQSNTEKENEIKSLSAKNEQLDSEVEKLESQLSDTKQLAEDSNNLRSNNENYTKKNQDLEQQLEDSEAKLKEAMDKLKEADLNSEQMGRRIVALEEERDEWEKKCEEFQSKYEEAQKELDEIANSLENL")
+        ];
+        proteins.sort_by(|b, a| a.0.cmp(&b.0));
+
+        let trypsin = Trypsin::new(1, 7, 50);
+        let peptides = proteins
+            .iter()
+            .flat_map(|(protein, sequence)| trypsin.digest(protein, sequence))
+            .collect::<HashSet<_>>();
+
+        for peptide in peptides {
+            if peptide.sequence == "SNNENYTK" {
+                assert_eq!(peptide.protein, "sp");
+            }
+        }
     }
 }

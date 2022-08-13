@@ -124,7 +124,8 @@ impl SpectrumProcessor {
                 match mass_filter {
                     true => Some(Peak {
                         mass: fragment_mass,
-                        intensity: peak.intensity.sqrt(),
+                        // intensity: peak.intensity.sqrt(),
+                        intensity: peak.intensity,
                     }),
                     false => None,
                 }
