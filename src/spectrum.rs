@@ -1,7 +1,11 @@
+use serde::Serialize;
+
+use crate::database::binary_search_slice;
 use crate::mass::{Tolerance, NEUTRON, PROTON};
+use crate::mzml::{Representation, Spectrum};
 
 /// A charge-less peak at monoisotopic mass
-#[derive(PartialEq, PartialOrd, Copy, Clone, Default, Debug)]
+#[derive(PartialEq, PartialOrd, Copy, Clone, Default, Debug, Serialize)]
 pub struct Peak {
     pub mass: f32,
     pub intensity: f32,
@@ -26,13 +30,86 @@ pub struct SpectrumProcessor {
     deisotope: bool,
 }
 
-#[derive(Clone, Default, Debug)]
+#[derive(Default, Debug, Copy, Clone, Serialize)]
+pub struct Precursor {
+    pub mz: f32,
+    pub intensity: Option<f32>,
+    pub charge: Option<u8>,
+    pub scan: Option<usize>,
+}
+
+#[derive(Clone, Default, Debug, Serialize)]
 pub struct ProcessedSpectrum {
-    pub scan: u32,
-    pub monoisotopic_mass: f32,
-    pub charge: u8,
-    pub rt: f32,
+    /// MSn level
+    pub level: u8,
+    /// Scan ID
+    pub scan: usize,
+    /// Retention time
+    pub scan_start_time: f32,
+    /// Ion injection time
+    pub ion_injection_time: f32,
+    /// Selected ions for precursors, if `level > 1`
+    pub precursors: Vec<Precursor>,
+    /// Precursor monoisotopic mass, if `level == 2` and `precursors.len() == 1`
+    // pub precursor_mass: f32,
+    /// Precursor mass, if `level == 2` and `precursors.len() == 1`
+    // pub precursor_charge: u8,
+    /// MS peaks
     pub peaks: Vec<Peak>,
+}
+
+/// Linear search for most intense peak
+pub fn select_most_intense_peak(peaks: &[Peak], mz: f32, tolerance: Tolerance) -> Option<&Peak> {
+    let (lo, hi) = tolerance.bounds(mz);
+    let mut best_peak = None;
+    let mut max_int = 0.0;
+    for peak in peaks
+        .iter()
+        .filter(|peak| peak.mass >= lo && peak.mass <= hi)
+    {
+        if peak.intensity >= max_int {
+            max_int = peak.intensity;
+            best_peak = Some(peak);
+        }
+    }
+    best_peak
+}
+
+/// Binary search followed by linear search to select the closest peak to `mz` within `tolerance` window
+pub fn select_closest_peak(peaks: &[Peak], mz: f32, tolerance: Tolerance) -> Option<&Peak> {
+    let (lo, hi) = tolerance.bounds(mz);
+    let (i, j) = binary_search_slice(&peaks, |peak, query| peak.mass.total_cmp(query), lo, hi);
+
+    let mut best_peak = None;
+    let mut min_eps = f32::MAX;
+    for peak in peaks[i..j]
+        .iter()
+        .filter(|peak| peak.mass >= lo && peak.mass <= hi)
+    {
+        let eps = (peak.mass - mz).abs();
+        if eps <= min_eps {
+            min_eps = eps;
+            best_peak = Some(peak);
+        }
+    }
+    best_peak
+}
+
+pub fn find_spectrum_by_id(
+    spectra: &[ProcessedSpectrum],
+    scan_id: usize,
+) -> Option<&ProcessedSpectrum> {
+    // First try indexing by scan
+    if let Some(first) = spectra.get(scan_id.saturating_sub(1)) {
+        if first.scan == scan_id {
+            return Some(first);
+        }
+    }
+    // Fall back to binary search
+    let idx = spectra
+        .binary_search_by(|spec| spec.scan.cmp(&scan_id))
+        .ok()?;
+    spectra.get(idx)
 }
 
 /// Deisotope a set of peaks by attempting to find C13 peaks under a given `ppm` tolerance
@@ -91,6 +168,15 @@ pub fn path_compression(peaks: &mut [Deisotoped]) {
     }
 }
 
+impl ProcessedSpectrum {
+    pub fn extract_ms1_precursor(&self) -> Option<(f32, u8)> {
+        let precursor = self.precursors.get(0)?;
+        let charge = precursor.charge?;
+        let mass = (precursor.mz - PROTON) * charge as f32;
+        Some((mass, charge))
+    }
+}
+
 impl SpectrumProcessor {
     pub fn new(
         take_top_n: usize,
@@ -106,64 +192,61 @@ impl SpectrumProcessor {
         }
     }
 
-    pub fn process(&self, s: &crate::mzml::Spectrum) -> Option<ProcessedSpectrum> {
-        if s.ms_level != 2 {
-            return None;
+    pub fn process(&self, spectrum: Spectrum) -> ProcessedSpectrum {
+        if spectrum.representation != Representation::Centroid {
+            // Panic, because there's really nothing we can do with profile data
+            panic!(
+                "Scan {} contains profile data! Please convert to centroid",
+                spectrum.scan_id
+            );
         }
 
-        let precursor = s.precursor.get(0)?;
-
-        // Calculate bounds for clearing precursor mz
-        let precursor_mz = (precursor.mz - PROTON) * precursor.charge.unwrap_or(2) as f32;
-        let precursor_charge = precursor.charge.unwrap_or(2);
-        let (prec_lo, prec_hi) = Tolerance::Ppm(-1.5, 1.5).bounds(precursor_mz);
-
-        let charge = precursor_charge.saturating_sub(1).max(1);
-
-        let mut peaks = match self.deisotope {
-            true => deisotope(&s.mz, &s.intensity, charge, 5.0),
-            false => {
-                s.mz.iter()
-                    .zip(s.intensity.iter())
-                    .map(|(mz, int)| Deisotoped {
-                        mz: *mz,
-                        intensity: *int,
-                        charge: None,
-                        envelope: None,
+        let mut peaks = match self.deisotope && spectrum.ms_level == 2 {
+            true => {
+                let charge = spectrum.precursors.get(0).and_then(|p| p.charge).expect(
+                    "missing precursor information for MS2 scan, please check input files!",
+                );
+                let mut peaks = deisotope(&spectrum.mz, &spectrum.intensity, charge, 5.0);
+                peaks.sort_unstable_by(|a, b| b.intensity.total_cmp(&a.intensity));
+                peaks
+                    .into_iter()
+                    .filter(|peak| peak.envelope.is_none())
+                    .take(self.take_top_n)
+                    .filter_map(|peak| {
+                        // Convert from MH* to M
+                        let fragment_mass = (peak.mz - PROTON) * peak.charge.unwrap_or(1) as f32;
+                        let mass_filter = fragment_mass <= self.max_fragment_mz;
+                        match mass_filter {
+                            true => Some(Peak {
+                                mass: fragment_mass,
+                                intensity: peak.intensity.sqrt(),
+                            }),
+                            false => None,
+                        }
                     })
-                    .collect()
+                    .collect::<Vec<Peak>>()
             }
+            false => spectrum
+                .mz
+                .into_iter()
+                .zip(spectrum.intensity.into_iter())
+                .map(|(mz, intensity)| Peak {
+                    mass: mz - PROTON,
+                    intensity,
+                })
+                .collect(),
         };
 
-        peaks.sort_unstable_by(|a, b| b.intensity.total_cmp(&a.intensity));
+        peaks.sort_unstable_by(|a, b| a.mass.total_cmp(&b.mass));
 
-        let peaks = peaks
-            .into_iter()
-            .filter(|peak| peak.envelope.is_none())
-            .take(self.take_top_n)
-            .filter_map(|peak| {
-                // Convert from MH* to M
-                let fragment_mass = (peak.mz - PROTON) * peak.charge.unwrap_or(1) as f32;
-                let mass_filter = fragment_mass <= self.max_fragment_mz
-                    && fragment_mass >= self.min_fragment_mz
-                    && (fragment_mass < prec_lo || fragment_mass > prec_hi);
-                match mass_filter {
-                    true => Some(Peak {
-                        mass: fragment_mass,
-                        intensity: peak.intensity,
-                    }),
-                    false => None,
-                }
-            })
-            .collect::<Vec<Peak>>();
-
-        Some(ProcessedSpectrum {
-            scan: s.scan_id as u32,
-            monoisotopic_mass: precursor_mz,
-            charge: precursor_charge,
-            rt: s.scan_start_time,
+        ProcessedSpectrum {
+            level: spectrum.ms_level,
+            scan: spectrum.scan_id,
+            scan_start_time: spectrum.scan_start_time,
+            ion_injection_time: spectrum.ion_injection_time,
+            precursors: spectrum.precursors,
             peaks,
-        })
+        }
     }
 }
 

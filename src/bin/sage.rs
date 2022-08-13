@@ -98,9 +98,9 @@ fn process_mzml_file<P: AsRef<Path>>(
     let spectra = sage::mzml::MzMlReader::read(&p)?;
     // let mut scores = sage::mzml::MzMlReader::read_ms2(&p)?
     let mut scores = spectra
-        .par_iter()
+        .into_par_iter()
         .filter(|spec| spec.mz.len() >= search.min_peaks)
-        .filter_map(|spec| sp.process(spec))
+        .map(|spec| sp.process(spec))
         .flat_map(|spec| scorer.score(&spec, search.report_psms))
         .collect::<Vec<_>>();
 
@@ -163,27 +163,92 @@ fn process_mzml_file_sps<P: AsRef<Path>>(
         panic!("expecting .mzML files as input!")
     }
 
-    let spectra = sage::mzml::MzMlReader::read(&p)?;
-    // let mut scores = sage::mzml::MzMlReader::read_ms2(&p)?
-    // let mut scores = spectra
-    // .par_iter()
-    // .filter(|spec| spec.mz.len() >= search.min_peaks)
-    // .filter_map(|spec| sp.process(spec))
-    // .flat_map(|spec| scorer.score(&spec, search.report_psms))
-    // .collect::<Vec<_>>();
-    let mut bad_scans = 0;
-    let mut total_scans = 0;
+    let spectra = sage::mzml::MzMlReader::read(&p)?
+        .into_par_iter()
+        .map(|spec| sp.process(spec))
+        .collect::<Vec<_>>();
+
+    let mut path = p.as_ref().to_path_buf();
+    path.set_extension("quant.csv");
+
+    let mut wtr = csv::WriterBuilder::default().from_path(&path)?;
+    wtr.write_record(&[
+        "scannr",
+        // "peptide",
+        // "sps_purity",
+        // "correct_precursors",
+        "tmt_1",
+        "tmt_2",
+        "tmt_3",
+        "tmt_4",
+        "tmt_5",
+        "tmt_6",
+        "tmt_7",
+        "tmt_8",
+        "tmt_9",
+        "tmt_10",
+        "tmt_11",
+    ])?;
+
+    let mut scores = Vec::new();
     for spectrum in &spectra {
-        if spectrum.ms_level == 3 {
-            let r = scorer.calculate_sps_purity(&sp, &spectra, &spectrum);
-            total_scans += 1;
+        if spectrum.level == 3 {
+            // if let Some(quant) = sage::tmt::quantify_sps(&scorer, &spectra, &spectrum) {
+            //     let mut v = vec![
+            //         spectrum.scan.to_string(),
+            //         quant.hit.peptide.clone(),
+            //         quant.hit_purity.ratio.to_string(),
+            //         quant.hit_purity.correct_precursors.to_string(),
+            //     ];
+            //     v.extend(
+            //         quant
+            //             .intensities
+            //             .iter()
+            //             .map(|peak| peak.map(|p| p.intensity.to_string()).unwrap_or_default()),
+            //     );
+            //     wtr.write_record(v)?;
+            //     // scores.push(quant.hit);
+
+            //     // if let Some(chimera) = quant.chimera {
+            //     //     scores.push(chimera);
+            //     // }
+            // }
+        } else if spectrum.level == 2 {
+            if let Some(hit) = scorer.score(spectrum, search.report_psms).first() {
+                scores.push(hit.clone());
+            }
         }
     }
+    wtr.flush()?;
 
-    eprintln!("{} {}", bad_scans, total_scans);
+    (&mut scores).par_sort_unstable_by(|a, b| a.poisson.total_cmp(&b.poisson));
+    let passing_psms = assign_q_values(&mut scores);
 
     let mut path = p.as_ref().to_path_buf();
     path.set_extension("sage.pin");
+
+    if let Some(mut directory) = search.output_directory.clone() {
+        directory.push(path.file_name().expect("BUG: should be a filename!"));
+        path = directory;
+    }
+
+    let mut writer = csv::WriterBuilder::new()
+        .delimiter(b'\t')
+        .from_path(&path)?;
+
+    let total_psms = scores.len();
+
+    for (idx, mut score) in scores.into_iter().enumerate() {
+        score.specid = idx;
+        writer.serialize(score)?;
+    }
+
+    info!(
+        "{:?}: assigned {} PSMs ({} with 1% FDR)",
+        p.as_ref(),
+        total_psms,
+        passing_psms,
+    );
 
     Ok(path)
 }

@@ -1,3 +1,4 @@
+use crate::spectrum::Precursor;
 use quick_xml::events::Event;
 use quick_xml::Reader;
 use std::io::{BufRead, BufReader};
@@ -22,19 +23,11 @@ impl std::fmt::Display for MzMlError {
 
 impl std::error::Error for MzMlError {}
 
-#[derive(Default, Debug, Copy, Clone)]
-pub struct Precursor {
-    pub mz: f32,
-    pub intensity: Option<f32>,
-    pub charge: Option<u8>,
-    pub scan: Option<usize>,
-}
-
 #[derive(Default, Debug, Clone)]
 pub struct Spectrum {
-    pub ms_level: usize,
+    pub ms_level: u8,
     pub scan_id: usize,
-    pub precursor: Vec<Precursor>,
+    pub precursors: Vec<Precursor>,
     pub representation: Representation,
 
     // Scan start time
@@ -103,21 +96,7 @@ const SELECTED_ION_CHARGE: &str = "MS:1000041";
 
 #[derive(Default)]
 pub struct MzMlReader {
-    ms_level: Option<usize>,
-}
-
-pub fn find_spectrum_by_id(spectra: &[Spectrum], scan_id: usize) -> Option<&Spectrum> {
-    // First try indexing by scan
-    if let Some(first) = spectra.get(scan_id.saturating_sub(1)) {
-        if first.scan_id == scan_id {
-            return Some(first);
-        }
-    }
-    // Fall back to binary search
-    let idx = spectra
-        .binary_search_by(|spec| spec.scan_id.cmp(&scan_id))
-        .ok()?;
-    spectra.get(idx)
+    ms_level: Option<u8>,
 }
 
 impl MzMlReader {
@@ -126,7 +105,7 @@ impl MzMlReader {
     /// # Example
     ///
     /// A minimum level of 2 will not parse or return MS1 scans
-    pub fn with_level_filter(ms_level: usize) -> Self {
+    pub fn with_level_filter(ms_level: u8) -> Self {
         Self {
             ms_level: Some(ms_level),
         }
@@ -242,7 +221,7 @@ impl MzMlReader {
                         match accession {
                             MS_LEVEL => {
                                 let level = extract!(ev, b"value");
-                                let level = std::str::from_utf8(&level)?.parse::<usize>()?;
+                                let level = std::str::from_utf8(&level)?.parse::<u8>()?;
                                 if let Some(filter) = self.ms_level {
                                     if level != filter {
                                         spectrum = Spectrum::default();
@@ -337,7 +316,7 @@ impl MzMlReader {
                         (Some(State::BinaryDataArray), b"binaryDataArray") => Some(State::Spectrum),
                         (Some(State::SelectedIon), b"selectedIon") => {
                             if precursor.mz != 0.0 {
-                                spectrum.precursor.push(precursor);
+                                spectrum.precursors.push(precursor);
                                 precursor = Precursor::default();
                             }
                             Some(State::Spectrum)
