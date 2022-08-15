@@ -2,7 +2,6 @@ use crate::fasta::{Fasta, Trypsin};
 use crate::ion_series::{IonSeries, Kind};
 use crate::mass::{Tolerance, NEUTRON};
 use crate::peptide::{Peptide, TargetDecoy};
-use crate::spectrum::ProcessedSpectrum;
 use log::error;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -253,7 +252,6 @@ impl IndexedDatabase {
     /// parameters
     pub fn query<'d>(
         &'d self,
-        // query: &'q ProcessedSpectrum,
         precursor_mass: f32,
         precursor_tol: Tolerance,
         fragment_tol: Tolerance,
@@ -271,7 +269,6 @@ impl IndexedDatabase {
 
         IndexedQuery {
             db: self,
-            // query,
             precursor_mass,
             precursor_tol,
             fragment_tol,
@@ -351,8 +348,7 @@ impl<'d> IndexedQuery<'d> {
                 (self.min_isotope_err..=self.max_isotope_err).any(|isotope_err| {
                     let delta = isotope_err as f32 * NEUTRON;
                     (neutral >= precursor_lo - delta) && (neutral <= precursor_hi - delta)
-                }) && neutral <= precursor_hi
-                    && frag.fragment_mz >= fragment_lo
+                }) && frag.fragment_mz >= fragment_lo
                     && frag.fragment_mz <= fragment_hi
             })
         })

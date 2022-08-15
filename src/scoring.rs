@@ -1,8 +1,8 @@
 use crate::database::{binary_search_slice, IndexedDatabase, PeptideIx, Theoretical};
-use crate::ion_series::{IonSeries, Kind};
-use crate::mass::{Tolerance, PROTON};
+use crate::ion_series::Kind;
 use crate::peptide::TargetDecoy;
-use crate::spectrum::{Deisotoped, Peak, ProcessedSpectrum, SpectrumProcessor};
+use crate::mass::{Tolerance, PROTON};
+use crate::spectrum::{Peak, Precursor, ProcessedSpectrum};
 use serde::Serialize;
 
 /// Structure to hold temporary scores
@@ -96,6 +96,7 @@ pub struct Scorer<'db> {
     min_isotope_err: i8,
     /// Precursor isotope error upper bounds (e.g. 3)
     max_isotope_err: i8,
+    max_fragment_charge: Option<u8>,
     factorial: [f32; 32],
     chimera: bool,
 }
@@ -107,6 +108,7 @@ impl<'db> Scorer<'db> {
         fragment_tol: Tolerance,
         min_isotope_err: i8,
         max_isotope_err: i8,
+        max_fragment_charge: Option<u8>,
         chimera: bool,
     ) -> Self {
         let mut factorial = [1.0f32; 32];
@@ -123,6 +125,7 @@ impl<'db> Scorer<'db> {
             fragment_tol,
             min_isotope_err,
             max_isotope_err,
+            max_fragment_charge,
             factorial,
             chimera,
         }
@@ -149,6 +152,10 @@ impl<'db> Scorer<'db> {
             .extract_ms1_precursor()
             .expect("missing MS1 precursor");
 
+        // If user has configured max_fragment_charge, potentially override precursor
+        // charge
+        let charge = charge.min(self.max_fragment_charge.unwrap_or(charge));
+
         let candidates = self.db.query(
             precursor_mass,
             self.precursor_tol,
@@ -158,14 +165,11 @@ impl<'db> Scorer<'db> {
         );
 
         // Allocate space for all potential candidates - many potential candidates
-        // will not have fragments matched, so we use `Option<Score>`
         let potential = candidates.pre_idx_hi - candidates.pre_idx_lo + 1;
         let mut score_vector: Vec<Score> = vec![Score::default(); potential];
 
-        let mut total_intensity = 0.0;
         let mut matches = 0;
         for peak in query.peaks.iter() {
-            total_intensity += peak.intensity;
             for charge in 1..charge {
                 let mass = peak.mass * charge as f32;
                 for frag in candidates.page_search(mass) {
@@ -184,7 +188,6 @@ impl<'db> Scorer<'db> {
                             sc.summed_y += peak.intensity;
                         }
                     }
-
                     matches += 1;
                 }
             }
@@ -282,9 +285,9 @@ impl<'db> Scorer<'db> {
                 hyperscore: better.hyperscore,
                 delta_hyperscore: better.hyperscore - next,
                 matched_peaks: k as u32,
-                matched_neutral_loss: better.matched_nl as u32,
-                matched_intensity_pct: (better.summed_b + better.summed_y) / total_intensity,
-                poisson,
+                matched_neutral_loss: 0,
+                matched_intensity_pct: (better.summed_b + better.summed_y) / query.total_intensity,
+                poisson: -poisson.log10(),
                 longest_b: b,
                 longest_y: y,
                 peptide_len: peptide.sequence.len(),
@@ -307,12 +310,17 @@ impl<'db> Scorer<'db> {
             return scores;
         }
 
-        // let (precursor_mass, charge) = query.extract_ms1_precursor().expect("missing MS1 precursor");
-
         let best = &scores[0];
         let mut subtracted = ProcessedSpectrum {
             peaks: Vec::new(),
-            precursors: query.precursors.clone(),
+            precursors: query
+                .precursors
+                .iter()
+                .map(|prec| Precursor {
+                    mz: prec.mz + 0.005,
+                    ..*prec
+                })
+                .collect(),
             ..*query
         };
 
@@ -369,9 +377,8 @@ impl<'db> Scorer<'db> {
             })
             .enumerate()
         {
-
-            if let Some(closest_peak) =
-                crate::spectrum::select_closest_peak(&peaks, frag.fragment_mz, self.fragment_tol)
+            if crate::spectrum::select_closest_peak(&peaks, frag.fragment_mz, self.fragment_tol)
+                .is_some()
             {
                 run += 1;
                 if current_start + run == idx {

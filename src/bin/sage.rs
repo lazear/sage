@@ -4,6 +4,7 @@ use rayon::prelude::*;
 use sage::mass::Tolerance;
 use sage::scoring::{assign_q_values, Scorer};
 use sage::spectrum::SpectrumProcessor;
+use sage::tmt::Isobaric;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::time::{self, Instant};
@@ -12,6 +13,7 @@ use std::time::{self, Instant};
 /// Actual search parameters - may include overrides or default values not set by user
 struct Search {
     database: sage::database::Parameters,
+    quant: Option<Isobaric>,
     precursor_tol: Tolerance,
     fragment_tol: Tolerance,
     isotope_errors: (i8, i8),
@@ -19,6 +21,7 @@ struct Search {
     chimera: bool,
     min_peaks: usize,
     max_peaks: usize,
+    max_fragment_charge: Option<u8>,
     report_psms: usize,
     process_files_parallel: bool,
     mzml_paths: Vec<PathBuf>,
@@ -39,8 +42,10 @@ struct Input {
     chimera: Option<bool>,
     min_peaks: Option<usize>,
     max_peaks: Option<usize>,
+    max_fragment_charge: Option<u8>,
     isotope_errors: Option<(i8, i8)>,
     deisotope: Option<bool>,
+    quant: Option<Isobaric>,
     process_files_parallel: Option<bool>,
     output_directory: Option<PathBuf>,
     mzml_paths: Vec<PathBuf>,
@@ -57,11 +62,13 @@ impl Search {
         }
         Ok(Search {
             database,
+            quant: request.quant,
             precursor_tol: request.precursor_tol,
             fragment_tol: request.fragment_tol,
             report_psms: request.report_psms.unwrap_or(1),
             max_peaks: request.max_peaks.unwrap_or(150),
             min_peaks: request.min_peaks.unwrap_or(15),
+            max_fragment_charge: request.max_fragment_charge,
             isotope_errors: request.isotope_errors.unwrap_or((0, 0)),
             deisotope: request.deisotope.unwrap_or(true),
             chimera: request.chimera.unwrap_or(false),
@@ -154,6 +161,8 @@ fn process_mzml_file_sps<P: AsRef<Path>>(
         search.deisotope,
     );
 
+    // TODO: error checking
+
     if p.as_ref()
         .extension()
         .expect("expecting .mzML files as input!")
@@ -167,61 +176,71 @@ fn process_mzml_file_sps<P: AsRef<Path>>(
         .into_par_iter()
         .map(|spec| sp.process(spec))
         .collect::<Vec<_>>();
+    // info!("read spectra");
 
     let mut path = p.as_ref().to_path_buf();
     path.set_extension("quant.csv");
 
-    let mut wtr = csv::WriterBuilder::default().from_path(&path)?;
-    wtr.write_record(&[
-        "scannr",
-        // "peptide",
-        // "sps_purity",
-        // "correct_precursors",
-        "tmt_1",
-        "tmt_2",
-        "tmt_3",
-        "tmt_4",
-        "tmt_5",
-        "tmt_6",
-        "tmt_7",
-        "tmt_8",
-        "tmt_9",
-        "tmt_10",
-        "tmt_11",
-    ])?;
+    if let Some(mut directory) = search.output_directory.clone() {
+        directory.push(path.file_name().expect("BUG: should be a filename!"));
+        path = directory;
+    }
 
     let mut scores = Vec::new();
-    for spectrum in &spectra {
-        if spectrum.level == 3 {
-            // if let Some(quant) = sage::tmt::quantify_sps(&scorer, &spectra, &spectrum) {
-            //     let mut v = vec![
-            //         spectrum.scan.to_string(),
-            //         quant.hit.peptide.clone(),
-            //         quant.hit_purity.ratio.to_string(),
-            //         quant.hit_purity.correct_precursors.to_string(),
-            //     ];
-            //     v.extend(
-            //         quant
-            //             .intensities
-            //             .iter()
-            //             .map(|peak| peak.map(|p| p.intensity.to_string()).unwrap_or_default()),
-            //     );
-            //     wtr.write_record(v)?;
-            //     // scores.push(quant.hit);
 
-            //     // if let Some(chimera) = quant.chimera {
-            //     //     scores.push(chimera);
-            //     // }
-            // }
-        } else if spectrum.level == 2 {
-            if let Some(hit) = scorer.score(spectrum, search.report_psms).first() {
-                scores.push(hit.clone());
+    if let Some(quant) = search.quant.as_ref() {
+        let mut wtr = csv::WriterBuilder::default().from_path(&path)?;
+        let mut headers = vec![
+            "scannr".into(),
+            "ms3_injection".into(),
+            "peptide".into(),
+            "sps_purity".into(),
+            "correct_precursors".into(),
+        ];
+        headers.extend(quant.headers());
+        wtr.write_record(&headers)?;
+
+        for spectrum in &spectra {
+            if spectrum.level == 3 {
+                if let Some(quant) = sage::tmt::quantify_sps(
+                    &scorer,
+                    &spectra,
+                    &spectrum,
+                    quant,
+                    Tolerance::Ppm(-20.0, 20.0),
+                ) {
+                    let mut v = vec![
+                        quant.hit.scannr.to_string(),
+                        spectrum.ion_injection_time.to_string(),
+                        quant.hit.peptide.clone(),
+                        quant.hit_purity.ratio.to_string(),
+                        quant.hit_purity.correct_precursors.to_string(),
+                    ];
+                    v.extend(
+                        quant
+                            .intensities
+                            .iter()
+                            .map(|peak| peak.map(|p| p.intensity.to_string()).unwrap_or_default()),
+                    );
+                    wtr.write_record(v)?;
+                    scores.push(quant.hit);
+
+                    if let Some(chimera) = quant.chimera {
+                        scores.push(chimera);
+                    }
+                }
             }
         }
+        wtr.flush()?;
+    } else {
+        scores = spectra
+            .par_iter()
+            .filter(|spec| spec.level == 2)
+            .flat_map(|spec| scorer.score(spec, search.report_psms))
+            .collect();
     }
-    wtr.flush()?;
 
-    (&mut scores).par_sort_unstable_by(|a, b| a.poisson.total_cmp(&b.poisson));
+    (&mut scores).par_sort_unstable_by(|a, b| b.poisson.total_cmp(&a.poisson));
     let passing_psms = assign_q_values(&mut scores);
 
     let mut path = p.as_ref().to_path_buf();
@@ -304,6 +323,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         search.fragment_tol,
         search.isotope_errors.0,
         search.isotope_errors.1,
+        search.max_fragment_charge,
         search.chimera,
     );
 
@@ -311,7 +331,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         true => search
             .mzml_paths
             .par_iter()
-            .map(|ms2_path| process_mzml_file(ms2_path, &search, &scorer))
+            .map(|ms2_path| process_mzml_file_sps(ms2_path, &search, &scorer))
             .collect::<Vec<_>>(),
         false => search
             .mzml_paths

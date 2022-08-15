@@ -1,3 +1,4 @@
+use crate::mass::Tolerance;
 use crate::spectrum::Precursor;
 use quick_xml::events::Event;
 use quick_xml::Reader;
@@ -59,6 +60,7 @@ enum State {
     Scan,
     BinaryDataArray,
     Binary,
+    Precursor,
     SelectedIon,
 }
 
@@ -93,6 +95,9 @@ const CENTROID: &str = "MS:1000127";
 const SELECTED_ION_MZ: &str = "MS:1000744";
 const SELECTED_ION_INT: &str = "MS:1000042";
 const SELECTED_ION_CHARGE: &str = "MS:1000041";
+
+const ISO_WINDOW_LOWER: &str = "MS:1000828";
+const ISO_WINDOW_UPPER: &str = "MS:1000829";
 
 #[derive(Default)]
 pub struct MzMlReader {
@@ -143,6 +148,8 @@ impl MzMlReader {
 
         let mut spectrum = Spectrum::default();
         let mut precursor = Precursor::default();
+        let mut iso_window_lo: Option<f32> = None;
+        let mut iso_window_hi: Option<f32> = None;
         let mut spectra = Vec::new();
 
         let scan_id_regex = regex::Regex::new(r#"scan=(\d+)"#)?;
@@ -164,7 +171,8 @@ impl MzMlReader {
                         (b"scan", Some(State::Spectrum)) => Some(State::Scan),
                         (b"binaryDataArray", Some(State::Spectrum)) => Some(State::BinaryDataArray),
                         (b"binary", Some(State::BinaryDataArray)) => Some(State::Binary),
-                        (b"selectedIon", Some(State::Spectrum)) => Some(State::SelectedIon),
+                        (b"precursor", Some(State::Spectrum)) => Some(State::Precursor),
+                        (b"selectedIon", Some(State::Precursor)) => Some(State::SelectedIon),
                         _ => state,
                     };
                     match ev.name() {
@@ -232,6 +240,17 @@ impl MzMlReader {
                             }
                             PROFILE => spectrum.representation = Representation::Profile,
                             CENTROID => spectrum.representation = Representation::Centroid,
+                            _ => {}
+                        }
+                    }
+                    (Some(State::Precursor), b"cvParam") => {
+                        let accession = extract!(ev, b"accession");
+                        let accession = std::str::from_utf8(&accession)?;
+                        let value = extract!(ev, b"value");
+                        let value = std::str::from_utf8(&value)?;
+                        match accession {
+                            ISO_WINDOW_LOWER => iso_window_lo = Some(value.parse()?),
+                            ISO_WINDOW_UPPER => iso_window_hi = Some(value.parse()?),
                             _ => {}
                         }
                     }
@@ -314,8 +333,13 @@ impl MzMlReader {
                     state = match (state, ev.name()) {
                         (Some(State::Binary), b"binary") => Some(State::BinaryDataArray),
                         (Some(State::BinaryDataArray), b"binaryDataArray") => Some(State::Spectrum),
-                        (Some(State::SelectedIon), b"selectedIon") => {
+                        (Some(State::SelectedIon), b"selectedIon") => Some(State::Precursor),
+                        (Some(State::Precursor), b"precursor") => {
                             if precursor.mz != 0.0 {
+                                precursor.isolation_window = match (iso_window_lo, iso_window_hi) {
+                                    (Some(lo), Some(hi)) => Some(Tolerance::Da(-lo, hi)),
+                                    _ => None,
+                                };
                                 spectrum.precursors.push(precursor);
                                 precursor = Precursor::default();
                             }

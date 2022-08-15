@@ -7,7 +7,7 @@ pub const PROTON: f32 = 1.0072764;
 pub const NEUTRON: f32 = 1.00335;
 pub const NH3: f32 = 17.026548;
 
-#[derive(Copy, Clone, Serialize, Deserialize)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug, PartialEq, PartialOrd)]
 #[serde(rename_all = "lowercase")]
 pub enum Tolerance {
     Ppm(f32, f32),

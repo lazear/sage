@@ -36,6 +36,7 @@ pub struct Precursor {
     pub intensity: Option<f32>,
     pub charge: Option<u8>,
     pub scan: Option<usize>,
+    pub isolation_window: Option<Tolerance>,
 }
 
 #[derive(Clone, Default, Debug, Serialize)]
@@ -50,12 +51,10 @@ pub struct ProcessedSpectrum {
     pub ion_injection_time: f32,
     /// Selected ions for precursors, if `level > 1`
     pub precursors: Vec<Precursor>,
-    /// Precursor monoisotopic mass, if `level == 2` and `precursors.len() == 1`
-    // pub precursor_mass: f32,
-    /// Precursor mass, if `level == 2` and `precursors.len() == 1`
-    // pub precursor_charge: u8,
     /// MS peaks
     pub peaks: Vec<Peak>,
+
+    pub total_intensity: f32,
 }
 
 /// Linear search for most intense peak
@@ -211,7 +210,6 @@ impl SpectrumProcessor {
                 peaks
                     .into_iter()
                     .filter(|peak| peak.envelope.is_none())
-                    .take(self.take_top_n)
                     .filter_map(|peak| {
                         // Convert from MH* to M
                         let fragment_mass = (peak.mz - PROTON) * peak.charge.unwrap_or(1) as f32;
@@ -219,25 +217,47 @@ impl SpectrumProcessor {
                         match mass_filter {
                             true => Some(Peak {
                                 mass: fragment_mass,
-                                intensity: peak.intensity.sqrt(),
+                                intensity: peak.intensity, //.sqrt(),
                             }),
                             false => None,
                         }
                     })
+                    .take(self.take_top_n)
                     .collect::<Vec<Peak>>()
             }
-            false => spectrum
-                .mz
-                .into_iter()
-                .zip(spectrum.intensity.into_iter())
-                .map(|(mz, intensity)| Peak {
-                    mass: mz - PROTON,
-                    intensity,
-                })
-                .collect(),
+            false => {
+                let mut peaks = spectrum
+                    .mz
+                    .into_iter()
+                    .zip(spectrum.intensity.into_iter())
+                    .filter_map(|(mz, intensity)| {
+                        // Convert from MH* to M
+                        let fragment_mass = mz - PROTON;
+                        let mass_filter = fragment_mass <= self.max_fragment_mz;
+                        match mass_filter {
+                            true => Some(Peak {
+                                mass: fragment_mass,
+                                intensity: if spectrum.ms_level == 2 {
+                                    intensity //.sqrt()
+                                } else {
+                                    intensity
+                                },
+                            }),
+                            false => None,
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                if spectrum.ms_level == 2 {
+                    peaks.sort_unstable_by(|a, b| b.intensity.total_cmp(&a.intensity));
+                    peaks.truncate(self.take_top_n);
+                }
+                peaks
+            }
         };
 
         peaks.sort_unstable_by(|a, b| a.mass.total_cmp(&b.mass));
+
+        let total_intensity = peaks.iter().map(|peak| peak.intensity).sum::<f32>();
 
         ProcessedSpectrum {
             level: spectrum.ms_level,
@@ -246,6 +266,7 @@ impl SpectrumProcessor {
             ion_injection_time: spectrum.ion_injection_time,
             precursors: spectrum.precursors,
             peaks,
+            total_intensity,
         }
     }
 }
