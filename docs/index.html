@@ -37,7 +37,7 @@
             <li>Fragment based search</li>
             <li>Can assign multiple peptides to a single spectrum (chimeric spectra)</li>
             <li>Configuration by JSON files</li>
-            <li>X!Tandem hyperscore function</li>
+            <li>Sage is organized as both a binary and an extensible Rust library, enabling integration into other applications</li>
             <li>Internal q-value/FDR calculation using target-decoy competition</li>
             <li>Percolator/Mokapot compatible output</li>
             <li>Accepts mzML files as input</li>
@@ -61,7 +61,7 @@
               You can find the benchmarking parameters (along with all of the code!) in the <a
                 href="https://github.com/lazear/sage/tree/master/figures/benchmark_params">Sage GitHub
                 repository</a>. They are both great, widely-used, full-featured tools and I recommend incorporating them
-              into your workflows!</li>
+              into your workflows! Sage stands on the shoulders of giants.</li>
             <li>This was undertaken largely for fun and self-learning purposes - as such, this isn't a
               peer-reviewed project (yet). However, hopefully it can serve as a
               pedagogical tool, as I have tried to keep the codebase small (~1500 loc), well commented, tested, and
@@ -121,7 +121,7 @@
           <figcaption>Cartoon schematic of a typical proteomics workflow</figcaption>
           </p>
           <p>Andy Kong and Alexey Nesvizhskii from
-            UMich presented an alternate approach in their <a href="https://pubmed.ncbi.nlm.nih.gov/28394336/">2017
+            University of Michigan presented an alternate approach in their <a href="https://pubmed.ncbi.nlm.nih.gov/28394336/">2017
               paper</a> detailing their new database search tool:
             MSFragger. Rather than exhaustively search through all candidate peptides based on precursor mass,
             they instead combine all theoretical fragments from every peptide in the database - and then search
@@ -185,7 +185,7 @@
             structure.
             Peptides are colored by increasing
             mass, with an example peptide - LQSRPAAPPAPGPGQLTLR - in blue to enable easier dissection of the steps. Each
-            ball represents a single fragment ion (either b or y), colored by precursor mass.
+            ball represents a single fragment ion (either b or y), colored by precursor mass. Note that peptides less than 5 amino acids long are removed.
           </figcaption>
           <p>We now have our 2 level binary tree:
             the outer level acts as a B+ tree, allowing us to rapidly select bins containing fragments within a given
@@ -304,7 +304,7 @@
 
 
           <img src="tmt_search.png" class="large" />
-          <figcaption>Yeah, it's pretty fast - note that the times on the graph are log2 transformed!</figcaption>
+          <figcaption>It's fast - note that the times on the graph are log2 transformed!</figcaption>
 
           <table>
             <thead>
@@ -365,6 +365,10 @@
 
           <h3>Open search</h3>
 
+          <div>One of the big benefits of the fragment-indexing strategy is that efficient open searches can be performed. These kind of searches dramatically increase the precursor mass tolerance window - sometimes up to +/- 500 Da! This enables unbiased detection of post-translational or chemical modifications.
+            The MSFragger paper shows several open search benchmarks, so I figured I would replicate it myself.
+          </div>
+
           To benchmark open search performance, I used the same file MSFragger used in their paper: the first dataset
           (b1906_293T_proteinID_01A_QE3_122212.mzXML)
           from the paper <a href="https://www.ncbi.nlm.nih.gov/pubmed?term=26076430">An Ultra-tolerant Database Search
@@ -380,7 +384,7 @@
           This is where MSFragger really shines - it identifies ~1,000 extra PSMs from this single file search when we
           really open up the precursor window. Room for improvement for Sage! (Read below to see one strategy of improving this - chimeric searching)
           You'll note that Comet isn't in this graph - I don't think there's any point in benchmarking it, timewise, and
-          it also doesn't seem amenable to doing a non-symmetrical precursor window.
+          it also doesn't seem amenable to doing a non-symmetrical precursor window. Given that most modifications involve the <i>addition</i> of a PTM (and thus positive mass shift), it makes sense to use asymmetric windows for an open search strategy.
           <img src="500_search.png" class="large" />
           <figcaption>MSFragger widens it's lead as the precursor windows get wider - we are still faster though
             :)</figcaption>
@@ -549,8 +553,7 @@
         </section>
         <section class="section">
           <h1>Conclusions</h1>
-          <p>Writing a proteomics search engine actually ended up being easier than I thought, and it was indeed a
-            fantastic learning experience.
+          <p>Writing a (relatively bare-bones) proteomics search engine has been a fantastic learning experience.
             Rust has been my daily-driver programming language of choice for 5 years now, and it really makes writing
             performant software a breeze, especially with fantastic packages like Rayon! If you haven't given it a try,
             I highly recommend it.
