@@ -27,17 +27,16 @@
           <!-- <p>I wanted to see what how far I could get in the creation of a proteomics search engine in a weekend (or
             two), and
             ~1500 lines of code, and this is the result!</p> -->
-          <p>Here are some of the features (and anti-features) of Sage</p>
+          <p>Here are some of the features of Sage</p>
           <ul>
             <li>Super-<i>ultrafast</i><sup class="footnote-ref"></sup>,
               <aside class="footnote">What? MSFragger already took <i>ultrafast</i></aside>and light on RAM usage (you
               have 3 GB of RAM, right?)
             </li>
             <li>Small and simple <a href="https://github.com/lazear/sage">codebase</a>, including comments & tests</li>
-            <li>Fragment based search</li>
+            <li>Fragment based search <i>a la</i> MSFragger</li>
             <li>Can assign multiple peptides to a single spectrum (chimeric spectra)</li>
             <li>Configuration by JSON files</li>
-            <li>Sage is organized as both a binary and an extensible Rust library, enabling integration into other applications</li>
             <li>Internal q-value/FDR calculation using target-decoy competition</li>
             <li>Percolator/Mokapot compatible output</li>
             <li>Accepts mzML files as input</li>
@@ -49,15 +48,30 @@
                 believe that scientific software (and science, in general) should be Open and Free!
               </aside>
             </li>
+            <li>Sage is organized as both a binary and an extensible Rust library, enabling integration into other applications</li>
+          </ul>
+
+          <p>And some features that are work-in-progress:</p>
+          <ul>
+            <li>Integrated linear discriminant analysis for FDR refinement</li>
+            <li>Protein interference</li>
+            <li>TMT quantification</li>
           </ul>
 
           <p>First, some disclaimers and forewords:</p>
           <ul>
-            <li><i>Caveat emptor</i> - Sage has incredible performance, but it is still missing some features found in
+            <li><i>Caveat emptor</i> - Sage has great performance, but it is still missing some features found in
               many other search engines. Use it at your own risk (if you do decide to try it out, please don't hesitate
               to contact me!)</li>
             <li>I made best efforts to benchmark Comet and MSFragger in good faith, including reaching out to their
-              maintainers to check parameters - that being said, it is totally possible that I have misconfigured them.
+              maintainers to check parameters
+              <sup class="footnote-ref"></sup><aside class="footnote">
+                <a href="http://comet-ms.sourceforge.net/parameters/parameters_202101/">Comet parameters</a>
+                <br>
+                <a href="https://github.com/Nesvilab/MSFragger/wiki/Setting-the-Parameters">MSFragger parameters</a>
+              </aside>
+              
+              - that being said, it is totally possible that I have misconfigured them.
               You can find the benchmarking parameters (along with all of the code!) in the <a
                 href="https://github.com/lazear/sage/tree/master/figures/benchmark_params">Sage GitHub
                 repository</a>. They are both great, widely-used, full-featured tools and I recommend incorporating them
@@ -127,7 +141,7 @@
             they instead combine all theoretical fragments from every peptide in the database - and then search
             by fragment m/z and filter by precursor mass: "In the MSFragger strategy, theoretical spectra that
             share no common fragments are effectively bypassed". They spend a couple paragraphs in the methods
-            section outlining the algorithm and search steps, but the codebase itself is <strong>closed source</strong>
+            section outlining the algorithm and search steps, but the codebase itself is closed source
             and
             binaries are only freely available for non-commercial use (which Alexey kindly reminded me of when I emailed
             him about benchmarking MSFragger). Regardless, it's an elegant and performant
@@ -162,7 +176,7 @@
             </aside>
           </div>
           <img src="Figure 2.png" />
-          <figcaption>FASTA database is digested into theoretical tryptic peptides. b-/y-ions are then generated
+          <figcaption>FASTA database is digested into theoretical tryptic peptides (minimum length of 5 amino acids). b-/y-ions are then generated
             for each peptide</figcaption>
           <p>
           <h3>Data structure construction:</h3>
@@ -185,7 +199,7 @@
             structure.
             Peptides are colored by increasing
             mass, with an example peptide - LQSRPAAPPAPGPGQLTLR - in blue to enable easier dissection of the steps. Each
-            ball represents a single fragment ion (either b or y), colored by precursor mass. Note that peptides less than 5 amino acids long are removed.
+            ball represents a single fragment ion (either b or y), colored by precursor mass.
           </figcaption>
           <p>We now have our 2 level binary tree:
             the outer level acts as a B+ tree, allowing us to rapidly select bins containing fragments within a given
@@ -584,7 +598,7 @@
           <script src="https://gist.github.com/lazear/8dc144fb57a74ec32bc72e1f03d96950.js"></script>
 
           <h3>Acknowledges</h3>
-          I'd like to thank Jimmy Eng, Alexey Nesvizhskii, and Phil Wilmarth for providing feedback on search params
+          I'd like to thank Phil Wilmarth, Jimmy Eng, and Alexey Nesvizhskii for providing feedback on search params
         </section>
         <section class="section" id="footnote-section">
           <h3>Footnotes</h3>
