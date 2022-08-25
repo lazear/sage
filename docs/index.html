@@ -33,6 +33,7 @@
               <aside class="footnote">What? MSFragger already took <i>ultrafast</i></aside>and light on RAM usage (you
               have 3 GB of RAM, right?)
             </li>
+            <li>Cross platform: run on Windows, MacOS, or Linux</li>
             <li>Small and simple <a href="https://github.com/lazear/sage">codebase</a>, including comments & tests</li>
             <li>Fragment based search <i>a la</i> MSFragger</li>
             <li>Can assign multiple peptides to a single spectrum (chimeric spectra)</li>
@@ -48,7 +49,8 @@
                 believe that scientific software (and science, in general) should be Open and Free!
               </aside>
             </li>
-            <li>Sage is organized as both a binary and an extensible Rust library, enabling integration into other applications</li>
+            <li>Sage is organized as both a binary and an extensible Rust library, enabling integration into other
+              applications</li>
           </ul>
 
           <p>And some features that are work-in-progress:</p>
@@ -58,24 +60,26 @@
             <li>TMT quantification</li>
           </ul>
 
-          <p>First, some disclaimers and forewords:</p>
+          <p>Finally, some disclaimers and forewords:</p>
           <ul>
             <li><i>Caveat emptor</i> - Sage has great performance, but it is still missing some features found in
               many other search engines. Use it at your own risk (if you do decide to try it out, please don't hesitate
               to contact me!)</li>
             <li>I made best efforts to benchmark Comet and MSFragger in good faith, including reaching out to their
               maintainers to check parameters
-              <sup class="footnote-ref"></sup><aside class="footnote">
+              <sup class="footnote-ref"></sup>
+              <aside class="footnote">
                 <a href="http://comet-ms.sourceforge.net/parameters/parameters_202101/">Comet parameters</a>
                 <br>
                 <a href="https://github.com/Nesvilab/MSFragger/wiki/Setting-the-Parameters">MSFragger parameters</a>
               </aside>
-              
+
               - that being said, it is totally possible that I have misconfigured them.
               You can find the benchmarking parameters (along with all of the code!) in the <a
                 href="https://github.com/lazear/sage/tree/master/figures/benchmark_params">Sage GitHub
                 repository</a>. They are both great, widely-used, full-featured tools and I recommend incorporating them
-              into your workflows! Sage stands on the shoulders of giants.</li>
+              into your workflows! Sage stands on the shoulders of giants.
+            </li>
             <li>This was undertaken largely for fun and self-learning purposes - as such, this isn't a
               peer-reviewed project (yet). However, hopefully it can serve as a
               pedagogical tool, as I have tried to keep the codebase small (~1500 loc), well commented, tested, and
@@ -135,7 +139,8 @@
           <figcaption>Cartoon schematic of a typical proteomics workflow</figcaption>
           </p>
           <p>Andy Kong and Alexey Nesvizhskii from
-            University of Michigan presented an alternate approach in their <a href="https://pubmed.ncbi.nlm.nih.gov/28394336/">2017
+            University of Michigan presented an alternate approach in their <a
+              href="https://pubmed.ncbi.nlm.nih.gov/28394336/">2017
               paper</a> detailing their new database search tool:
             MSFragger. Rather than exhaustively search through all candidate peptides based on precursor mass,
             they instead combine all theoretical fragments from every peptide in the database - and then search
@@ -176,7 +181,8 @@
             </aside>
           </div>
           <img src="Figure 2.png" />
-          <figcaption>FASTA database is digested into theoretical tryptic peptides (minimum length of 5 amino acids). b-/y-ions are then generated
+          <figcaption>FASTA database is digested into theoretical tryptic peptides (minimum length of 5 amino acids).
+            b-/y-ions are then generated
             for each peptide</figcaption>
           <p>
           <h3>Data structure construction:</h3>
@@ -373,13 +379,15 @@
           exhibits very good PSM
           identification rates and identity overlap when compared against both Comet and MSFragger<br>
 
-          <img src="venn.png" width="80%"/>
+          <img src="venn.png" width="80%" />
           <figcaption>PSM identity overlap from Mokapot results
           </figcaption>
 
           <h3>Open search</h3>
 
-          <div>One of the big benefits of the fragment-indexing strategy is that efficient open searches can be performed. These kind of searches dramatically increase the precursor mass tolerance window - sometimes up to +/- 500 Da! This enables unbiased detection of post-translational or chemical modifications.
+          <div>One of the big benefits of the fragment-indexing strategy is that efficient open searches can be
+            performed. These kind of searches dramatically increase the precursor mass tolerance window - sometimes up
+            to +/- 500 Da! This enables unbiased detection of post-translational or chemical modifications.
             The MSFragger paper shows several open search benchmarks, so I figured I would replicate it myself.
           </div>
 
@@ -396,9 +404,13 @@
           <h3>Now, let's go really open</h3>
 
           This is where MSFragger really shines - it identifies ~1,000 extra PSMs from this single file search when we
-          really open up the precursor window. Room for improvement for Sage! (Read below to see one strategy of improving this - chimeric searching)
+          really open up the precursor window. Room for improvement for Sage! (Read below to see one strategy of
+          improving this - chimeric searching)
           You'll note that Comet isn't in this graph - I don't think there's any point in benchmarking it, timewise, and
-          it also doesn't seem amenable to doing a non-symmetrical precursor window. Given that most modifications involve the <i>addition</i> of a PTM (and thus positive mass shift), it makes sense to use asymmetric windows for an open search strategy.
+          it also doesn't seem amenable to doing a non-symmetrical precursor window. Given that most modifications
+          involve the <i>addition</i> of a PTM (and thus positive mass shift), it makes sense to use asymmetric windows
+          for an open search strategy.
+          <p>Don't think that you need a beefy c5ad.8xlarge instance to go fast - I can complete the same 600 Da open search on my <strong>MacBook M1 Air</strong> (8 cores, 16 GB RAM) in 370 seconds!</p>
           <img src="500_search.png" class="large" />
           <figcaption>MSFragger widens it's lead as the precursor windows get wider - we are still faster though
             :)</figcaption>
@@ -432,8 +444,9 @@
             </tbody>
           </table>
 
-        <img src="delta_mass.png" class="large">
-        <figcaption>Open chimeric search with Sage reveals common modifications. Y-axis trimmed, vast majority (>15,000) of PSMs are centered around 0</figcaption>
+          <img src="delta_mass.png" class="large">
+          <figcaption>Open chimeric search with Sage reveals common modifications. Y-axis trimmed, vast majority
+            (>15,000) of PSMs are centered around 0</figcaption>
 
         </section>
         <section class="section">
