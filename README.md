@@ -56,11 +56,14 @@ Sage search settings file:
     "peptide_min_len": 5,
     "peptide_max_len": 50,
     "missed_cleavages": 1,
-    "n_term_mod": 229.1629,
     "static_mods": {
+      "^": 229.1629,
       "K": 229.1629,
       "C": 57.0215
     },
+    "variable_mods": {
+      "M": 15.9949
+    }
     "decoy_prefix": "rev_",
     "fasta": "2022-07-23-decoys-reviewed-UP000005640.fas"
   },

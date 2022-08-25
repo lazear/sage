@@ -170,7 +170,7 @@ mod test {
     #[test]
     fn nterm_mod() {
         let mut peptide = "PEPTIDE".parse::<Peptide>().unwrap();
-        peptide.set_nterm_mod(229.01);
+        peptide.static_mod('^', 229.01);
 
         // Charge state 1, b-ions should be TMT tagged
         let expected_b = [

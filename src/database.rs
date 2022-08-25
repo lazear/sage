@@ -30,10 +30,10 @@ pub struct Builder {
     peptide_max_mass: Option<f32>,
     /// How many missed cleavages to use
     missed_cleavages: Option<u8>,
-    /// Static modification to add to the N-terminus of a peptide
-    n_term_mod: Option<f32>,
     /// Static modifications to add to matching amino acids
     static_mods: Option<HashMap<char, f32>>,
+    /// Variable modifications to add to matching amino acids
+    variable_mods: Option<HashMap<char, f32>>,
     /// Use this prefix for decoy proteins
     decoy_prefix: Option<String>,
     /// Path to fasta database
@@ -41,13 +41,12 @@ pub struct Builder {
 }
 
 impl Builder {
-    pub fn make_parameters(self) -> Parameters {
-        let bucket_size = self.bucket_size.unwrap_or(8192).next_power_of_two();
-        let mut static_mods = HashMap::new();
-        if let Some(map) = self.static_mods {
-            for (ch, mass) in map {
-                if crate::mass::VALID_AA.contains(&ch) {
-                    static_mods.insert(ch, mass);
+    fn validate_mods(input: Option<HashMap<char, f32>>) -> HashMap<char, f32> {
+        let mut output = HashMap::new();
+        if let Some(input) = input {
+            for (ch, mass) in input {
+                if crate::mass::VALID_AA.contains(&ch) || ch == '^' {
+                    output.insert(ch, mass);
                 } else {
                     error!(
                         "invalid residue: {}, proceeding without this static mod",
@@ -56,6 +55,11 @@ impl Builder {
                 }
             }
         }
+        output
+    }
+
+    pub fn make_parameters(self) -> Parameters {
+        let bucket_size = self.bucket_size.unwrap_or(8192).next_power_of_two();
         Parameters {
             bucket_size,
             fragment_min_mz: self.fragment_min_mz.unwrap_or(150.0),
@@ -66,8 +70,8 @@ impl Builder {
             peptide_max_mass: self.peptide_max_mass.unwrap_or(5000.0),
             decoy_prefix: self.decoy_prefix.unwrap_or_else(|| "rev_".into()),
             missed_cleavages: self.missed_cleavages.unwrap_or(0),
-            n_term_mod: self.n_term_mod,
-            static_mods,
+            static_mods: Self::validate_mods(self.static_mods),
+            variable_mods: Self::validate_mods(self.variable_mods),
             fasta: self.fasta,
         }
     }
@@ -83,8 +87,8 @@ pub struct Parameters {
     peptide_min_mass: f32,
     peptide_max_mass: f32,
     missed_cleavages: u8,
-    n_term_mod: Option<f32>,
     static_mods: HashMap<char, f32>,
+    variable_mods: HashMap<char, f32>,
     decoy_prefix: String,
     pub fasta: PathBuf,
 }
@@ -112,26 +116,17 @@ impl Parameters {
         let mut target_decoys = targets
             .par_iter()
             .filter_map(|f| Peptide::try_from(f).ok())
-            .filter(|p| {
-                p.monoisotopic >= self.peptide_min_mass && p.monoisotopic <= self.peptide_max_mass
+            .flat_map(|peptide| peptide.apply(&self.variable_mods, &self.static_mods))
+            .filter(|peptide| {
+                peptide.monoisotopic >= self.peptide_min_mass
+                    && peptide.monoisotopic <= self.peptide_max_mass
             })
-            .map(|mut peptide| {
-                // First modification we apply takes priority
-                if let Some(m) = self.n_term_mod {
-                    peptide.set_nterm_mod(m);
-                }
-
-                // Apply any relevant static modifications
-                for (resi, mass) in &self.static_mods {
-                    peptide.static_mod(*resi, *mass);
-                }
-
-                // If this is a reversed digest, annotate it as a Decoy
-                match peptide.protein.starts_with("rev") {
+            .map(
+                |peptide| match peptide.protein.starts_with(&self.decoy_prefix) {
                     true => TargetDecoy::Decoy(peptide),
                     false => TargetDecoy::Target(peptide),
-                }
-            })
+                },
+            )
             .collect::<Vec<TargetDecoy>>();
         (&mut target_decoys).par_sort_unstable_by(|a, b| a.neutral().total_cmp(&b.neutral()));
         target_decoys
