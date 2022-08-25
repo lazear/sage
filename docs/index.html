@@ -33,7 +33,7 @@
               <aside class="footnote">What? MSFragger already took <i>ultrafast</i></aside>and light on RAM usage (you
               have 3 GB of RAM, right?)
             </li>
-            <li>Cross platform: run on Windows, MacOS, or Linux</li>
+            <li>Cross platform: natively run on Windows, MacOS, or Linux</li>
             <li>Small and simple <a href="https://github.com/lazear/sage">codebase</a>, including comments & tests</li>
             <li>Fragment based search <i>a la</i> MSFragger</li>
             <li>Can assign multiple peptides to a single spectrum (chimeric spectra)</li>
@@ -401,19 +401,26 @@
           <figcaption>MSFragger takes the lead on PSM identification by a couple hundred IDs once we start hitting
             open-search</figcaption>
 
-          <h3>Now, let's go really open</h3>
+          <h3>Wide open</h3>
+          Let's open up our precursor mass window to -100 Da to +500 Da; this is typical of a search for unknown PTMs or
+          chemoproteomic applications.
 
-          This is where MSFragger really shines - it identifies ~1,000 extra PSMs from this single file search when we
-          really open up the precursor window. Room for improvement for Sage! (Read below to see one strategy of
-          improving this - chimeric searching)
-          You'll note that Comet isn't in this graph - I don't think there's any point in benchmarking it, timewise, and
-          it also doesn't seem amenable to doing a non-symmetrical precursor window. Given that most modifications
-          involve the <i>addition</i> of a PTM (and thus positive mass shift), it makes sense to use asymmetric windows
-          for an open search strategy.
-          <p>Don't think that you need a beefy c5ad.8xlarge instance to go fast - I can complete the same 600 Da open search on my <strong>MacBook M1 Air</strong> (8 cores, 16 GB RAM) in 370 seconds!</p>
           <img src="500_search.png" class="large" />
           <figcaption>MSFragger widens it's lead as the precursor windows get wider - we are still faster though
             :)</figcaption>
+
+          <p>
+            And, this is where MSFragger really shines - it identifies ~1,000 extra PSMs from this single file search
+            when we
+            really open up the precursor window. Room for improvement for Sage! (Read below to see one strategy of
+            improving this - chimeric searching)
+            You'll note that Comet isn't in this graph - I don't think there's any point in benchmarking it, timewise,
+            and
+            it also doesn't seem amenable to doing a non-symmetrical precursor window. Given that most modifications
+            involve the <i>addition</i> of a PTM (and thus positive mass shift), it makes sense to use asymmetric
+            windows
+            for an open search strategy.
+          </p>
 
 
           <strong>-100 to 500 Da precursor, ±10 ppm fragment window:</strong>
@@ -443,6 +450,9 @@
               </tr>
             </tbody>
           </table>
+
+          <p>Don't think that you need a beefy c5ad.8xlarge instance to go fast - I can complete the same 600 Da open
+            search on my <strong>MacBook M1 Air</strong> (8 cores, 16 GB RAM) in 370 seconds!</p>
 
           <img src="delta_mass.png" class="large">
           <figcaption>Open chimeric search with Sage reveals common modifications. Y-axis trimmed, vast majority
