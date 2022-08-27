@@ -1,3 +1,10 @@
+//! Gauss-Jordan elimination for solution of systems of linear equations
+//!
+//! LDA requires solving the generalized eigenvalue problem for scatter matrices
+//! Sb and Sw. We can actually solve this as the standard eigenvalue problem for
+//! the matrix inv(Sw).dot(Sb) - or we solve the linear sysem Sw.dot(x) = Sb,
+//! then calculate the eigenvalue for x. This is the approach we take.
+
 use super::*;
 
 #[derive(Debug)]
@@ -17,7 +24,25 @@ impl Matrix {
 }
 
 impl Gauss {
-    pub fn echelon(&mut self) {
+    pub fn solve(left: Matrix, right: Matrix) -> Option<Matrix> {
+        let mut g = Gauss { left, right };
+        // dbg!(&g.left);
+        // dbg!(&g.right);
+        g.echelon();
+        g.reduce();
+        g.backfill();
+
+        let eye = Matrix::identity(g.left.rows);
+
+        // If `left` is the identity matrix, then `right` contains
+        // the solution to the system of equations
+        match g.left.is_close(&eye, 0.00001) {
+            true => Some(g.right),
+            false => None,
+        }
+    }
+
+    fn echelon(&mut self) {
         let (m, n) = self.left.shape();
         let mut h = 0;
         let mut k = 0;
@@ -58,7 +83,8 @@ impl Gauss {
         }
     }
 
-    pub fn reduce(&mut self) {
+    // Reduce left matrix to reduced echelon form - diagonal is all ones
+    fn reduce(&mut self) {
         for i in (0..self.left.rows).rev() {
             for j in 0..self.left.cols {
                 let x = self.left[(i, j)];
@@ -76,7 +102,8 @@ impl Gauss {
         }
     }
 
-    pub fn backfill(&mut self) {
+    // Solve the upper triangular matrix
+    fn backfill(&mut self) {
         for i in (0..self.left.rows).rev() {
             for j in 0..self.left.cols {
                 if self.left[(i, j)] == 0.0 {

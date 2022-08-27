@@ -19,9 +19,8 @@ Sage has excellent performance characteristics (2-5x faster, 2-3x reduction in m
 - Small and simple codebase
 - Configuration by JSON files
 - X!Tandem hyperscore function
-- Internal q-value/FDR calculation using a target-decoy competition approach
+- FDR calculation using a target-decoy competition approach, with built-in linear discriminant anlysis
 - Percolator/Mokapot compatible output
-- Unsafe free
 - Only uses mzML files
 - Only Percolator PIN output
 - Only outputs 1 protein ID even if the peptide is shared by multiple proteins

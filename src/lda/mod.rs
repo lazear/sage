@@ -9,271 +9,107 @@
 //! to enable LDA.
 
 mod gauss;
-mod impls;
-
+mod matrix;
+use matrix::Matrix;
 use rayon::prelude::*;
-use std::marker::PhantomData;
 
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub struct Row;
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub struct Col;
+use crate::scoring::Percolator;
 
-#[derive(Clone, PartialEq, PartialOrd)]
-pub struct Matrix {
-    data: Vec<f64>,
-    rows: usize,
-    cols: usize,
-}
-
-pub struct Iter<'a, Axes> {
-    data: &'a Matrix,
-    row: usize,
-    col: usize,
-    axes: PhantomData<Axes>,
-}
-
-pub struct IterMut<'a, Axes> {
-    data: &'a mut Matrix,
-    row: usize,
-    col: usize,
-    axes: PhantomData<Axes>,
-}
-
-impl<'a> Iterator for Iter<'a, Row> {
-    type Item = f64;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let data = self.data.get(self.row, self.col);
-        self.col += 1;
-        data
-    }
-}
-
-impl<'a> Iterator for Iter<'a, Col> {
-    type Item = f64;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let data = self.data.get(self.row, self.col);
-        self.row += 1;
-        data
-    }
+fn all_close(lhs: &[f64], rhs: &[f64], eps: f64) -> bool {
+    lhs.iter()
+        .zip(rhs.iter())
+        .all(|(l, r)| (l - r).abs() <= eps)
 }
 
 pub fn norm(slice: &[f64]) -> f64 {
     slice.iter().fold(0.0, |acc, x| acc + x.powi(2)).sqrt()
 }
 
-impl Matrix {
-    pub fn new<T: Into<Vec<f64>>>(t: T, rows: usize, cols: usize) -> Matrix {
-        Matrix {
-            data: t.into(),
-            rows,
-            cols,
-        }
-    }
+pub struct LinearDiscriminantAnalysis {
+    eigenvector: Vec<f64>,
+}
 
-    pub fn zeros(rows: usize, cols: usize) -> Matrix {
-        Matrix {
-            data: vec![0.0; rows * cols],
-            rows,
-            cols,
-        }
-    }
+impl LinearDiscriminantAnalysis {
+    pub fn train(features: &Matrix, decoy: &[bool]) -> Option<LinearDiscriminantAnalysis> {
+        assert_eq!(features.rows, decoy.len());
 
-    pub fn row_vector(data: Vec<f64>) -> Matrix {
-        let rows = data.len();
-        Matrix {
-            data,
-            rows,
-            cols: 1,
-        }
-    }
+        // Calculate class means, and overall mean
+        let x_bar = features.mean();
+        let mut scatter_within = Matrix::zeros(features.cols, features.cols);
+        let mut scatter_between = Matrix::zeros(features.cols, features.cols);
 
-    pub fn col_vector(data: Vec<f64>) -> Matrix {
-        let cols = data.len();
-        Matrix {
-            data,
-            rows: 1,
-            cols,
-        }
-    }
+        for class in [true, false] {
+            let count = decoy.iter().filter(|&label| *label == class).count();
 
-    pub const fn shape(&self) -> (usize, usize) {
-        (self.rows, self.cols)
-    }
+            let class_data = (0..features.rows)
+                .into_iter()
+                .zip(decoy)
+                .filter(|&(_, label)| *label == class)
+                .flat_map(|(row, _)| features.row(row))
+                .collect::<Vec<_>>();
 
-    pub fn get(&self, row: usize, col: usize) -> Option<f64> {
-        if row >= self.rows || col >= self.cols {
-            None
-        } else {
-            self.data.get(self.cols * row + col).copied()
-        }
-    }
+            let mut class_data = Matrix::new(class_data, count, features.cols);
+            let class_mean = class_data.mean();
 
-    pub fn get_mut(&mut self, row: usize, col: usize) -> Option<&mut f64> {
-        self.data.get_mut(self.cols * row + col)
-    }
-
-    pub fn row(&self, row: usize) -> Iter<'_, Row> {
-        Iter {
-            data: &self,
-            row,
-            col: 0,
-            axes: PhantomData,
-        }
-    }
-
-    pub fn col(&self, col: usize) -> Iter<'_, Col> {
-        Iter {
-            data: &self,
-            row: 0,
-            col,
-            axes: PhantomData,
-        }
-    }
-
-    // Use power method to find the eigenvector with the largest
-    // corresponding eigenvalue
-    pub fn power_method(&self) -> Vec<f64> {
-        // Pick a starting vector
-        // let mut v = Vector::col(vec![0.3; self.cols]);
-        let mut v = self.row(0).collect::<Vec<_>>();
-        let mut last_eig = 0.0;
-        for _ in 0..10 {
-            let mut v1 = self.dotv(&v);
-            let norm = norm(&v1);
-            if (norm - last_eig).abs() < f32::EPSILON as f64 {
-                break;
+            for row in 0..class_data.rows {
+                for col in 0..class_data.cols {
+                    class_data[(row, col)] -= class_mean[col];
+                }
             }
-            last_eig = norm;
-            v1.iter_mut().for_each(|x| *x /= norm);
-            v = v1;
+
+            let cov = class_data.transpose().dot(&class_data);
+            scatter_within += cov;
+
+            let diff = Matrix::col_vector(
+                class_mean
+                    .iter()
+                    .zip(x_bar.iter())
+                    .map(|(x, y)| x - y)
+                    .collect::<Vec<_>>(),
+            );
+
+            scatter_between += diff.dot(&diff.transpose());
         }
-        v
+
+        let evec = gauss::Gauss::solve(scatter_within, scatter_between)
+            .map(|mat| mat.power_method(&x_bar))?;
+        Some(LinearDiscriminantAnalysis {
+            eigenvector: evec,
+        })
     }
 
-    pub fn transpose(&self) -> Matrix {
-        let mut mat = Matrix::zeros(self.cols, self.rows);
-        for row in 0..self.rows {
-            for col in 0..self.cols {
-                mat[(col, row)] = self[(row, col)]
-            }
-        }
-        mat
-    }
-
-    pub fn dotv(&self, rhs: &[f64]) -> Vec<f64> {
-        assert_eq!(
-            self.rows,
-            rhs.len(),
-            "lhs has shape ({},{}), rhs has shape (,{})",
-            self.rows,
-            self.cols,
-            rhs.len()
-        );
-        (0..self.rows)
-            .into_par_iter()
-            .map(|row| self.row(row).zip(rhs).fold(0.0, |acc, (x, y)| acc + x * y))
-            .collect::<Vec<_>>()
-    }
-
-    pub fn dot(&self, rhs: &Matrix) -> Matrix {
-        assert_eq!(
-            self.cols, rhs.rows,
-            "lhs has shape ({},{}), rhs has shape ({},{})",
-            self.rows, self.cols, rhs.rows, rhs.cols
-        );
-        let data = (0..self.rows)
-            .into_par_iter()
-            .flat_map(|row| {
-                (0..rhs.cols).into_par_iter().map(move |col| {
-                    self.row(row)
-                        .zip(rhs.col(col))
-                        .fold(0.0, |acc, (x, y)| acc + x * y)
-                })
-            })
-            .collect::<Vec<_>>();
-        Matrix {
-            data,
-            rows: self.rows,
-            cols: rhs.cols,
-        }
-    }
-
-    /// Calculate mean of each column
-    pub fn mean(&self) -> Vec<f64> {
-        (0..self.cols)
-            .into_par_iter()
-            .map(|col| {
-                let sum = self.col(col).sum::<f64>();
-                sum / self.rows as f64
-            })
-            .collect()
+    pub fn score(&self, features: &Matrix) -> Vec<f64> {
+        features.dotv(&self.eigenvector)
     }
 }
 
-pub fn lda(features: Matrix, decoy: &[bool]) {
-    assert_eq!(features.rows, decoy.len());
-    // Calculate class means, and overall mean
-    // let x_bar = features.mean(std::iter::repeat(true));
-    let x_bar = features.mean();
-    let mut scatter_within = Matrix::zeros(features.cols, features.cols);
-    let mut scatter_between = Matrix::zeros(features.cols, features.cols);
+pub fn score_psms(scores: &[Percolator]) -> Option<Vec<f64>> {
+    let features = scores
+        .into_par_iter()
+        .flat_map(|perc| {
+            let x = [
+                (perc.hyperscore.min(255.) as f64).ln_1p(),
+                (perc.delta_hyperscore.min(255.) as f64).ln_1p(),
+                (perc.delta_mass as f64).ln_1p(),
+                (-(perc.poisson as f64).log10()).ln_1p(),
+                (perc.matched_intensity_pct as f64).ln_1p(),
+                (perc.matched_peaks as f64).ln_1p(),
+                (perc.longest_b as f64).ln_1p(),
+                (perc.longest_y as f64).ln_1p(),
+                (perc.peptide_len as f64).ln_1p(),
+                perc.rt as f64,
+                perc.charge as f64,
+            ];
+            x
+        })
+        .collect::<Vec<_>>();
 
-    for class in [true, false] {
-        let count = decoy.iter().filter(|&label| *label == class).count();
+    let decoys = scores.iter().map(|sc| sc.label == -1).collect::<Vec<_>>();
+    let features = Matrix::new(features, scores.len(), 11);
 
-        // NB: Using par_bridge() removes ordering guarantees - should be fine
-        // for this use though
-        let class_data = (0..features.rows)
-            .into_par_iter()
-            .zip(decoy)
-            .filter(|&(_, label)| *label == class)
-            .flat_map(|(row, _)| features.row(row).par_bridge())
-            .collect::<Vec<_>>();
+    let lda = LinearDiscriminantAnalysis::train(&features, &decoys)?;
 
-        let mut class_data = Matrix::new(class_data, count, features.cols);
-        let class_mean = class_data.mean();
-        dbg!(&class_mean);
-
-        for row in 0..class_data.rows {
-            for col in 0..class_data.cols {
-                class_data[(row, col)] -= class_mean[col];
-            }
-        }
-
-        let cov = class_data.transpose().dot(&class_data);
-        dbg!(&cov);
-        scatter_within += cov;
-
-        let diff = Matrix::new(
-            class_mean
-                .iter()
-                .zip(x_bar.iter())
-                .map(|(x, y)| x - y)
-                .collect::<Vec<_>>(),
-            features.cols,
-            1,
-        );
-        let mut diff2 = diff.clone();
-        dbg!(&diff);
-        std::mem::swap(&mut diff2.cols, &mut diff2.rows);
-        scatter_between += diff.dot(&diff2);
-    }
-
-    let mut g = gauss::Gauss {
-        left: scatter_within,
-        right: scatter_between,
-    };
-
-    g.echelon();
-    g.reduce();
-    g.backfill();
-    dbg!(g);
-    // dbg!(scatter_within);
-    // dbg!(&scatter_between);
-    // dbg!(scatter_between.power_method());
+    Some(lda.score(&features))
 }
 
 #[cfg(test)]
@@ -281,39 +117,52 @@ mod test {
     use super::*;
 
     #[test]
-    fn eigenvector() {
+    fn linear_discriminant() {
         let a = Matrix::new([1., 2., 3., 4.], 2, 2);
         let eigenvector = [0.4159736, 0.90937671];
-        assert!(a
-            .power_method()
-            .iter()
-            .zip(eigenvector)
-            .all(|(x, y)| (x - y).abs() <= 0.0001));
+        assert!(all_close(
+            &a.power_method(&[0.54, 0.34]),
+            &eigenvector,
+            1E-5
+        ));
 
+        #[rustfmt::skip]
         let feats = Matrix::new(
             [
-                5., 4., 3., 2., 4., 5., 4., 3., 6., 3., 4., 5., 1., 0., 2., 9., 5., 4., 4., 3., 2.,
-                1., 1., 9.5, 1., 0., 2., 8., 3., 2., -2., 10.,
+                5., 4., 3., 2., 
+                4., 5., 4., 3., 
+                6., 3., 4., 5., 
+                1., 0., 2., 9., 
+                5., 4., 4., 3., 
+                2., 1., 1., 9.5, 
+                1., 0., 2., 8., 
+                3., 2., -2., 10.,
             ],
             8,
             4,
         );
-        lda(feats, &[false, false, false, true, false, true, true, true]);
-        panic!("oops");
-    }
 
-    #[test]
-    fn dot2() {
-        let a = Matrix::new([1., 2., 3., 4.], 2, 2);
-        // let c = &a * b;
-        let v0 = a.dotv(&[0.5, 0.5]);
-        assert_eq!(v0, vec![1.5, 3.5]);
-        let n = norm(&v0);
+        let lda = LinearDiscriminantAnalysis::train(
+            &feats,
+            &[false, false, false, true, false, true, true, true],
+        )
+        .expect("error training LDA");
 
-        let c = v0.iter().map(|v| v / n).collect::<Vec<_>>();
-        assert!(c
-            .iter()
-            .zip(&[0.3939193, 0.91914503])
-            .all(|(x, y)| (x - y).abs() <= 0.0001));
+        let mut scores = lda.score(&feats);
+        let norm = norm(&scores);
+        scores = scores.into_iter().map(|s| s / norm).collect();
+
+        let expected = [
+            -0.49706043,
+            -0.48920177,
+            -0.48920177,
+            0.07209359,
+            -0.51204672,
+            0.02849527,
+            0.04924864,
+            0.06055943,
+        ];
+
+        assert!(all_close(&scores, &expected, 1E-8), "{:?} {:?}", scores, expected);
     }
 }

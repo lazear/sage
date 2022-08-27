@@ -101,7 +101,17 @@ fn process_mzml_file<P: AsRef<Path>>(
         .flat_map(|spec| scorer.score(&spec, search.report_psms))
         .collect::<Vec<_>>();
 
-    (&mut scores).par_sort_unstable_by(|a, b| a.poisson.total_cmp(&b.poisson));
+    if let Some(discriminant) = sage::lda::score_psms(&scores) {
+        scores
+            .iter_mut()
+            .zip(discriminant.iter())
+            .for_each(|(sc, disc)| sc.discriminant_score = *disc as f32);
+        (&mut scores)
+            .par_sort_unstable_by(|a, b| b.discriminant_score.total_cmp(&a.discriminant_score));
+    } else {
+        (&mut scores).par_sort_unstable_by(|a, b| a.poisson.total_cmp(&b.poisson));
+    }
+
     let passing_psms = assign_q_values(&mut scores);
 
     let mut path = p.as_ref().to_path_buf();

@@ -28,7 +28,7 @@ impl Default for Score {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 /// Features of a candidate peptide spectrum match
 pub struct Percolator<'db> {
     #[serde(skip_serializing)]
@@ -71,6 +71,10 @@ pub struct Percolator<'db> {
     pub scored_candidates: usize,
     /// Probability of matching exactly N peaks across all candidates Pr(x=k)
     pub poisson: f32,
+
+    pub discriminant_score: f32,
+
+    pub posterior_error: f32,
     /// Assigned q_value
     pub q_value: f32,
 }
@@ -87,7 +91,7 @@ impl Score {
         if score.is_finite() {
             score
         } else {
-            f32::MAX
+            255.0
         }
     }
 }
@@ -238,15 +242,17 @@ impl<'db> Scorer<'db> {
 
             let (b, y) = self.rescore(query, peptide);
             reporting.push(Percolator {
+                // Identifiers
                 peptide_idx: better.peptide,
                 peptide: peptide.to_string(),
-                peptide_len: peptide.sequence.len(),
                 proteins: &peptide.protein,
                 specid: 0,
                 scannr: query.scan,
                 label: self.db[better.peptide].label(),
                 expmass: query.monoisotopic_mass + PROTON,
                 calcmass: peptide.monoisotopic + PROTON,
+
+                // Features
                 charge: query.charge,
                 rt: query.rt,
                 delta_mass: (query.monoisotopic_mass - peptide.monoisotopic).abs(),
@@ -257,7 +263,12 @@ impl<'db> Scorer<'db> {
                 poisson,
                 longest_b: b,
                 longest_y: y,
+                peptide_len: peptide.sequence.len(),
                 scored_candidates: n,
+
+                // Outputs
+                discriminant_score: 0.0,
+                posterior_error: 1.0,
                 q_value: 1.0,
             })
         }
