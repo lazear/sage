@@ -38,6 +38,7 @@ pub struct Peptide {
     pub sequence: Vec<Residue>,
     pub nterm: Option<f32>,
     pub monoisotopic: f32,
+    pub missed_cleavages: u8,
 }
 
 impl Peptide {
@@ -89,14 +90,11 @@ impl Peptide {
             }
             vec![self]
         } else {
-            let mut peptides =
-                variable_mods
-                    .iter()
-                    .fold(vec![self], |acc, (resi, mass)| {
-                        acc.iter()
-                            .flat_map(|peptide| peptide.variable_mod(*resi, *mass))
-                            .collect()
-                    });
+            let mut peptides = variable_mods.iter().fold(vec![self], |acc, (resi, mass)| {
+                acc.iter()
+                    .flat_map(|peptide| peptide.variable_mod(*resi, *mass))
+                    .collect()
+            });
             peptides.iter_mut().for_each(|p| {
                 for (resi, mass) in static_mods {
                     p.static_mod(*resi, *mass);
@@ -167,6 +165,7 @@ impl<'a> TryFrom<&Digest<'a>> for Peptide {
             monoisotopic,
             nterm: None,
             protein: value.protein.to_string(),
+            missed_cleavages: value.missed_cleavages,
         })
     }
 }
@@ -197,6 +196,7 @@ mod test {
         let peptide = Peptide::try_from(&Digest {
             protein: "",
             sequence: "GCMGCMG",
+            missed_cleavages: 0,
         })
         .unwrap();
 
@@ -234,6 +234,7 @@ mod test {
         let peptide = Peptide::try_from(&Digest {
             protein: "",
             sequence: "GCMGCMG",
+            missed_cleavages: 0,
         })
         .unwrap();
 
@@ -267,14 +268,11 @@ mod test {
         let peptide = Peptide::try_from(&Digest {
             protein: "",
             sequence: "AACAACAA",
+            missed_cleavages: 0,
         })
         .unwrap();
 
-        let expected = vec![
-            "AAC(30)AAC(57)AA",
-            "AAC(57)AAC(30)AA",
-            "AAC(57)AAC(57)AA",
-        ]; 
+        let expected = vec!["AAC(30)AAC(57)AA", "AAC(57)AAC(30)AA", "AAC(57)AAC(57)AA"];
 
         let mut static_mods = HashMap::new();
         static_mods.insert('C', 57.0);
@@ -282,10 +280,11 @@ mod test {
         let mut variable_mods = HashMap::new();
         variable_mods.insert('C', 30.0);
 
-        let actual = peptide.apply(&variable_mods, &static_mods)
-            .into_iter().map(|p| p.to_string()).collect::<Vec<_>>();
+        let actual = peptide
+            .apply(&variable_mods, &static_mods)
+            .into_iter()
+            .map(|p| p.to_string())
+            .collect::<Vec<_>>();
         assert_eq!(actual, expected);
-
-
     }
 }

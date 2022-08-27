@@ -93,10 +93,7 @@ pub fn peptide_id() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'sta
         }
     }
 
-    assert_eq!(
-        scores[&PeptideIx(hit_index as u32)],
-        26
-    );
+    assert_eq!(scores[&PeptideIx(hit_index as u32)], 26);
 
     Ok(())
 }

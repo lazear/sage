@@ -91,6 +91,7 @@ mod test {
                 protein: String::default(),
                 sequence,
                 nterm: None,
+                missed_cleavages: 0,
                 monoisotopic,
             })
         }

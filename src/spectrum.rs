@@ -77,7 +77,7 @@ pub fn select_most_intense_peak(peaks: &[Peak], mz: f32, tolerance: Tolerance) -
 /// Binary search followed by linear search to select the closest peak to `mz` within `tolerance` window
 pub fn select_closest_peak(peaks: &[Peak], mz: f32, tolerance: Tolerance) -> Option<&Peak> {
     let (lo, hi) = tolerance.bounds(mz);
-    let (i, j) = binary_search_slice(&peaks, |peak, query| peak.mass.total_cmp(query), lo, hi);
+    let (i, j) = binary_search_slice(peaks, |peak, query| peak.mass.total_cmp(query), lo, hi);
 
     let mut best_peak = None;
     let mut min_eps = f32::MAX;
@@ -191,6 +191,50 @@ impl SpectrumProcessor {
         }
     }
 
+    fn process_ms2(&self, should_deisotope: bool, spectrum: &Spectrum) -> Vec<Peak> {
+        let charge = spectrum
+            .precursors
+            .get(0)
+            .and_then(|p| p.charge)
+            .expect("missing precursor information for MS2 scan, please check input files!");
+        if should_deisotope {
+            let mut peaks = deisotope(&spectrum.mz, &spectrum.intensity, charge, 5.0);
+            peaks.sort_unstable_by(|a, b| b.intensity.total_cmp(&a.intensity));
+
+            peaks
+                .into_iter()
+                .filter(|peak| {
+                    peak.envelope.is_none()
+                        && peak.mz >= self.min_fragment_mz
+                        && peak.mz <= self.max_fragment_mz
+                })
+                .map(|peak| {
+                    // Convert from MH* to M
+                    let mass = (peak.mz - PROTON) * peak.charge.unwrap_or(1) as f32;
+                    Peak {
+                        mass,
+                        intensity: peak.intensity,
+                    }
+                })
+                .take(self.take_top_n)
+                .collect::<Vec<Peak>>()
+        } else {
+            let mut peaks = spectrum
+                .mz
+                .iter()
+                .zip(spectrum.intensity.iter())
+                .filter(|&(mz, _)| *mz >= self.min_fragment_mz && *mz <= self.max_fragment_mz)
+                .map(|(mz, &intensity)| {
+                    let mass = (mz - PROTON) * 1.0;
+                    Peak { mass, intensity }
+                })
+                .collect::<Vec<_>>();
+            peaks.sort_unstable_by(|a, b| b.intensity.total_cmp(&a.intensity));
+            peaks.truncate(self.take_top_n);
+            peaks
+        }
+    }
+
     pub fn process(&self, spectrum: Spectrum) -> ProcessedSpectrum {
         if spectrum.representation != Representation::Centroid {
             // Panic, because there's really nothing we can do with profile data
@@ -200,63 +244,21 @@ impl SpectrumProcessor {
             );
         }
 
-        let mut peaks = match self.deisotope && spectrum.ms_level == 2 {
-            true => {
-                let charge = spectrum.precursors.get(0).and_then(|p| p.charge).expect(
-                    "missing precursor information for MS2 scan, please check input files!",
-                );
-                let mut peaks = deisotope(&spectrum.mz, &spectrum.intensity, charge, 5.0);
-                peaks.sort_unstable_by(|a, b| b.intensity.total_cmp(&a.intensity));
-                peaks
-                    .into_iter()
-                    .filter(|peak| peak.envelope.is_none())
-                    .filter_map(|peak| {
-                        // Convert from MH* to M
-                        let fragment_mass = (peak.mz - PROTON) * peak.charge.unwrap_or(1) as f32;
-                        let mass_filter = fragment_mass <= self.max_fragment_mz;
-                        match mass_filter {
-                            true => Some(Peak {
-                                mass: fragment_mass,
-                                intensity: peak.intensity, //.sqrt(),
-                            }),
-                            false => None,
-                        }
-                    })
-                    .take(self.take_top_n)
-                    .collect::<Vec<Peak>>()
-            }
-            false => {
-                let mut peaks = spectrum
-                    .mz
-                    .into_iter()
-                    .zip(spectrum.intensity.into_iter())
-                    .filter_map(|(mz, intensity)| {
-                        // Convert from MH* to M
-                        let fragment_mass = mz - PROTON;
-                        let mass_filter = fragment_mass <= self.max_fragment_mz;
-                        match mass_filter {
-                            true => Some(Peak {
-                                mass: fragment_mass,
-                                intensity: if spectrum.ms_level == 2 {
-                                    intensity //.sqrt()
-                                } else {
-                                    intensity
-                                },
-                            }),
-                            false => None,
-                        }
-                    })
-                    .collect::<Vec<_>>();
-                if spectrum.ms_level == 2 {
-                    peaks.sort_unstable_by(|a, b| b.intensity.total_cmp(&a.intensity));
-                    peaks.truncate(self.take_top_n);
-                }
-                peaks
-            }
+        // Only process MS2 files
+        let mut peaks = match spectrum.ms_level {
+            2 => self.process_ms2(self.deisotope, &spectrum),
+            _ => spectrum
+                .mz
+                .iter()
+                .zip(spectrum.intensity.iter())
+                .map(|(mz, &intensity)| {
+                    let mass = (mz - PROTON) * 1.0;
+                    Peak { mass, intensity }
+                })
+                .collect::<Vec<_>>(),
         };
 
         peaks.sort_unstable_by(|a, b| a.mass.total_cmp(&b.mass));
-
         let total_intensity = peaks.iter().map(|peak| peak.intensity).sum::<f32>();
 
         ProcessedSpectrum {

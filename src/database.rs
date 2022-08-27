@@ -250,14 +250,14 @@ impl IndexedDatabase {
     ///
     /// All matches returned by the query will be within the specified tolerance
     /// parameters
-    pub fn query<'d>(
-        &'d self,
+    pub fn query(
+        &self,
         precursor_mass: f32,
         precursor_tol: Tolerance,
         fragment_tol: Tolerance,
         min_isotope_err: i8,
         max_isotope_err: i8,
-    ) -> IndexedQuery<'d> {
+    ) -> IndexedQuery<'_> {
         let (precursor_lo, precursor_hi) = precursor_tol.bounds(precursor_mass);
 
         let (pre_idx_lo, pre_idx_hi) = binary_search_slice(

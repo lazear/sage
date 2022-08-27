@@ -1,7 +1,7 @@
 use crate::database::{binary_search_slice, IndexedDatabase, PeptideIx, Theoretical};
 use crate::ion_series::Kind;
-use crate::peptide::TargetDecoy;
 use crate::mass::{Tolerance, PROTON};
+use crate::peptide::TargetDecoy;
 use crate::spectrum::{Peak, Precursor, ProcessedSpectrum};
 use serde::Serialize;
 
@@ -11,7 +11,6 @@ struct Score {
     peptide: PeptideIx,
     matched_b: u16,
     matched_y: u16,
-    matched_nl: u16,
     summed_b: f32,
     summed_y: f32,
     hyperscore: f32,
@@ -45,6 +44,7 @@ pub struct Percolator<'db> {
     pub rt: f32,
     /// Difference between expmass and calcmass
     pub delta_mass: f32,
+    /// Average ppm delta mass for matched fragments
     pub average_ppm: f32,
     /// X!Tandem hyperscore
     pub hyperscore: f32,
@@ -52,20 +52,23 @@ pub struct Percolator<'db> {
     pub delta_hyperscore: f32,
     /// Number of matched theoretical fragment ions
     pub matched_peaks: u32,
-    pub matched_neutral_loss: u32,
     /// Longest b-ion series
     pub longest_b: usize,
     /// Longest y-ion series
     pub longest_y: usize,
+    /// Number of missed cleavages
+    pub missed_cleavages: u8,
     /// Fraction of matched MS2 intensity
     pub matched_intensity_pct: f32,
     /// Number of scored candidates for this spectrum
     pub scored_candidates: usize,
     /// Probability of matching exactly N peaks across all candidates Pr(x=k)
     pub poisson: f32,
-
+    /// % of MS1 signal in isolation window explained by precursor
+    pub ion_interference: f32,
+    /// Combined score from linear discriminant analysis, used for FDR calc
     pub discriminant_score: f32,
-
+    /// Posterior error probability for this PSM / local FDR
     pub posterior_error: f32,
     /// Assigned q_value
     pub q_value: f32,
@@ -131,30 +134,40 @@ impl<'db> Scorer<'db> {
         }
     }
 
-    pub fn score(&self, query: &ProcessedSpectrum, report_psms: usize) -> Vec<Percolator<'db>> {
+    pub fn score(
+        &self,
+        spectra: &[ProcessedSpectrum],
+        query: &ProcessedSpectrum,
+        report_psms: usize,
+    ) -> Vec<Percolator<'db>> {
         assert_eq!(
             query.level, 2,
             "internal bug, trying to score a non-MS2 scan!"
         );
         match self.chimera {
-            true => self.score_chimera(query),
-            false => self.score_standard(query, report_psms),
+            true => self.score_chimera(spectra, query),
+            false => self.score_standard(spectra, query, report_psms),
         }
     }
 
     /// Score a single [`ProcessedSpectrum`] against the database
     pub fn score_standard(
         &self,
+        spectra: &[ProcessedSpectrum],
         query: &ProcessedSpectrum,
         report_psms: usize,
     ) -> Vec<Percolator<'db>> {
-        let (precursor_mass, charge) = query
+        let (precursor_mass, precursor_charge) = query
             .extract_ms1_precursor()
             .expect("missing MS1 precursor");
 
         // If user has configured max_fragment_charge, potentially override precursor
         // charge
-        let charge = charge.min(self.max_fragment_charge.unwrap_or(charge));
+        let charge = precursor_charge.min(
+            self.max_fragment_charge
+                .map(|c| c + 1)
+                .unwrap_or(precursor_charge),
+        );
 
         let candidates = self.db.query(
             precursor_mass,
@@ -264,7 +277,8 @@ impl<'db> Scorer<'db> {
                 poisson = 1E-30;
             }
 
-            let (b, y) = self.rescore(query, peptide);
+            let (b, y) = self.rescore(query, charge, peptide);
+
             reporting.push(Percolator {
                 // Identifiers
                 peptide_idx: better.peptide,
@@ -277,7 +291,7 @@ impl<'db> Scorer<'db> {
                 calcmass: peptide.monoisotopic + PROTON,
 
                 // Features
-                charge: charge,
+                charge: precursor_charge,
                 rt: query.scan_start_time,
                 delta_mass: (precursor_mass - peptide.monoisotopic).abs() * 1E6
                     / peptide.monoisotopic,
@@ -285,13 +299,15 @@ impl<'db> Scorer<'db> {
                 hyperscore: better.hyperscore,
                 delta_hyperscore: better.hyperscore - next,
                 matched_peaks: k as u32,
-                matched_neutral_loss: 0,
-                matched_intensity_pct: (better.summed_b + better.summed_y) / query.total_intensity,
+                matched_intensity_pct: 100.0 * (better.summed_b + better.summed_y)
+                    / query.total_intensity,
                 poisson: -poisson.log10(),
                 longest_b: b,
                 longest_y: y,
                 peptide_len: peptide.sequence.len(),
                 scored_candidates: n,
+                ion_interference: 100.0 * ion_interference(spectra, query).unwrap_or(1.0),
+                missed_cleavages: peptide.missed_cleavages,
 
                 // Outputs
                 discriminant_score: 0.0,
@@ -304,8 +320,16 @@ impl<'db> Scorer<'db> {
 
     /// Return 2 PSMs for each spectra - first is the best match, second PSM is the best match
     /// after all theoretical peaks assigned to the best match are removed
-    pub fn score_chimera(&self, query: &ProcessedSpectrum) -> Vec<Percolator<'db>> {
-        let mut scores = self.score_standard(query, 1);
+    pub fn score_chimera(
+        &self,
+        spectra: &[ProcessedSpectrum],
+        query: &ProcessedSpectrum,
+    ) -> Vec<Percolator<'db>> {
+        let (_, charge) = query
+            .extract_ms1_precursor()
+            .expect("missing MS1 precursor");
+
+        let mut scores = self.score_standard(spectra, query, 1);
         if scores.is_empty() {
             return scores;
         }
@@ -326,7 +350,6 @@ impl<'db> Scorer<'db> {
 
         let peptide = &self.db[best.peptide_idx];
         if let TargetDecoy::Target(peptide) = peptide {
-
             let mut theo = [Kind::B, Kind::Y]
                 .iter()
                 .flat_map(|kind| {
@@ -340,13 +363,15 @@ impl<'db> Scorer<'db> {
             theo.sort_unstable_by(|a, b| a.fragment_mz.total_cmp(&b.fragment_mz));
 
             for peak in &query.peaks {
-                let (low, high) = self.fragment_tol.bounds(peak.mass);
-                let slice =
-                    binary_search_slice(&theo, |a, x| a.fragment_mz.total_cmp(x), low, high);
                 let mut allow = true;
-                for frag in &theo[slice.0..slice.1] {
-                    if frag.fragment_mz >= low && frag.fragment_mz <= high {
-                        allow = false;
+                for charge in 1..charge {
+                    let (low, high) = self.fragment_tol.bounds(peak.mass * charge as f32);
+                    let slice =
+                        binary_search_slice(&theo, |a, x| a.fragment_mz.total_cmp(x), low, high);
+                    for frag in &theo[slice.0..slice.1] {
+                        if frag.fragment_mz >= low && frag.fragment_mz <= high {
+                            allow = false;
+                        }
                     }
                 }
                 if allow {
@@ -354,7 +379,7 @@ impl<'db> Scorer<'db> {
                 }
             }
 
-            scores.extend(self.score_standard(&subtracted, 1));
+            scores.extend(self.score_standard(spectra, &subtracted, 1));
         }
         scores
     }
@@ -363,13 +388,14 @@ impl<'db> Scorer<'db> {
     fn longest_series(
         &self,
         peaks: &[Peak],
+        charge: u8,
         kind: Kind,
         peptide: &crate::peptide::Peptide,
     ) -> usize {
         let mut current_start = peaks.len();
         let mut run = 0;
         let mut longest_run = 0;
-        for (idx, frag) in crate::ion_series::IonSeries::new(peptide, kind)
+        'outer: for (idx, frag) in crate::ion_series::IonSeries::new(peptide, kind)
             .map(|ion| Theoretical {
                 peptide_index: PeptideIx(0),
                 fragment_mz: ion.monoisotopic_mass,
@@ -377,13 +403,20 @@ impl<'db> Scorer<'db> {
             })
             .enumerate()
         {
-            if crate::spectrum::select_closest_peak(&peaks, frag.fragment_mz, self.fragment_tol)
+            for charge in 1..charge {
+                // Experimental peaks are multipled by charge, therefore theoretical are divided
+                if crate::spectrum::select_closest_peak(
+                    peaks,
+                    frag.fragment_mz / charge as f32,
+                    self.fragment_tol,
+                )
                 .is_some()
-            {
-                run += 1;
-                if current_start + run == idx {
-                    longest_run = longest_run.max(run);
-                    continue;
+                {
+                    run += 1;
+                    if current_start + run == idx {
+                        longest_run = longest_run.max(run);
+                        continue 'outer;
+                    }
                 }
             }
             current_start = idx;
@@ -398,11 +431,46 @@ impl<'db> Scorer<'db> {
     fn rescore(
         &self,
         query: &ProcessedSpectrum,
+        charge: u8,
         candidate: &crate::peptide::Peptide,
     ) -> (usize, usize) {
-        let b = self.longest_series(&query.peaks, Kind::B, candidate);
-        let y = self.longest_series(&query.peaks, Kind::Y, candidate);
+        let b = self.longest_series(&query.peaks, charge, Kind::B, candidate);
+        let y = self.longest_series(&query.peaks, charge, Kind::Y, candidate);
         (b, y)
+    }
+}
+
+/// Calculate percentage of MS1 signal in isolation window that is attributed
+/// to the selected precursor ion
+pub fn ion_interference(spectra: &[ProcessedSpectrum], ms2: &ProcessedSpectrum) -> Option<f32> {
+    // let (mz, charge) = ms2.extract_ms1_precursor();
+    let precursor = ms2.precursors.first()?;
+    let ms1_scan = crate::spectrum::find_spectrum_by_id(spectra, precursor.scan?)?;
+
+    let isolation_window = precursor
+        .isolation_window
+        .unwrap_or_else(|| Tolerance::Da(-0.5, 0.5));
+    let precursor_mass = (precursor.mz - PROTON) * precursor.charge? as f32;
+    let (lo, hi) = isolation_window.bounds(precursor_mass);
+
+    let (idx_lo, idx_hi) =
+        binary_search_slice(&ms1_scan.peaks, |peak, mz| peak.mass.total_cmp(mz), lo, hi);
+
+    let mut selected_intensity = precursor.intensity.unwrap_or(0.0);
+    let mut total_intensity = selected_intensity;
+    for peak in ms1_scan.peaks[idx_lo..idx_hi]
+        .iter()
+        .filter(|peak| peak.mass >= lo && peak.mass <= hi)
+    {
+        if peak.mass == precursor_mass {
+            selected_intensity = peak.intensity;
+        }
+        total_intensity += peak.intensity;
+    }
+    if total_intensity == 0.0 {
+        None
+    } else {
+        Some((total_intensity - selected_intensity) / total_intensity)
     }
 }
 

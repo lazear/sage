@@ -80,6 +80,8 @@ pub struct Digest<'s> {
     pub protein: &'s str,
     /// Tryptic peptide sequence
     pub sequence: &'s str,
+    /// Missed cleavages
+    pub missed_cleavages: u8,
 }
 
 impl<'s> PartialEq for Digest<'s> {
@@ -128,7 +130,11 @@ impl Trypsin {
                 let sequence = &sequence[win[0].start..win[cleavage as usize - 1].end];
                 let len = sequence.len();
                 if len >= self.min_len && len <= self.max_len {
-                    digests.push(Digest { protein, sequence })
+                    digests.push(Digest {
+                        protein,
+                        sequence,
+                        missed_cleavages: cleavage - 1,
+                    })
                 }
             }
         }
@@ -157,6 +163,7 @@ impl Kmer {
             digests.push(Digest {
                 protein,
                 sequence: &sequence[i..i + self.size],
+                missed_cleavages: 0,
             })
         }
         digests

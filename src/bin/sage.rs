@@ -81,74 +81,6 @@ impl Search {
     }
 }
 
-fn process_mzml_file<P: AsRef<Path>>(
-    p: P,
-    search: &Search,
-    scorer: &Scorer,
-) -> Result<PathBuf, Box<dyn std::error::Error + Send + Sync + 'static>> {
-    let sp = SpectrumProcessor::new(
-        search.max_peaks,
-        search.database.fragment_min_mz,
-        search.database.fragment_max_mz,
-        search.deisotope,
-    );
-
-    if p.as_ref()
-        .extension()
-        .expect("expecting .mzML files as input!")
-        .to_ascii_lowercase()
-        != "mzml"
-    {
-        panic!("expecting .mzML files as input!")
-    }
-
-    let spectra = sage::mzml::MzMlReader::read(&p)?;
-    // let mut scores = sage::mzml::MzMlReader::read_ms2(&p)?
-    let mut scores = spectra
-        .into_par_iter()
-        .filter(|spec| spec.mz.len() >= search.min_peaks)
-        .map(|spec| sp.process(spec))
-        .flat_map(|spec| scorer.score(&spec, search.report_psms))
-        .collect::<Vec<_>>();
-
-    if sage::lda::score_psms(&mut scores).is_some() {
-        (&mut scores)
-            .par_sort_unstable_by(|a, b| b.discriminant_score.total_cmp(&a.discriminant_score));
-    } else {
-        log::warn!("fitting linear model failed, falling back to default");
-        (&mut scores).par_sort_unstable_by(|a, b| a.poisson.total_cmp(&b.poisson));
-    }
-
-    let passing_psms = assign_q_values(&mut scores);
-
-    let mut path = p.as_ref().to_path_buf();
-    path.set_extension("sage.pin");
-
-    if let Some(mut directory) = search.output_directory.clone() {
-        directory.push(path.file_name().expect("BUG: should be a filename!"));
-        path = directory;
-    }
-
-    let mut writer = csv::WriterBuilder::new()
-        .delimiter(b'\t')
-        .from_path(&path)?;
-
-    let total_psms = scores.len();
-
-    for (idx, mut score) in scores.into_iter().enumerate() {
-        score.specid = idx;
-        writer.serialize(score)?;
-    }
-
-    info!(
-        "{:?}: assigned {} PSMs ({} with 1% FDR)",
-        p.as_ref(),
-        total_psms,
-        passing_psms,
-    );
-    Ok(path)
-}
-
 fn process_mzml_file_sps<P: AsRef<Path>>(
     p: P,
     search: &Search,
@@ -176,6 +108,7 @@ fn process_mzml_file_sps<P: AsRef<Path>>(
         .into_par_iter()
         .map(|spec| sp.process(spec))
         .collect::<Vec<_>>();
+    log::trace!("{}: read {} spectra", p.as_ref().display(), spectra.len());
     // info!("read spectra");
 
     let mut path = p.as_ref().to_path_buf();
@@ -203,9 +136,9 @@ fn process_mzml_file_sps<P: AsRef<Path>>(
         for spectrum in &spectra {
             if spectrum.level == 3 {
                 if let Some(quant) = sage::tmt::quantify_sps(
-                    &scorer,
+                    scorer,
                     &spectra,
-                    &spectrum,
+                    spectrum,
                     quant,
                     Tolerance::Ppm(-20.0, 20.0),
                 ) {
@@ -235,12 +168,19 @@ fn process_mzml_file_sps<P: AsRef<Path>>(
     } else {
         scores = spectra
             .par_iter()
-            .filter(|spec| spec.level == 2)
-            .flat_map(|spec| scorer.score(spec, search.report_psms))
+            .filter(|spec| spec.peaks.len() >= search.min_peaks && spec.level == 2)
+            .flat_map(|spec| scorer.score(&spectra, spec, search.report_psms))
             .collect();
     }
 
-    (&mut scores).par_sort_unstable_by(|a, b| b.poisson.total_cmp(&a.poisson));
+    if sage::lda::score_psms(&mut scores).is_some() {
+        (&mut scores)
+            .par_sort_unstable_by(|a, b| b.discriminant_score.total_cmp(&a.discriminant_score));
+    } else {
+        log::warn!("linear model fitting failed, falling back to poisson-based FDR calculation");
+        (&mut scores).par_sort_unstable_by(|a, b| b.poisson.total_cmp(&a.poisson));
+    }
+
     let passing_psms = assign_q_values(&mut scores);
 
     let mut path = p.as_ref().to_path_buf();

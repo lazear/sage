@@ -2,7 +2,7 @@ use super::norm;
 use rayon::prelude::*;
 use std::fmt::{self, Debug};
 use std::marker::PhantomData;
-use std::ops::{Add, AddAssign, Index, IndexMut, Mul};
+use std::ops::{Add, AddAssign, Index, IndexMut};
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct Row;
@@ -228,14 +228,6 @@ impl Matrix {
                 sum / self.rows as f64
             })
             .collect()
-    }
-}
-
-impl Mul<&[f64]> for &Matrix {
-    type Output = Vec<f64>;
-
-    fn mul(self, rhs: &[f64]) -> Self::Output {
-        self.dotv(rhs)
     }
 }
 

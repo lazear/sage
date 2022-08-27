@@ -63,7 +63,18 @@ impl LinearDiscriminantAnalysis {
                 .collect::<Vec<_>>();
 
             let mut class_data = Matrix::new(class_data, count, features.cols);
-            let class_mean = class_data.mean();
+            let mut class_mean = class_data.mean();
+
+            // Any zeroes in the covariance matrix will cause LDA to fail:
+            // Attempt to rectify by making the scatter matrices contain 1 instead
+            for col in class_mean.iter_mut() {
+                if *col == 0.0 {
+                    log::trace!(
+                        "attempting to apply correction to LDA model, where class mean = 0.0"
+                    );
+                    *col = -1.0;
+                }
+            }
 
             for row in 0..class_data.rows {
                 for col in 0..class_data.cols {
@@ -86,16 +97,15 @@ impl LinearDiscriminantAnalysis {
             class_means.extend(class_mean);
         }
 
-        let class_means = Matrix::new(class_means, 2, features.cols);
-
         // Use overall mean as the initial vector for power method... seems
         // unlikely to be the actual best eigenvector!
         let mut evec = gauss::Gauss::solve(scatter_within, scatter_between)
             .map(|mat| mat.power_method(&x_bar))?;
 
-        // In some cases, power method can return eigenvector with signs flipped
+        // In some cases, power method can return eigenvector with signs flipped -
         // Make it so that Target class scores are higher than Decoy, so that
         // we can make assumptions about this for ranking
+        let class_means = Matrix::new(class_means, 2, features.cols);
         let coef = class_means.dotv(&evec);
         if coef[1] < coef[0] {
             evec.iter_mut().for_each(|c| *c *= -1.0);
@@ -115,12 +125,12 @@ pub fn score_psms(scores: &mut [Percolator]) -> Option<()> {
     log::trace!("fitting linear discriminant model");
 
     // Declare, so that we have compile time checking of matrix dimensions
-    const FEATURES: usize = 13;
+    const FEATURES: usize = 14;
     let features = scores
         .into_par_iter()
         .flat_map(|perc| {
-            let poisson = match -perc.poisson.log10() {
-                x if x.is_finite() => x.ln_1p(),
+            let poisson = match perc.poisson.ln_1p() {
+                x if x.is_finite() => x,
                 _ => 3.5,
             };
 
@@ -128,15 +138,18 @@ pub fn score_psms(scores: &mut [Percolator]) -> Option<()> {
                 (perc.hyperscore.min(255.) as f64).ln_1p(),
                 (perc.delta_hyperscore.min(255.) as f64).ln_1p(),
                 (perc.delta_mass as f64).ln_1p(),
+                // perc.expmass as f64,
                 perc.average_ppm as f64,
                 poisson as f64,
-                (perc.matched_intensity_pct as f64 * 100.0).ln_1p(),
+                (perc.matched_intensity_pct as f64).ln_1p(),
                 (perc.matched_peaks as f64).ln_1p(),
-                // (perc.matched_neutral_loss as f64).ln_1p(),
                 (perc.longest_b as f64).ln_1p(),
                 (perc.longest_y as f64).ln_1p(),
+                (perc.longest_y as f64 / perc.peptide_len as f64), //.ln_1p(),
                 (perc.peptide_len as f64).ln_1p(),
-                (perc.scored_candidates as f64).ln_1p(),
+                // (perc.scored_candidates as f64).ln_1p(),
+                // (perc.ion_interference as f64).ln_1p(),
+                (perc.missed_cleavages as f64),
                 (perc.rt as f64).ln_1p(),
                 (perc.charge as f64).ln_1p(),
             ];
@@ -148,6 +161,19 @@ pub fn score_psms(scores: &mut [Percolator]) -> Option<()> {
     let features = Matrix::new(features, scores.len(), FEATURES);
 
     let lda = LinearDiscriminantAnalysis::train(&features, &decoys)?;
+    if !lda.eigenvector.iter().all(|f| f.is_finite()) {
+        log::error!(
+            "linear model eigenvector includes NaN: this likely indicates a bug, please report!"
+        );
+        for row in 0..features.rows {
+            if features.row(row).any(|f| !f.is_finite()) {
+                let row = features.row(row).collect::<Vec<_>>();
+                log::error!("example feature vector with NaN: {:?}", row);
+                break;
+            }
+        }
+        return None;
+    }
     let discriminants = lda.score(&features);
 
     log::trace!("fitting non-parametric model for posterior error probabilities");
