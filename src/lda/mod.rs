@@ -8,10 +8,10 @@
 //! (complete with Gauss-Jordan elimination and eigenvector calculation) from scratch
 //! to enable LDA.
 
+mod gauss;
 mod impls;
 
 use rayon::prelude::*;
-use std::fmt::{self, Debug};
 use std::marker::PhantomData;
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -257,9 +257,23 @@ pub fn lda(features: Matrix, decoy: &[bool]) {
             1,
         );
         let mut diff2 = diff.clone();
+        dbg!(&diff);
         std::mem::swap(&mut diff2.cols, &mut diff2.rows);
         scatter_between += diff.dot(&diff2);
     }
+
+    let mut g = gauss::Gauss {
+        left: scatter_within,
+        right: scatter_between,
+    };
+
+    g.echelon();
+    g.reduce();
+    g.backfill();
+    dbg!(g);
+    // dbg!(scatter_within);
+    // dbg!(&scatter_between);
+    // dbg!(scatter_between.power_method());
 }
 
 #[cfg(test)]
