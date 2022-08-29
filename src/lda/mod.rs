@@ -100,6 +100,8 @@ impl LinearDiscriminantAnalysis {
             evec.iter_mut().for_each(|c| *c *= -1.0);
         }
 
+        log::trace!("linear model fit with eigenvector: {:?}", evec);
+
         Some(LinearDiscriminantAnalysis { eigenvector: evec })
     }
 
@@ -110,29 +112,39 @@ impl LinearDiscriminantAnalysis {
 
 pub fn score_psms(scores: &mut [Percolator]) -> Option<()> {
     log::trace!("fitting linear discriminant model");
+
+    // Declare, so that we have compile time checking of matrix dimensions
+    const FEATURES: usize = 13;
     let features = scores
         .into_par_iter()
         .flat_map(|perc| {
-            let x = [
+            let poisson = match -perc.poisson.log10() {
+                x if x.is_finite() => x.ln_1p(),
+                _ => 3.5,
+            };
+
+            let x: [f64; FEATURES] = [
                 (perc.hyperscore.min(255.) as f64).ln_1p(),
                 (perc.delta_hyperscore.min(255.) as f64).ln_1p(),
                 (perc.delta_mass as f64).ln_1p(),
-                (-(perc.poisson as f64).log10()).ln_1p(),
-                (perc.matched_intensity_pct as f64 * 100.0).ln(),
+                perc.average_ppm as f64,
+                poisson as f64,
+                (perc.matched_intensity_pct as f64 * 100.0).ln_1p(),
                 (perc.matched_peaks as f64).ln_1p(),
+                // (perc.matched_neutral_loss as f64).ln_1p(),
                 (perc.longest_b as f64).ln_1p(),
                 (perc.longest_y as f64).ln_1p(),
                 (perc.peptide_len as f64).ln_1p(),
                 (perc.scored_candidates as f64).ln_1p(),
-                perc.rt as f64,
-                perc.charge as f64,
+                (perc.rt as f64).ln_1p(),
+                (perc.charge as f64).ln_1p(),
             ];
             x
         })
         .collect::<Vec<_>>();
 
     let decoys = scores.iter().map(|sc| sc.label == -1).collect::<Vec<_>>();
-    let features = Matrix::new(features, scores.len(), 12);
+    let features = Matrix::new(features, scores.len(), FEATURES);
 
     let lda = LinearDiscriminantAnalysis::train(&features, &decoys)?;
     let discriminants = lda.score(&features);

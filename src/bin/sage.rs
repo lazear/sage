@@ -81,6 +81,7 @@ fn process_mzml_file<P: AsRef<Path>>(
 ) -> Result<PathBuf, Box<dyn std::error::Error + Send + Sync + 'static>> {
     let sp = SpectrumProcessor::new(
         search.max_peaks,
+        search.database.fragment_min_mz,
         search.database.fragment_max_mz,
         search.deisotope,
     );
@@ -105,6 +106,7 @@ fn process_mzml_file<P: AsRef<Path>>(
         (&mut scores)
             .par_sort_unstable_by(|a, b| b.discriminant_score.total_cmp(&a.discriminant_score));
     } else {
+        log::warn!("fitting linear model failed, falling back to default");
         (&mut scores).par_sort_unstable_by(|a, b| a.poisson.total_cmp(&b.poisson));
     }
 

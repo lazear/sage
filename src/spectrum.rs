@@ -19,6 +19,7 @@ struct Deisotoped {
 pub struct SpectrumProcessor {
     take_top_n: usize,
     max_fragment_mz: f32,
+    min_fragment_mz: f32,
     deisotope: bool,
 }
 
@@ -32,9 +33,15 @@ pub struct ProcessedSpectrum {
 }
 
 impl SpectrumProcessor {
-    pub fn new(take_top_n: usize, max_fragment_mz: f32, deisotope: bool) -> Self {
+    pub fn new(
+        take_top_n: usize,
+        min_fragment_mz: f32,
+        max_fragment_mz: f32,
+        deisotope: bool,
+    ) -> Self {
         Self {
             take_top_n,
+            min_fragment_mz,
             max_fragment_mz,
             deisotope,
         }
@@ -120,11 +127,11 @@ impl SpectrumProcessor {
                 // Convert from MH* to M
                 let fragment_mass = (peak.mz - PROTON) * peak.charge.unwrap_or(1) as f32;
                 let mass_filter = fragment_mass <= self.max_fragment_mz
+                    && fragment_mass >= self.min_fragment_mz
                     && (fragment_mass < prec_lo || fragment_mass > prec_hi);
                 match mass_filter {
                     true => Some(Peak {
                         mass: fragment_mass,
-                        // intensity: peak.intensity.sqrt(),
                         intensity: peak.intensity,
                     }),
                     false => None,

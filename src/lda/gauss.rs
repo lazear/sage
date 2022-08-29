@@ -26,8 +26,6 @@ impl Matrix {
 impl Gauss {
     pub fn solve(left: Matrix, right: Matrix) -> Option<Matrix> {
         let mut g = Gauss { left, right };
-        // dbg!(&g.left);
-        // dbg!(&g.right);
         g.echelon();
         g.reduce();
         g.backfill();

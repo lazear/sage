@@ -228,7 +228,14 @@ impl Parameters {
 
 #[derive(Hash, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize)]
 #[repr(transparent)]
-pub struct PeptideIx(pub(crate) u32);
+pub struct PeptideIx(pub u32);
+
+// This is unsafe for use outside of this crate
+impl Default for PeptideIx {
+    fn default() -> Self {
+        Self(u32::MAX)
+    }
+}
 
 #[derive(Copy, Clone, Debug, PartialEq, Serialize)]
 pub struct Theoretical {
@@ -389,12 +396,6 @@ where
         }
     };
     (left_idx, right_idx)
-}
-
-impl PeptideIx {
-    pub fn for_testing_only_seriously_though(idx: usize) -> Self {
-        Self(idx as u32)
-    }
 }
 
 #[cfg(test)]

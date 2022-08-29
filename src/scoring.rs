@@ -1,31 +1,21 @@
 use crate::database::{binary_search_slice, IndexedDatabase, PeptideIx, Theoretical};
 use crate::ion_series::Kind;
-use crate::mass::{Tolerance, PROTON};
+use crate::mass::{Tolerance, H2O, NH3, PROTON};
+use crate::peptide::TargetDecoy;
 use crate::spectrum::ProcessedSpectrum;
 use serde::Serialize;
 
 /// Structure to hold temporary scores
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default)]
 struct Score {
     peptide: PeptideIx,
     matched_b: u16,
     matched_y: u16,
+    matched_nl: u16,
     summed_b: f32,
     summed_y: f32,
     hyperscore: f32,
-}
-
-impl Default for Score {
-    fn default() -> Self {
-        Self {
-            peptide: PeptideIx(u32::MAX),
-            matched_b: Default::default(),
-            matched_y: Default::default(),
-            summed_b: Default::default(),
-            summed_y: Default::default(),
-            hyperscore: Default::default(),
-        }
-    }
+    ppm_difference: f32,
 }
 
 #[derive(Serialize, Debug)]
@@ -55,12 +45,14 @@ pub struct Percolator<'db> {
     pub rt: f32,
     /// Difference between expmass and calcmass
     pub delta_mass: f32,
+    pub average_ppm: f32,
     /// X!Tandem hyperscore
     pub hyperscore: f32,
     /// Difference between hyperscore of this candidate, and the next best candidate
     pub delta_hyperscore: f32,
     /// Number of matched theoretical fragment ions
     pub matched_peaks: u32,
+    pub matched_neutral_loss: u32,
     /// Longest b-ion series
     pub longest_b: usize,
     /// Longest y-ion series
@@ -167,27 +159,43 @@ impl<'db> Scorer<'db> {
         for peak in query.peaks.iter() {
             total_intensity += peak.intensity;
             for charge in 1..query.charge {
-                // let charge = 1;
                 let mass = peak.mass * charge as f32;
                 for frag in candidates.page_search(mass) {
                     let idx = frag.peptide_index.0 as usize - candidates.pre_idx_lo;
                     let mut sc = &mut score_vector[idx];
                     sc.peptide = frag.peptide_index;
+                    sc.ppm_difference += (frag.fragment_mz - mass).abs() * 1E6 / frag.fragment_mz;
 
                     match frag.kind {
                         Kind::B => {
                             sc.matched_b += 1;
-                            sc.summed_b += peak.intensity
+                            sc.summed_b += peak.intensity;
                         }
                         Kind::Y => {
                             sc.matched_y += 1;
-                            sc.summed_y += peak.intensity
+                            sc.summed_y += peak.intensity;
                         }
                     }
 
                     matches += 1;
                 }
             }
+            // for nl in [H2O, NH3] {
+            //     let mass = peak.mass + nl;
+            //     for frag in candidates.page_search(mass) {
+            //         let idx = frag.peptide_index.0 as usize - candidates.pre_idx_lo;
+            //         let mut sc = &mut score_vector[idx];
+            //         match frag.kind {
+            //             Kind::B => {
+            //                 sc.summed_b += peak.intensity * 0.1;
+            //             }
+            //             Kind::Y => {
+            //                 sc.summed_y += peak.intensity * 0.1;
+            //             }
+            //         }
+            //         sc.matched_nl += 1;
+            //     }
+            // }
         }
 
         if matches == 0 {
@@ -255,10 +263,13 @@ impl<'db> Scorer<'db> {
                 // Features
                 charge: query.charge,
                 rt: query.rt,
-                delta_mass: (query.monoisotopic_mass - peptide.monoisotopic).abs(),
+                delta_mass: (query.monoisotopic_mass - peptide.monoisotopic).abs() * 1E6
+                    / peptide.monoisotopic,
+                average_ppm: better.ppm_difference / (better.matched_b + better.matched_y) as f32,
                 hyperscore: better.hyperscore,
                 delta_hyperscore: better.hyperscore - next,
                 matched_peaks: k as u32,
+                matched_neutral_loss: better.matched_nl as u32,
                 matched_intensity_pct: (better.summed_b + better.summed_y) / total_intensity,
                 poisson,
                 longest_b: b,
@@ -284,41 +295,43 @@ impl<'db> Scorer<'db> {
         }
 
         let best = &scores[0];
-        let mut subtracted = ProcessedSpectrum {
-            monoisotopic_mass: query.monoisotopic_mass + 0.005,
-            peaks: Vec::new(),
-            ..*query
-        };
-
         let peptide = &self.db[best.peptide_idx];
+        if let TargetDecoy::Target(peptide) = peptide {
+            let mut subtracted = ProcessedSpectrum {
+                monoisotopic_mass: query.monoisotopic_mass + 0.005,
+                peaks: Vec::new(),
+                ..*query
+            };
 
-        let mut theo = [Kind::B, Kind::Y]
-            .iter()
-            .flat_map(|kind| {
-                crate::ion_series::IonSeries::new(peptide.peptide(), *kind).map(|ion| Theoretical {
-                    peptide_index: PeptideIx(0),
-                    fragment_mz: ion.monoisotopic_mass,
-                    kind: ion.kind,
+            let mut theo = [Kind::B, Kind::Y]
+                .iter()
+                .flat_map(|kind| {
+                    crate::ion_series::IonSeries::new(peptide, *kind).map(|ion| Theoretical {
+                        peptide_index: PeptideIx(0),
+                        fragment_mz: ion.monoisotopic_mass,
+                        kind: ion.kind,
+                    })
                 })
-            })
-            .collect::<Vec<_>>();
-        theo.sort_unstable_by(|a, b| a.fragment_mz.total_cmp(&b.fragment_mz));
+                .collect::<Vec<_>>();
+            theo.sort_unstable_by(|a, b| a.fragment_mz.total_cmp(&b.fragment_mz));
 
-        for peak in &query.peaks {
-            let (low, high) = self.fragment_tol.bounds(peak.mass);
-            let slice = binary_search_slice(&theo, |a, x| a.fragment_mz.total_cmp(x), low, high);
-            let mut allow = true;
-            for frag in &theo[slice.0..slice.1] {
-                if frag.fragment_mz >= low && frag.fragment_mz <= high {
-                    allow = false;
+            for peak in &query.peaks {
+                let (low, high) = self.fragment_tol.bounds(peak.mass);
+                let slice =
+                    binary_search_slice(&theo, |a, x| a.fragment_mz.total_cmp(x), low, high);
+                let mut allow = true;
+                for frag in &theo[slice.0..slice.1] {
+                    if frag.fragment_mz >= low && frag.fragment_mz <= high {
+                        allow = false;
+                    }
+                }
+                if allow {
+                    subtracted.peaks.push(*peak);
                 }
             }
-            if allow {
-                subtracted.peaks.push(*peak);
-            }
-        }
 
-        scores.extend(self.score_standard(&subtracted, 1));
+            scores.extend(self.score_standard(&subtracted, 1));
+        }
         scores
     }
 
