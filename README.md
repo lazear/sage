@@ -13,52 +13,38 @@ Sage has excellent performance characteristics (2-5x faster, 2-3x reduction in m
 ## Features & Anti-Features
 
 - Incredible performance out of the box
-- Fragment index search
-- Assign chimeric spectra
-- Effortlessly cross-platform, effortlessly parallel
+- Effortlessly cross-platform (Linux/MacOS/Windows), effortlessly parallel (uses all of your CPU cores)
+- Fragment indexing strategy allows for blazing fast narrow and open searches
+- Capable of searching for chimeric/co-fragmenting spectra
+- FDR calculation using target-decoy competition, with built-in linear discriminant anlysis
+- PEP calculation using a non-parametric model (KDE)
+- Percolator/Mokapot compatible output
 - Small and simple codebase
 - Configuration by JSON files
-- X!Tandem hyperscore function
-- FDR calculation using a target-decoy competition approach, with built-in linear discriminant anlysis
-- Percolator/Mokapot compatible output
 - Only uses mzML files
 - Only Percolator PIN output
 - Only outputs 1 protein ID even if the peptide is shared by multiple proteins
 
 
+### Assign multiple peptides to complex spectra
+
 <img src="figures/chimera_27525.png" width="800">
 
-Assign multiple peptides to complex spectra
+
+### Sage includes built-in model for FDR refinement and PEP calculation
+
+- Hand-rolled, 100% pure Rust implementations of Linear Discriminant Analysis and KDE-mixture models for refinement of false discovery rates
+- Both models demonstrate 1:1 results with scikit-learn, but have increased performance
+- No need for a second post-search pipeline step
+
+<img src="figures/pep_model.png" width="600px">
+
 
 # Usage 
 
 Sage takes a single command line argument: a path to a JSON-encoded parameter file (see below). A new file (`results.json`) will be created that details input/output paths and all search parameters used for the search
 
 Example usage: `sage tmt.json`
-
-# Performance
-
-To benchmark search performance versus MSFragger (closed source) and Comet (open source), I downloaded data from the paper [Benchmarking the Orbitrap Tribrid Eclipse for Next Generation
-Multiplexed Proteomics](https://pubs.acs.org/doi/10.1021/acs.analchem.9b05685?goto=supporting-info).
-
-Data repository: [PXD016766](http://proteomecentral.proteomexchange.org/cgi/GetDataset?ID=PXD016766)
-
-**Sage has good peptide identity overlap**
-
-<img src="figures/TMT_IDs.png" width="600">
-
-Performance results: (c5ad.8xlarge, 32 vCPUs)
-
-- ~11 seconds to process 12 files in narrow search, using less than ~3GB of RAM - 3s of this is generating the fragment index, so it's really ~750ms/mzML file
-- Active scanning: ~50,000 scans/s for narrow window
-
-### Search methods
-
-- mzML files generated using the [ProteoWizard MSConvert tool](http://www.proteowizard.org/download.html)
-- MSFragger and Comet were configured with analogous parameters (+/- 20 ppm precursor tolerance, +/- 10 ppm fragment tolerance - or for Comet setting `fragment_bin_tol` to 0.02 Da).
-- [Mokapot](https://github.com/wfondrie/mokapot) was then used to refine FDR for all search results
-- Parameter files for all engines can be found in the `figures/benchmark_params` folder!
-- All searches for benchmarking were run on an c5ad.8xlarge (32 vCPU, 64 GB RAM, NVMe drives) EC2 instance
 
 Sage search settings file:
 ```json

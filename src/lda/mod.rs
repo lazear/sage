@@ -9,9 +9,11 @@
 //! to enable LDA.
 
 mod gauss;
+mod kde;
 mod matrix;
 use matrix::Matrix;
 use rayon::prelude::*;
+use std::time::*;
 
 use crate::scoring::Percolator;
 
@@ -23,6 +25,16 @@ fn all_close(lhs: &[f64], rhs: &[f64], eps: f64) -> bool {
 
 pub fn norm(slice: &[f64]) -> f64 {
     slice.iter().fold(0.0, |acc, x| acc + x.powi(2)).sqrt()
+}
+
+pub fn mean(slice: &[f64]) -> f64 {
+    slice.iter().sum::<f64>() / slice.len() as f64
+}
+
+pub fn std(slice: &[f64]) -> f64 {
+    let mean = mean(slice);
+    let x = slice.iter().fold(0.0, |acc, x| acc + (x - mean).powi(2));
+    (x / slice.len() as f64).sqrt()
 }
 
 pub struct LinearDiscriminantAnalysis {
@@ -73,9 +85,7 @@ impl LinearDiscriminantAnalysis {
 
         let evec = gauss::Gauss::solve(scatter_within, scatter_between)
             .map(|mat| mat.power_method(&x_bar))?;
-        Some(LinearDiscriminantAnalysis {
-            eigenvector: evec,
-        })
+        Some(LinearDiscriminantAnalysis { eigenvector: evec })
     }
 
     pub fn score(&self, features: &Matrix) -> Vec<f64> {
@@ -83,7 +93,8 @@ impl LinearDiscriminantAnalysis {
     }
 }
 
-pub fn score_psms(scores: &[Percolator]) -> Option<Vec<f64>> {
+pub fn score_psms(scores: &mut [Percolator]) -> Option<()> {
+    log::trace!("fitting linear discriminant model");
     let features = scores
         .into_par_iter()
         .flat_map(|perc| {
@@ -108,8 +119,20 @@ pub fn score_psms(scores: &[Percolator]) -> Option<Vec<f64>> {
     let features = Matrix::new(features, scores.len(), 11);
 
     let lda = LinearDiscriminantAnalysis::train(&features, &decoys)?;
+    let discriminants = lda.score(&features);
 
-    Some(lda.score(&features))
+    log::trace!("fitting non-parametric model for posterior error probabilities");
+    let kde = kde::Estimator::fit(&discriminants, &decoys);
+
+    scores
+        .iter_mut()
+        .zip(&discriminants)
+        .for_each(|(perc, score)| {
+            perc.discriminant_score = *score as f32;
+            perc.posterior_error = kde.posterior_error(*score) as f32;
+        });
+
+    Some(())
 }
 
 #[cfg(test)]
@@ -163,6 +186,11 @@ mod test {
             0.06055943,
         ];
 
-        assert!(all_close(&scores, &expected, 1E-8), "{:?} {:?}", scores, expected);
+        assert!(
+            all_close(&scores, &expected, 1E-8),
+            "{:?} {:?}",
+            scores,
+            expected
+        );
     }
 }

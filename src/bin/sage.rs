@@ -101,11 +101,7 @@ fn process_mzml_file<P: AsRef<Path>>(
         .flat_map(|spec| scorer.score(&spec, search.report_psms))
         .collect::<Vec<_>>();
 
-    if let Some(discriminant) = sage::lda::score_psms(&scores) {
-        scores
-            .iter_mut()
-            .zip(discriminant.iter())
-            .for_each(|(sc, disc)| sc.discriminant_score = *disc as f32);
+    if sage::lda::score_psms(&mut scores).is_some() {
         (&mut scores)
             .par_sort_unstable_by(|a, b| b.discriminant_score.total_cmp(&a.discriminant_score));
     } else {
@@ -143,7 +139,7 @@ fn process_mzml_file<P: AsRef<Path>>(
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let env = env_logger::Env::default().filter_or("sage_LOG", "info");
+    let env = env_logger::Env::default().filter_or("SAGE_LOG", "info");
     env_logger::init_from_env(env);
 
     let start = time::Instant::now();
