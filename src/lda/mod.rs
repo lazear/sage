@@ -13,7 +13,6 @@ mod kde;
 mod matrix;
 use matrix::Matrix;
 use rayon::prelude::*;
-use std::time::*;
 
 use crate::scoring::Percolator;
 
@@ -50,6 +49,8 @@ impl LinearDiscriminantAnalysis {
         let mut scatter_within = Matrix::zeros(features.cols, features.cols);
         let mut scatter_between = Matrix::zeros(features.cols, features.cols);
 
+        let mut class_means = Vec::new();
+
         for class in [true, false] {
             let count = decoy.iter().filter(|&label| *label == class).count();
 
@@ -81,10 +82,24 @@ impl LinearDiscriminantAnalysis {
             );
 
             scatter_between += diff.dot(&diff.transpose());
+            class_means.extend(class_mean);
         }
 
-        let evec = gauss::Gauss::solve(scatter_within, scatter_between)
+        let class_means = Matrix::new(class_means, 2, features.cols);
+
+        // Use overall mean as the initial vector for power method... seems
+        // unlikely to be the actual best eigenvector!
+        let mut evec = gauss::Gauss::solve(scatter_within, scatter_between)
             .map(|mat| mat.power_method(&x_bar))?;
+
+        // In some cases, power method can return eigenvector with signs flipped
+        // Make it so that Target class scores are higher than Decoy, so that
+        // we can make assumptions about this for ranking
+        let coef = class_means.dotv(&evec);
+        if coef[1] < coef[0] {
+            evec.iter_mut().for_each(|c| *c *= -1.0);
+        }
+
         Some(LinearDiscriminantAnalysis { eigenvector: evec })
     }
 
@@ -103,11 +118,12 @@ pub fn score_psms(scores: &mut [Percolator]) -> Option<()> {
                 (perc.delta_hyperscore.min(255.) as f64).ln_1p(),
                 (perc.delta_mass as f64).ln_1p(),
                 (-(perc.poisson as f64).log10()).ln_1p(),
-                (perc.matched_intensity_pct as f64).ln_1p(),
+                (perc.matched_intensity_pct as f64 * 100.0).ln(),
                 (perc.matched_peaks as f64).ln_1p(),
                 (perc.longest_b as f64).ln_1p(),
                 (perc.longest_y as f64).ln_1p(),
                 (perc.peptide_len as f64).ln_1p(),
+                (perc.scored_candidates as f64).ln_1p(),
                 perc.rt as f64,
                 perc.charge as f64,
             ];
@@ -116,7 +132,7 @@ pub fn score_psms(scores: &mut [Percolator]) -> Option<()> {
         .collect::<Vec<_>>();
 
     let decoys = scores.iter().map(|sc| sc.label == -1).collect::<Vec<_>>();
-    let features = Matrix::new(features, scores.len(), 11);
+    let features = Matrix::new(features, scores.len(), 12);
 
     let lda = LinearDiscriminantAnalysis::train(&features, &decoys)?;
     let discriminants = lda.score(&features);
@@ -176,14 +192,14 @@ mod test {
         scores = scores.into_iter().map(|s| s / norm).collect();
 
         let expected = [
-            -0.49706043,
-            -0.48920177,
-            -0.48920177,
-            0.07209359,
-            -0.51204672,
-            0.02849527,
-            0.04924864,
-            0.06055943,
+            0.49706043,
+            0.48920177,
+            0.48920177,
+            -0.07209359,
+            0.51204672,
+            -0.02849527,
+            -0.04924864,
+            -0.06055943,
         ];
 
         assert!(
