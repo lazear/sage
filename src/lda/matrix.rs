@@ -113,7 +113,7 @@ impl Matrix {
 
     pub fn row(&self, row: usize) -> Iter<'_, Row> {
         Iter {
-            data: &self,
+            data: self,
             row,
             col: 0,
             axes: PhantomData,
@@ -122,7 +122,7 @@ impl Matrix {
 
     pub fn col(&self, col: usize) -> Iter<'_, Col> {
         Iter {
-            data: &self,
+            data: self,
             row: 0,
             col,
             axes: PhantomData,
@@ -256,17 +256,16 @@ impl IndexMut<(usize, usize)> for Matrix {
 impl Add<Matrix> for Matrix {
     type Output = Matrix;
 
-    fn add(self, rhs: Matrix) -> Self::Output {
+    fn add(mut self, rhs: Matrix) -> Self::Output {
         assert_eq!(
             self.shape(),
             rhs.shape(),
             "matrices must have equal shape to add"
         );
-        let mut output = self.clone();
-        for i in 0..output.data.len() {
-            output.data[i] += rhs.data[i];
+        for i in 0..self.data.len() {
+            self.data[i] += rhs.data[i];
         }
-        output
+        self
     }
 }
 

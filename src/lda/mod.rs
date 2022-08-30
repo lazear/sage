@@ -16,6 +16,7 @@ use rayon::prelude::*;
 
 use crate::scoring::Percolator;
 
+#[allow(dead_code)]
 fn all_close(lhs: &[f64], rhs: &[f64], eps: f64) -> bool {
     lhs.iter()
         .zip(rhs.iter())

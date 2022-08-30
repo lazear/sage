@@ -1,11 +1,10 @@
 use sage::database::{binary_search_slice, PeptideIx, Theoretical};
-use sage::fasta::{Digest, Trypsin};
+use sage::fasta::Trypsin;
 use sage::ion_series::{IonSeries, Kind};
 use sage::mass::Tolerance;
 use sage::peptide::Peptide;
 use sage::spectrum::{Peak, SpectrumProcessor};
 use std::collections::HashMap;
-use std::io::BufReader;
 
 const SEQUENCE: &'static str = "
 MSDEREVAEAATGEDASSPPPKTEAASDPQHPAASEGAAAAAASPPLLRCLVLTGFGGYD
@@ -24,7 +23,7 @@ pub fn peptide_id() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'sta
     let spectra = sage::mzml::MzMlReader::read_ms2("tests/LQSRPAAPPAPGPGQLTLR.mzML")?;
     assert_eq!(spectra.len(), 1);
 
-    let sp = SpectrumProcessor::new(100, 1500.0, true);
+    let sp = SpectrumProcessor::new(100, 0.0, 1500.0, true);
     let processed = sp.process(spectra[0].clone()).unwrap();
     assert!(processed.peaks.len() <= 300);
 
@@ -52,7 +51,7 @@ pub fn peptide_id() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'sta
             IonSeries::new(peptide, Kind::B)
                 .chain(IonSeries::new(peptide, Kind::Y))
                 .map(move |ion| Theoretical {
-                    peptide_index: PeptideIx::for_testing_only_seriously_though(idx),
+                    peptide_index: PeptideIx(idx as u32),
                     fragment_mz: ion.monoisotopic_mass,
                     kind: ion.kind,
                 })
@@ -95,7 +94,7 @@ pub fn peptide_id() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'sta
     }
 
     assert_eq!(
-        scores[&PeptideIx::for_testing_only_seriously_though(hit_index)],
+        scores[&PeptideIx(hit_index as u32)],
         26
     );
 

@@ -1,6 +1,6 @@
 use crate::database::{binary_search_slice, IndexedDatabase, PeptideIx, Theoretical};
 use crate::ion_series::Kind;
-use crate::mass::{Tolerance, H2O, NH3, PROTON};
+use crate::mass::{Tolerance, PROTON};
 use crate::peptide::TargetDecoy;
 use crate::spectrum::ProcessedSpectrum;
 use serde::Serialize;
@@ -224,9 +224,10 @@ impl<'db> Scorer<'db> {
         // then sort that chunk of the vector - we will never actually look at the rest anyway!
         let actually_calculate = 50.max(report_psms * 2).min(n);
 
-        for i in 0..actually_calculate {
-            score_vector[i].hyperscore = score_vector[i].hyperscore(&self.factorial);
+        for score in score_vector.iter_mut().take(actually_calculate) {
+            score.hyperscore = score.hyperscore(&self.factorial);
         }
+
         score_vector[..actually_calculate]
             .sort_unstable_by(|a, b| b.hyperscore.total_cmp(&a.hyperscore));
 
@@ -349,7 +350,7 @@ impl<'db> Scorer<'db> {
             .enumerate()
         {
             let (lo, hi) = self.fragment_tol.bounds(frag.fragment_mz);
-            let window = binary_search_slice(&mz, |a, b| a.total_cmp(b), lo, hi);
+            let window = binary_search_slice(mz, |a, b| a.total_cmp(b), lo, hi);
             if mz[window.0..window.1]
                 .iter()
                 .filter(|&mz| *mz >= lo && *mz <= hi)
@@ -377,7 +378,7 @@ impl<'db> Scorer<'db> {
         candidate: &crate::peptide::Peptide,
     ) -> (usize, usize) {
         let mut mz = query.peaks.iter().map(|peak| peak.mass).collect::<Vec<_>>();
-        mz.sort_unstable_by(|a, b| a.total_cmp(&b));
+        mz.sort_unstable_by(|a, b| a.total_cmp(b));
 
         let b = self.longest_series(&mz, Kind::B, candidate);
         let y = self.longest_series(&mz, Kind::Y, candidate);
