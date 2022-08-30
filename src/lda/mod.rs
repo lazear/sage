@@ -131,7 +131,6 @@ pub fn score_psms(scores: &mut [Percolator]) -> Option<()> {
                 poisson as f64,
                 (perc.matched_intensity_pct as f64 * 100.0).ln_1p(),
                 (perc.matched_peaks as f64).ln_1p(),
-                // (perc.matched_neutral_loss as f64).ln_1p(),
                 (perc.longest_b as f64).ln_1p(),
                 (perc.longest_y as f64).ln_1p(),
                 (perc.peptide_len as f64).ln_1p(),

@@ -10,3 +10,5 @@ Cargo.lock
 *.json
 *.ms2
 *.fasta
+*.py
+*.fas

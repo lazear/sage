@@ -1,12 +1,12 @@
 use crate::database::{binary_search_slice, IndexedDatabase, PeptideIx, Theoretical};
-use crate::ion_series::Kind;
-use crate::mass::{Tolerance, H2O, NH3, PROTON};
+use crate::ion_series::{IonSeries, Kind};
+use crate::mass::{self, Tolerance, H2O, NH3, PROTON};
 use crate::peptide::TargetDecoy;
 use crate::spectrum::ProcessedSpectrum;
 use serde::Serialize;
 
 /// Structure to hold temporary scores
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, Default, Debug)]
 struct Score {
     peptide: PeptideIx,
     matched_b: u16,
@@ -25,6 +25,8 @@ pub struct Percolator<'db> {
     pub peptide_idx: PeptideIx,
     /// Peptide sequence, including modifications e.g.: NC(+57.021)HK
     pub peptide: String,
+    /// '_' separated indices of modified amino acids
+    pub modification_sites: String,
     /// Peptide length
     pub peptide_len: usize,
     /// Name of *a* protein containing this peptide sequence
@@ -52,7 +54,6 @@ pub struct Percolator<'db> {
     pub delta_hyperscore: f32,
     /// Number of matched theoretical fragment ions
     pub matched_peaks: u32,
-    pub matched_neutral_loss: u32,
     /// Longest b-ion series
     pub longest_b: usize,
     /// Longest y-ion series
@@ -63,9 +64,9 @@ pub struct Percolator<'db> {
     pub scored_candidates: usize,
     /// Probability of matching exactly N peaks across all candidates Pr(x=k)
     pub poisson: f32,
-
+    /// Linear discriminant score, used for q-value & PEP calculation
     pub discriminant_score: f32,
-
+    /// Posterior error/local FDR for this PSM
     pub posterior_error: f32,
     /// Assigned q_value
     pub q_value: f32,
@@ -141,67 +142,56 @@ impl<'db> Scorer<'db> {
     ) -> Vec<Percolator<'db>> {
         // Create a new `IndexedQuery`
 
-        let candidates = self.db.query(
-            query,
-            self.precursor_tol,
-            self.fragment_tol,
-            self.min_isotope_err,
-            self.max_isotope_err,
-        );
-
-        // Allocate space for all potential candidates - many potential candidates
-        // will not have fragments matched, so we use `Option<Score>`
-        let potential = candidates.pre_idx_hi - candidates.pre_idx_lo + 1;
-        let mut score_vector: Vec<Score> = vec![Score::default(); potential];
-
-        let mut total_intensity = 0.0;
+        let mut score_vector = Vec::new();
         let mut matches = 0;
-        for peak in query.peaks.iter() {
-            total_intensity += peak.intensity;
-            for charge in 1..query.charge {
-                let mass = peak.mass * charge as f32;
-                for frag in candidates.page_search(mass) {
-                    let idx = frag.peptide_index.0 as usize - candidates.pre_idx_lo;
-                    let mut sc = &mut score_vector[idx];
-                    sc.peptide = frag.peptide_index;
-                    sc.ppm_difference += (frag.fragment_mz - mass).abs() * 1E6 / frag.fragment_mz;
+        let mut total_intensity = 0.0;
+        for mass_offset in [0.0, 458.0] {
+            let candidates = self.db.query(
+                query.monoisotopic_mass - mass_offset,
+                self.precursor_tol,
+                self.fragment_tol,
+                self.min_isotope_err,
+                self.max_isotope_err,
+            );
 
-                    match frag.kind {
-                        Kind::B => {
-                            sc.matched_b += 1;
-                            sc.summed_b += peak.intensity;
+            // Allocate space for all potential candidates - many potential candidates
+            // will not have fragments matched, so we use `Option<Score>`
+            let potential = candidates.pre_idx_hi - candidates.pre_idx_lo + 1;
+            let mut _score_vector: Vec<Score> = vec![Score::default(); potential];
+
+            for peak in query.peaks.iter() {
+                total_intensity += peak.intensity;
+                for charge in 1..query.charge {
+                    let mass = peak.mass * charge as f32;
+                    for frag in candidates.page_search(mass) {
+                        let idx = frag.peptide_index.0 as usize - candidates.pre_idx_lo;
+                        let mut sc = &mut _score_vector[idx];
+                        sc.peptide = frag.peptide_index;
+                        sc.ppm_difference +=
+                            (frag.fragment_mz - mass).abs() * 1E6 / frag.fragment_mz;
+
+                        match frag.kind {
+                            Kind::B => {
+                                sc.matched_b += 1;
+                                sc.summed_b += peak.intensity;
+                            }
+                            Kind::Y => {
+                                sc.matched_y += 1;
+                                sc.summed_y += peak.intensity;
+                            }
                         }
-                        Kind::Y => {
-                            sc.matched_y += 1;
-                            sc.summed_y += peak.intensity;
-                        }
+
+                        matches += 1;
                     }
-
-                    matches += 1;
                 }
             }
-            // for nl in [H2O, NH3] {
-            //     let mass = peak.mass + nl;
-            //     for frag in candidates.page_search(mass) {
-            //         let idx = frag.peptide_index.0 as usize - candidates.pre_idx_lo;
-            //         let mut sc = &mut score_vector[idx];
-            //         match frag.kind {
-            //             Kind::B => {
-            //                 sc.summed_b += peak.intensity * 0.1;
-            //             }
-            //             Kind::Y => {
-            //                 sc.summed_y += peak.intensity * 0.1;
-            //             }
-            //         }
-            //         sc.matched_nl += 1;
-            //     }
-            // }
+            score_vector.extend(_score_vector);
         }
+        total_intensity /= 2.0;
 
         if matches == 0 {
             return Vec::new();
         }
-
         // Calculating hyperscore is expensive, and if we have 1500 candidates but only report 1 ...
         // we can probably get away with a fast approximation. Hyperscore & final poisson PMF are dominated by
         // the number of matched peaks - ideally the best spectrum will be a clear winner.
@@ -234,14 +224,27 @@ impl<'db> Scorer<'db> {
 
         let lambda = matches as f32 / score_vector.len() as f32;
 
+        let (mo_lo, mo_hi) = self.precursor_tol.bounds(458.0);
+
         for idx in 0..report_psms.min(score_vector.len()) {
-            let better = score_vector[idx];
+            let mut better = score_vector[idx];
+            let mut modification_sites = String::default();
             let next = score_vector
                 .get(idx + 1)
                 .map(|score| score.hyperscore)
                 .unwrap_or_default();
 
             let peptide = self.db[better.peptide].peptide();
+            let dm = query.monoisotopic_mass - peptide.monoisotopic;
+            // We are in a mass shift window
+            if dm >= mo_lo && dm <= mo_hi {
+                if let Some(even_better) =
+                    self.localize_mass(query, peptide, 458.0, better.hyperscore)
+                {
+                    (modification_sites, better) = even_better;
+                }
+            }
+
             let k = (better.matched_b + better.matched_y) as usize;
 
             // Poisson distribution probability mass function
@@ -253,6 +256,7 @@ impl<'db> Scorer<'db> {
                 // Identifiers
                 peptide_idx: better.peptide,
                 peptide: peptide.to_string(),
+                modification_sites,
                 proteins: &peptide.protein,
                 specid: 0,
                 scannr: query.scan,
@@ -269,7 +273,6 @@ impl<'db> Scorer<'db> {
                 hyperscore: better.hyperscore,
                 delta_hyperscore: better.hyperscore - next,
                 matched_peaks: k as u32,
-                matched_neutral_loss: better.matched_nl as u32,
                 matched_intensity_pct: (better.summed_b + better.summed_y) / total_intensity,
                 poisson,
                 longest_b: b,
@@ -382,6 +385,97 @@ impl<'db> Scorer<'db> {
         let b = self.longest_series(&mz, Kind::B, candidate);
         let y = self.longest_series(&mz, Kind::Y, candidate);
         (b, y)
+    }
+
+    fn localize_mass(
+        &self,
+        query: &ProcessedSpectrum,
+        peptide: &crate::peptide::Peptide,
+        mass_addition: f32,
+        hyperscore: f32,
+    ) -> Option<(String, Score)> {
+        let mut fragments = Vec::new();
+
+        let mut shifted = peptide.clone();
+        shifted.monoisotopic += mass_addition;
+        for i in 0..peptide.sequence.len() {
+            match peptide.sequence[i] {
+                mass::Residue::Just(r) => {
+                    shifted.sequence[i] = mass::Residue::Mod(r, mass_addition);
+                    fragments.extend(
+                        IonSeries::new(&shifted, Kind::B)
+                            .chain(IonSeries::new(&shifted, Kind::Y))
+                            .map(|ion| {
+                                Theoretical {
+                                    // Not really a peptide ix...
+                                    peptide_index: PeptideIx(i as u32),
+                                    fragment_mz: ion.monoisotopic_mass,
+                                    kind: ion.kind,
+                                }
+                            }),
+                    );
+                    shifted.sequence[i] = mass::Residue::Just(r);
+                }
+                mass::Residue::Mod(_, _) => {}
+            }
+        }
+
+        fragments.sort_unstable_by(|a, b| a.fragment_mz.total_cmp(&b.fragment_mz));
+
+        // Tuple of amino acid index and # of matched peaks for that localization
+        let mut matched_peaks = (0..peptide.sequence.len() + 1)
+            .map(|idx| (idx, Score::default()))
+            .collect::<Vec<_>>();
+        for peak in query.peaks.iter() {
+            for charge in 1..query.charge {
+                let mass = peak.mass * charge as f32;
+                let (lo, hi) = self.fragment_tol.bounds(mass);
+                let window =
+                    binary_search_slice(&fragments, |a, b| a.fragment_mz.total_cmp(b), lo, hi);
+                for frag in fragments[window.0..window.1]
+                    .iter()
+                    .filter(|frag| frag.fragment_mz >= lo && frag.fragment_mz <= hi)
+                {
+                    let sc = &mut matched_peaks[frag.peptide_index.0 as usize].1;
+                    sc.peptide = frag.peptide_index;
+                    sc.ppm_difference += (frag.fragment_mz - mass).abs() * 1E6 / frag.fragment_mz;
+
+                    match frag.kind {
+                        Kind::B => {
+                            sc.matched_b += 1;
+                            sc.summed_b += peak.intensity;
+                        }
+                        Kind::Y => {
+                            sc.matched_y += 1;
+                            sc.summed_y += peak.intensity;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Only scores that are improved with mass shift
+        let mut scores = matched_peaks
+            .into_iter()
+            .filter_map(|(idx, mut sc)| {
+                sc.hyperscore = sc.hyperscore(&self.factorial);
+                if sc.hyperscore > hyperscore {
+                    Some((idx, sc))
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let modification_sites = scores
+            .iter()
+            .map(|(idx, _)| idx.to_string())
+            .collect::<Vec<_>>()
+            .join("_");
+
+        scores.sort_unstable_by(|a, b| a.1.hyperscore.total_cmp(&b.1.hyperscore));
+        let best = scores.pop()?;
+        Some((modification_sites, best.1))
     }
 }
 

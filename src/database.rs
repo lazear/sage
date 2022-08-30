@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
+use std::marker::PhantomData;
 use std::path::PathBuf;
 
 #[derive(Deserialize)]
@@ -258,13 +259,14 @@ impl IndexedDatabase {
     /// parameters
     pub fn query<'d, 'q>(
         &'d self,
-        query: &'q ProcessedSpectrum,
+        // query: &'q ProcessedSpectrum,
+        experimental_mass: f32,
         precursor_tol: Tolerance,
         fragment_tol: Tolerance,
         min_isotope_err: i8,
         max_isotope_err: i8,
     ) -> IndexedQuery<'d, 'q> {
-        let (precursor_lo, precursor_hi) = precursor_tol.bounds(query.monoisotopic_mass);
+        let (precursor_lo, precursor_hi) = precursor_tol.bounds(experimental_mass);
 
         let (pre_idx_lo, pre_idx_hi) = binary_search_slice(
             &self.peptides,
@@ -275,13 +277,14 @@ impl IndexedDatabase {
 
         IndexedQuery {
             db: self,
-            query,
+            experimental_mass,
             precursor_tol,
             fragment_tol,
             min_isotope_err,
             max_isotope_err,
             pre_idx_lo,
             pre_idx_hi,
+            phantom: PhantomData,
         }
     }
 
@@ -304,20 +307,22 @@ impl std::ops::Index<PeptideIx> for IndexedDatabase {
 
 pub struct IndexedQuery<'d, 'q> {
     db: &'d IndexedDatabase,
-    query: &'q ProcessedSpectrum,
+    // query: &'q ProcessedSpectrum,
+    experimental_mass: f32,
     precursor_tol: Tolerance,
     fragment_tol: Tolerance,
     min_isotope_err: i8,
     max_isotope_err: i8,
     pub pre_idx_lo: usize,
     pub pre_idx_hi: usize,
+    phantom: PhantomData<&'q ProcessedSpectrum>,
 }
 
 impl<'d, 'q> IndexedQuery<'d, 'q> {
     /// Search for a specified `fragment_mz` within the database
     pub fn page_search(&self, fragment_mz: f32) -> impl Iterator<Item = &Theoretical> {
         let (fragment_lo, fragment_hi) = self.fragment_tol.bounds(fragment_mz);
-        let (precursor_lo, precursor_hi) = self.precursor_tol.bounds(self.query.monoisotopic_mass);
+        let (precursor_lo, precursor_hi) = self.precursor_tol.bounds(self.experimental_mass);
 
         // Locate the left and right page indices that contain matching fragments
         // Note that we need to multiply by `bucket_size` to transform these into
