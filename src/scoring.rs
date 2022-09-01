@@ -13,7 +13,7 @@ struct Score {
     matched_y: u16,
     summed_b: f32,
     summed_y: f32,
-    hyperscore: f32,
+    hyperscore: f64,
     ppm_difference: f32,
 }
 
@@ -47,9 +47,9 @@ pub struct Percolator<'db> {
     /// Average ppm delta mass for matched fragments
     pub average_ppm: f32,
     /// X!Tandem hyperscore
-    pub hyperscore: f32,
+    pub hyperscore: f64,
     /// Difference between hyperscore of this candidate, and the next best candidate
-    pub delta_hyperscore: f32,
+    pub delta_hyperscore: f64,
     /// Number of matched theoretical fragment ions
     pub matched_peaks: u32,
     /// Longest b-ion series
@@ -63,7 +63,7 @@ pub struct Percolator<'db> {
     /// Number of scored candidates for this spectrum
     pub scored_candidates: usize,
     /// Probability of matching exactly N peaks across all candidates Pr(x=k)
-    pub poisson: f32,
+    pub poisson: f64,
     /// % of MS1 signal in isolation window explained by precursor
     pub ion_interference: f32,
     /// Combined score from linear discriminant analysis, used for FDR calc
@@ -77,8 +77,8 @@ pub struct Percolator<'db> {
 impl Score {
     /// Calculate the X!Tandem hyperscore
     /// * `fact_table` is a precomputed vector of factorials
-    fn hyperscore(&self, fact_table: &[f32]) -> f32 {
-        let i = (self.summed_b + 1.0) * (self.summed_y + 1.0);
+    fn hyperscore(&self, fact_table: &[f64]) -> f64 {
+        let i = (self.summed_b + 1.0) as f64 * (self.summed_y + 1.0) as f64;
         let m = fact_table[(self.matched_b as usize).min(fact_table.len() - 2)].ln()
             + fact_table[(self.matched_y as usize).min(fact_table.len() - 2)].ln();
 
@@ -100,7 +100,7 @@ pub struct Scorer<'db> {
     /// Precursor isotope error upper bounds (e.g. 3)
     max_isotope_err: i8,
     max_fragment_charge: Option<u8>,
-    factorial: [f32; 32],
+    factorial: [f64; 32],
     chimera: bool,
 }
 
@@ -114,9 +114,9 @@ impl<'db> Scorer<'db> {
         max_fragment_charge: Option<u8>,
         chimera: bool,
     ) -> Self {
-        let mut factorial = [1.0f32; 32];
+        let mut factorial = [1.0f64; 32];
         for i in 1..32 {
-            factorial[i] = factorial[i - 1] * i as f32;
+            factorial[i] = factorial[i - 1] * i as f64;
         }
 
         debug_assert!(factorial[3] == 6.0);
@@ -257,7 +257,7 @@ impl<'db> Scorer<'db> {
 
         let mut reporting = Vec::new();
 
-        let lambda = matches as f32 / score_vector.len() as f32;
+        let lambda = matches as f64 / score_vector.len() as f64;
 
         for idx in 0..report_psms.min(score_vector.len()) {
             let better = score_vector[idx];
@@ -270,7 +270,7 @@ impl<'db> Scorer<'db> {
             let k = (better.matched_b + better.matched_y) as usize;
 
             // Poisson distribution probability mass function
-            let mut poisson = lambda.powi(k as i32) * f32::exp(-lambda)
+            let mut poisson = lambda.powi(k as i32) * f64::exp(-lambda)
                 / self.factorial[k.min(self.factorial.len() - 1)];
 
             if poisson.is_infinite() {
@@ -301,7 +301,7 @@ impl<'db> Scorer<'db> {
                 matched_peaks: k as u32,
                 matched_intensity_pct: 100.0 * (better.summed_b + better.summed_y)
                     / query.total_intensity,
-                poisson: -poisson.log10(),
+                poisson: poisson.log10(),
                 longest_b: b,
                 longest_y: y,
                 peptide_len: peptide.sequence.len(),

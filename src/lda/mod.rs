@@ -140,7 +140,7 @@ pub fn score_psms(scores: &mut [Percolator]) -> Option<()> {
                 (perc.delta_mass as f64).ln_1p(),
                 // perc.expmass as f64,
                 perc.average_ppm as f64,
-                poisson as f64,
+                poisson,
                 (perc.matched_intensity_pct as f64).ln_1p(),
                 (perc.matched_peaks as f64).ln_1p(),
                 (perc.longest_b as f64).ln_1p(),
@@ -184,7 +184,7 @@ pub fn score_psms(scores: &mut [Percolator]) -> Option<()> {
         .zip(&discriminants)
         .for_each(|(perc, score)| {
             perc.discriminant_score = *score as f32;
-            perc.posterior_error = kde.posterior_error(*score) as f32;
+            perc.posterior_error = kde.posterior_error(*score).log10() as f32;
         });
 
     Some(())
