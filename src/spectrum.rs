@@ -192,6 +192,14 @@ impl SpectrumProcessor {
     }
 
     fn process_ms2(&self, should_deisotope: bool, spectrum: &Spectrum) -> Vec<Peak> {
+        if spectrum.representation != Representation::Centroid {
+            // Panic, because there's really nothing we can do with profile data
+            panic!(
+                "Scan {} contains profile data! Please convert to centroid",
+                spectrum.scan_id
+            );
+        }
+
         let charge = spectrum
             .precursors
             .get(0)
@@ -236,15 +244,6 @@ impl SpectrumProcessor {
     }
 
     pub fn process(&self, spectrum: Spectrum) -> ProcessedSpectrum {
-        if spectrum.representation != Representation::Centroid {
-            // Panic, because there's really nothing we can do with profile data
-            panic!(
-                "Scan {} contains profile data! Please convert to centroid",
-                spectrum.scan_id
-            );
-        }
-
-        // Only process MS2 files
         let mut peaks = match spectrum.ms_level {
             2 => self.process_ms2(self.deisotope, &spectrum),
             _ => spectrum

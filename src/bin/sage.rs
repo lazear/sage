@@ -236,22 +236,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         (Instant::now() - start).as_millis()
     );
 
-    let precursor_tol = if search.chimera && search.isotope_errors.1 < 1 {
-        match search.precursor_tol {
-            Tolerance::Ppm(_, _) => {
-                warn!("chimeric search turned on, but provided precursor window is less than 2.5 Da wide - overriding");
-                Tolerance::Da(-1.25, 1.25)
-            }
-            Tolerance::Da(lo, hi) => {
-                if lo > -1.25 || hi < 1.25 {
-                    warn!("chimeric search turned on, but provided precursor window is less than 2.5 Da wide - overriding")
-                }
-                Tolerance::Da(lo.min(-1.25), hi.max(1.25))
-            }
-        }
-    } else {
-        search.precursor_tol
-    };
+    // let precursor_tol = if search.chimera && search.isotope_errors.1 < 1 {
+    //     match search.precursor_tol {
+    //         Tolerance::Ppm(lo, hi) if (hi - lo).abs() < 500.0 => {
+    //             warn!("chimeric search turned on, but provided precursor window is less than 500 Da wide");
+    //         }
+    //         Tolerance::Da(lo, hi) => {
+    //                 warn!("chimeric search turned on, but provided precursor window is less than 2.5 Da wide - overriding");
+    //             }
+    //         }
+    //     }
+    // } else {
+    //     search.precursor_tol
+    // };
+
 
     if search.chimera && search.report_psms != 1 {
         warn!("chimeric search turned on, but report_psms is not 1 - overriding");
@@ -259,7 +257,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let scorer = Scorer::new(
         &db,
-        precursor_tol,
+        search.precursor_tol,
         search.fragment_tol,
         search.isotope_errors.0,
         search.isotope_errors.1,

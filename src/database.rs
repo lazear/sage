@@ -93,21 +93,16 @@ pub struct Parameters {
 }
 
 impl Parameters {
-    fn digest(&self, fasta: &Fasta) -> Vec<TargetDecoy> {
-        let trypsin = Trypsin::new(
-            self.missed_cleavages,
-            self.peptide_min_len,
-            self.peptide_max_len,
-        );
-
+    fn digest(&self, fasta: &Fasta, trypsin: &Trypsin) -> Vec<TargetDecoy> {
         // Generate all tryptic peptide sequences, including reversed (decoy)
         // and missed cleavages, if applicable.
         //
         // Then, collect in a HashSet so that we only keep unique tryptic peptides
         let targets = fasta
-            .proteins
+            .targets
             .par_iter()
-            .flat_map(|(protein, sequence)| trypsin.digest(protein, sequence))
+            .chain(fasta.decoys.par_iter())
+            .flat_map(|(protein, sequence)| trypsin.digest(protein, sequence, false))
             .collect::<HashSet<_>>();
 
         // From our set of unique peptide sequence, apply any modifications
@@ -132,10 +127,15 @@ impl Parameters {
     }
 
     pub fn build(self) -> Result<IndexedDatabase, Box<dyn std::error::Error>> {
+        let trypsin = Trypsin::new(
+            self.missed_cleavages,
+            self.peptide_min_len,
+            self.peptide_max_len,
+        );
         let mut fasta = Fasta::open(&self.fasta, &self.decoy_prefix)?;
         fasta.make_decoys(&self.decoy_prefix);
 
-        let target_decoys = self.digest(&fasta);
+        let target_decoys = self.digest(&fasta, &trypsin);
         let mut fragments = Vec::new();
 
         // Finally, perform in silico digest for our target sequences
@@ -216,6 +216,8 @@ impl Parameters {
             fragments,
             min_value,
             bucket_size: self.bucket_size,
+            fasta,
+            trypsin,
         })
     }
 }
@@ -243,6 +245,8 @@ pub struct IndexedDatabase {
     pub fragments: Vec<Theoretical>,
     pub(crate) min_value: Vec<f32>,
     bucket_size: usize,
+    fasta: Fasta,
+    trypsin: Trypsin,
 }
 
 impl IndexedDatabase {

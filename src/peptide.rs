@@ -39,6 +39,7 @@ pub struct Peptide {
     pub nterm: Option<f32>,
     pub monoisotopic: f32,
     pub missed_cleavages: u8,
+    pub idx: u16,
 }
 
 impl Peptide {
@@ -166,6 +167,7 @@ impl<'a> TryFrom<&Digest<'a>> for Peptide {
             nterm: None,
             protein: value.protein.to_string(),
             missed_cleavages: value.missed_cleavages,
+            idx: value.idx,
         })
     }
 }
@@ -197,6 +199,7 @@ mod test {
             protein: "",
             sequence: "GCMGCMG",
             missed_cleavages: 0,
+            idx: 0,
         })
         .unwrap();
 
@@ -235,6 +238,7 @@ mod test {
             protein: "",
             sequence: "GCMGCMG",
             missed_cleavages: 0,
+            idx: 0,
         })
         .unwrap();
 
@@ -269,6 +273,7 @@ mod test {
             protein: "",
             sequence: "AACAACAA",
             missed_cleavages: 0,
+            idx: 0,
         })
         .unwrap();
 

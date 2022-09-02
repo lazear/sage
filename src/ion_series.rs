@@ -93,6 +93,7 @@ mod test {
                 nterm: None,
                 missed_cleavages: 0,
                 monoisotopic,
+                idx: 0,
             })
         }
     }

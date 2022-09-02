@@ -1,9 +1,12 @@
+use std::collections::HashMap;
 use std::io;
 use std::path::Path;
 
+use rayon::prelude::*;
+
 pub struct Fasta {
-    pub proteins: Vec<(String, String)>,
-    pub has_decoys: bool,
+    pub targets: Vec<(String, String)>,
+    pub decoys: Vec<(String, String)>,
 }
 
 impl Fasta {
@@ -11,11 +14,11 @@ impl Fasta {
     pub fn open<P: AsRef<Path>>(path: P, decoy_prefix: &str) -> io::Result<Fasta> {
         let buf = std::fs::read_to_string(path)?;
 
-        let mut map = Vec::new();
+        let mut targets = Vec::new();
+        let mut decoys = Vec::new();
         let mut iter = buf.as_str().lines();
         let mut last_id = iter.next().unwrap();
         let mut s = String::new();
-        let mut has_decoys = false;
 
         for line in iter {
             if line.is_empty() {
@@ -24,10 +27,11 @@ impl Fasta {
             if let Some(id) = line.strip_prefix('>') {
                 if !s.is_empty() {
                     let acc: String = last_id.split_ascii_whitespace().next().unwrap().into();
-                    if acc.starts_with(decoy_prefix) {
-                        has_decoys = true;
+                    let seq = std::mem::take(&mut s);
+                    match acc.starts_with(decoy_prefix) {
+                        true => decoys.push((acc, seq)),
+                        false => targets.push((acc, seq)),
                     }
-                    map.push((acc, std::mem::take(&mut s)));
                 }
                 last_id = id;
             } else {
@@ -36,30 +40,42 @@ impl Fasta {
         }
 
         if !s.is_empty() {
-            let acc = last_id.split('|').nth(1).unwrap().into();
-            map.push((acc, s));
+            let acc: String = last_id.split('|').nth(1).unwrap().into();
+            match acc.starts_with(decoy_prefix) {
+                true => decoys.push((acc, s)),
+                false => targets.push((acc, s)),
+            }
         }
 
-        map.sort_unstable_by(|a, b| b.0.cmp(&a.0));
-
-        Ok(Fasta {
-            proteins: map,
-            has_decoys,
-        })
+        Ok(Fasta { targets, decoys })
     }
 
     pub fn make_decoys(&mut self, decoy_prefix: &str) {
-        if self.has_decoys {
+        if !self.decoys.is_empty() {
             return;
         }
-        let new = self
-            .proteins
+        let decoys = self
+            .targets
             .iter()
             .map(|(p, s)| (format!("{}{}", decoy_prefix, p), s.chars().rev().collect()))
             .collect::<Vec<_>>();
 
-        self.proteins.extend(new);
-        self.has_decoys = true;
+        self.decoys = decoys;
+    }
+
+    pub fn peptide_graph(&self, trypsin: &Trypsin) -> HashMap<&str, Vec<&str>> {
+        let digests = self
+            .targets
+            .par_iter()
+            .flat_map(|(acc, seq)| trypsin.digest(acc, seq, false))
+            .collect::<Vec<_>>();
+
+        let mut map: HashMap<&str, Vec<&str>> = HashMap::new();
+        for digest in digests {
+            map.entry(digest.sequence).or_default().push(digest.protein);
+        }
+
+        map
     }
 }
 
@@ -82,6 +98,7 @@ pub struct Digest<'s> {
     pub sequence: &'s str,
     /// Missed cleavages
     pub missed_cleavages: u8,
+    pub idx: u16,
 }
 
 impl<'s> PartialEq for Digest<'s> {
@@ -121,8 +138,9 @@ impl Trypsin {
     }
 
     /// Generate a series of tryptic digests for a given `sequence`
-    pub fn digest<'f>(&self, protein: &'f str, sequence: &'f str) -> Vec<Digest<'f>> {
+    pub fn digest<'f>(&self, protein: &'f str, sequence: &'f str, is_decoy: bool) -> Vec<Digest<'f>> {
         let mut digests = Vec::new();
+        let mut idx = 0;
         let peptides = self.inner(sequence);
         for cleavage in 1..=(1 + self.miss_cleavage) {
             // Generate missed cleavages
@@ -134,9 +152,15 @@ impl Trypsin {
                         protein,
                         sequence,
                         missed_cleavages: cleavage - 1,
-                    })
+                        idx,
+                    });
+                    idx += 1;
                 }
             }
+        }
+        if is_decoy {
+            let n = digests.len() as u16;
+            digests.iter_mut().for_each(|dig| dig.idx = n - dig.idx - 1);
         }
         digests
     }
@@ -164,6 +188,7 @@ impl Kmer {
                 protein,
                 sequence: &sequence[i..i + self.size],
                 missed_cleavages: 0,
+                idx: i as u16,
             })
         }
         digests
@@ -181,7 +206,7 @@ mod tests {
         let sequence = "MADEEKMADEEK";
         let expected = vec!["MADEEK", "MADEEK"];
 
-        let mut observed = trypsin.digest("A".into(), sequence.into());
+        let mut observed = trypsin.digest("A".into(), sequence.into(), false);
 
         // Make sure digest worked!
         assert_eq!(
@@ -205,7 +230,7 @@ mod tests {
         // assert_eq!(super::digest(sequence, false), expected);
         assert_eq!(
             trypsin
-                .digest("".into(), sequence.into())
+                .digest("".into(), sequence.into(), false)
                 .into_iter()
                 .map(|d| d.sequence)
                 .collect::<Vec<_>>(),
@@ -231,7 +256,7 @@ mod tests {
 
         assert_eq!(
             trypsin
-                .digest("".into(), &sequence)
+                .digest("".into(), &sequence, true)
                 .into_iter()
                 .map(|d| d.sequence)
                 .collect::<Vec<_>>(),
@@ -258,7 +283,7 @@ mod tests {
         ];
         assert_eq!(
             trypsin
-                .digest("".into(), sequence.into())
+                .digest("".into(), sequence.into(), false)
                 .into_iter()
                 .map(|d| d.sequence)
                 .collect::<Vec<_>>(),
@@ -289,7 +314,7 @@ mod tests {
         ];
         assert_eq!(
             trypsin
-                .digest("".into(), sequence.into())
+                .digest("".into(), sequence.into(), false)
                 .into_iter()
                 .map(|d| d.sequence)
                 .collect::<Vec<_>>(),
@@ -314,24 +339,27 @@ mod tests {
         );
     }
 
+    /// Check that picked-peptide approach will match forward and reverse peptides
     #[test]
-    fn assert_reverse_order() {
-        let mut proteins = vec![
-            ("rev_sp", "YKYTATSEDRTIFKDRLLKALADKFEGVSFGKIQQKVTEFLHDYDLGNRESKVSRTICAKLLEQTWQSNSGEHHASSTREGGTNSSQLSATRPLVVRLKGNKVKKMDPKFSENISYTNDIDRTLIKYNCFSKLVLALDKYALKTQESIVQLTLHDSENFLTLVCTQFLTLEFILNTGDQIIYPSEVECHHLNWMPYLEKKSADSDEVKNQEHYNRLFQNWTDDMEQPLVFNKKVENSQQFVKPIRERDFILPFFSKSNNENYTKGFKVAAEINEYFSLFSAYKIRLDAMVEVPQFFQSLYPQYQDRYRMEDEQSVNTIIRQKFLEMLSDKYVPLIDKIFSSNQDSQLITKRFISREFFNPFTPLNVFKLRLIPLNENLYKIKMDRPLDKKTTKIKRVIIFLHSEFYKVYQEIAKSTSGLLNCLHYEISDSYIKLHDVNALQVVEDFLRETDHNSGYAAKLKESVADDCFEKFKSLMNKAEFANRFMLLSFHTETKFYREKEEDYTDKGIEIYESISKKNLLLHSIFLDNADSVWEPSFLSALLANRTLLVKFNKFTELRPRLNSEECYYQRLTKMYFDKPSLGEISFNCNSMIRLMPVEKELMTNTIPFMHIYHHITASVLTSFERGFHSKMCEFLKSDYYQFITLTEFGLEKRIMPYNVPVYSIIPGVAGMVYQFLKYFSTWNKPIIEYSYDCRTLFSLVHADIILKALEDCFEQFSLVIQHQHLLQFKKQKEDNGNFESNYPIYSKRQTLERCNNLMKPMLKRFKAAKEKNCELEKVDTETITEALTLHFFEHLEAIMTRYRPNREDNFKNYLGLANSASTERSISEHFGERKSVSENIM"),
-            ("sp", "MEKIKEKLNSLKLESESWQEKYEELREQLKELEQSNTEKENEIKSLSAKNEQLDSEVEKLESQLSDTKQLAEDSNNLRSNNENYTKKNQDLEQQLEDSEAKLKEAMDKLKEADLNSEQMGRRIVALEEERDEWEKKCEEFQSKYEEAQKELDEIANSLENL")
-        ];
-        proteins.sort_by(|b, a| a.0.cmp(&b.0));
+    fn digest_index() {
+        
+        let trypsin = Trypsin::new(0, 2, 50);
 
-        let trypsin = Trypsin::new(1, 7, 50);
-        let peptides = proteins
-            .iter()
-            .flat_map(|(protein, sequence)| trypsin.digest(protein, sequence))
-            .collect::<HashSet<_>>();
+        let fwd = "MADEEKLPPGWEKRMSRSSGRVYYFNHITNASQWERPSGN";
+        let rev = fwd.chars()
+            .rev()
+            .collect::<String>();
+        
+        let mut fwd = trypsin.digest("", fwd, false);
+        let mut rev = trypsin.digest("", &rev, true);
+        rev.sort_by(|a, b| a.idx.cmp(&b.idx));
 
-        for peptide in peptides {
-            if peptide.sequence == "SNNENYTK" {
-                assert_eq!(peptide.protein, "sp");
-            }
+        for (f, r) in fwd.iter().zip(rev.iter()) {
+            assert_eq!(f.idx, r.idx);
+            let r_ = r.sequence[1..r.sequence.len()-1].chars().rev().collect::<String>();
+            let f_ = &f.sequence[1..f.sequence.len()-1];
+            assert_eq!(f_, r_);
         }
+
     }
 }
