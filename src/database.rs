@@ -101,8 +101,13 @@ impl Parameters {
         let targets = fasta
             .targets
             .par_iter()
-            .chain(fasta.decoys.par_iter())
             .flat_map(|(protein, sequence)| trypsin.digest(protein, sequence, false))
+            .chain(
+                fasta
+                    .decoys
+                    .par_iter()
+                    .flat_map(|(protein, sequence)| trypsin.digest(protein, sequence, true)),
+            )
             .collect::<HashSet<_>>();
 
         // From our set of unique peptide sequence, apply any modifications

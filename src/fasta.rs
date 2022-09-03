@@ -350,13 +350,13 @@ mod tests {
             .rev()
             .collect::<String>();
         
-        let mut fwd = trypsin.digest("", fwd, false);
+        let fwd = trypsin.digest("", fwd, false);
         let mut rev = trypsin.digest("", &rev, true);
         rev.sort_by(|a, b| a.idx.cmp(&b.idx));
 
         for (f, r) in fwd.iter().zip(rev.iter()) {
             assert_eq!(f.idx, r.idx);
-            let r_ = r.sequence[1..r.sequence.len()-1].chars().rev().collect::<String>();
+            let r_ = r.sequence[..r.sequence.len()-1].chars().rev().collect::<String>();
             let f_ = &f.sequence[1..f.sequence.len()-1];
             assert_eq!(f_, r_);
         }

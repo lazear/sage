@@ -125,7 +125,7 @@ pub fn score_psms(scores: &mut [Percolator]) -> Option<()> {
     log::trace!("fitting linear discriminant model");
 
     // Declare, so that we have compile time checking of matrix dimensions
-    const FEATURES: usize = 12;
+    const FEATURES: usize = 13;
     let features = scores
         .into_par_iter()
         .flat_map(|perc| {
@@ -137,22 +137,17 @@ pub fn score_psms(scores: &mut [Percolator]) -> Option<()> {
             let x: [f64; FEATURES] = [
                 (perc.hyperscore).ln_1p(),
                 (perc.delta_hyperscore).ln_1p(),
-                // ((perc.delta_hyperscore  + 0.0001) / perc.hyperscore).ln_1p(),
                 (perc.delta_mass as f64).ln_1p(),
-                // perc.expmass as f64,
+                perc.isotope_error as f64,
                 perc.average_ppm as f64,
                 poisson,
                 (perc.matched_intensity_pct as f64).ln_1p(),
                 (perc.matched_peaks as f64).ln_1p(),
                 (perc.longest_b as f64).ln_1p(),
                 (perc.longest_y as f64).ln_1p(),
-                (perc.longest_y as f64 / perc.peptide_len as f64), //.ln_1p(),
+                (perc.longest_y as f64 / perc.peptide_len as f64),
                 (perc.peptide_len as f64).ln_1p(),
-                // (perc.scored_candidates as f64).ln_1p(),
-                // (perc.ion_interference as f64).ln_1p(),
                 (perc.missed_cleavages as f64),
-                // (perc.rt as f64).ln_1p(),
-                // (perc.charge as f64).ln_1p(),
             ];
             x
         })

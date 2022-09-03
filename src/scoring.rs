@@ -1,6 +1,6 @@
 use crate::database::{binary_search_slice, IndexedDatabase, PeptideIx, Theoretical};
 use crate::ion_series::Kind;
-use crate::mass::{Tolerance, PROTON};
+use crate::mass::{Tolerance, PROTON, NEUTRON};
 use crate::peptide::TargetDecoy;
 use crate::spectrum::{Peak, Precursor, ProcessedSpectrum};
 use serde::Serialize;
@@ -44,6 +44,8 @@ pub struct Percolator<'db> {
     pub rt: f32,
     /// Difference between expmass and calcmass
     pub delta_mass: f32,
+    /// C13 isotope error
+    pub isotope_error: f32,
     /// Average ppm delta mass for matched fragments
     pub average_ppm: f32,
     /// X!Tandem hyperscore
@@ -279,6 +281,17 @@ impl<'db> Scorer<'db> {
 
             let (b, y) = self.rescore(query, charge, peptide);
 
+            let mut isotope_error = 0.0;
+            for i in self.min_isotope_err ..= self.max_isotope_err {
+                let c13 = i as f32 * NEUTRON;
+                let (iso_tol_lo, iso_tol_hi) = self.precursor_tol.bounds(precursor_mass - c13);
+                if peptide.monoisotopic >= iso_tol_lo && peptide.monoisotopic <= iso_tol_hi {
+                    isotope_error = c13;
+                }
+            }
+
+            let delta_mass = (precursor_mass - peptide.monoisotopic - isotope_error).abs() * 1E6 / peptide.monoisotopic;
+
             reporting.push(Percolator {
                 // Identifiers
                 peptide_idx: better.peptide,
@@ -293,8 +306,8 @@ impl<'db> Scorer<'db> {
                 // Features
                 charge: precursor_charge,
                 rt: query.scan_start_time,
-                delta_mass: (precursor_mass - peptide.monoisotopic).abs() * 1E6
-                    / peptide.monoisotopic,
+                delta_mass,
+                isotope_error,
                 average_ppm: better.ppm_difference / (better.matched_b + better.matched_y) as f32,
                 hyperscore: better.hyperscore,
                 delta_hyperscore: better.hyperscore - next,
