@@ -11,7 +11,9 @@
 mod gauss;
 mod kde;
 mod matrix;
+mod qvalue;
 use matrix::Matrix;
+pub use qvalue::assign_q_values;
 use rayon::prelude::*;
 
 use crate::scoring::Percolator;
@@ -125,7 +127,7 @@ pub fn score_psms(scores: &mut [Percolator]) -> Option<()> {
     log::trace!("fitting linear discriminant model");
 
     // Declare, so that we have compile time checking of matrix dimensions
-    const FEATURES: usize = 13;
+    const FEATURES: usize = 14;
     let features = scores
         .into_par_iter()
         .flat_map(|perc| {
@@ -148,6 +150,7 @@ pub fn score_psms(scores: &mut [Percolator]) -> Option<()> {
                 (perc.longest_y as f64 / perc.peptide_len as f64),
                 (perc.peptide_len as f64).ln_1p(),
                 (perc.missed_cleavages as f64),
+                perc.num_proteins as f64,
             ];
             x
         })

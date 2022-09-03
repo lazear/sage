@@ -2,8 +2,6 @@ use std::collections::HashMap;
 use std::io;
 use std::path::Path;
 
-use rayon::prelude::*;
-
 pub struct Fasta {
     pub targets: Vec<(String, String)>,
     pub decoys: Vec<(String, String)>,
@@ -63,18 +61,21 @@ impl Fasta {
         self.decoys = decoys;
     }
 
-    pub fn peptide_graph(&self, trypsin: &Trypsin) -> HashMap<&str, Vec<&str>> {
-        let digests = self
-            .targets
-            .par_iter()
-            .flat_map(|(acc, seq)| trypsin.digest(acc, seq, false))
-            .collect::<Vec<_>>();
-
-        let mut map: HashMap<&str, Vec<&str>> = HashMap::new();
-        for digest in digests {
-            map.entry(digest.sequence).or_default().push(digest.protein);
+    pub fn digest(&self, trypsin: &Trypsin) -> HashMap<Digest, Vec<String>> {
+        let mut map: HashMap<Digest, Vec<String>> = HashMap::new();
+        for (acc, seq) in &self.targets {
+            for digest in trypsin.digest(seq, false) {
+                map.entry(digest).or_default().push(acc.clone());
+            }
         }
-
+        for (acc, seq) in &self.decoys {
+            for digest in trypsin.digest(seq, true) {
+                let entry = map.entry(digest).or_default();
+                if entry.is_empty() {
+                    entry.push(acc.clone());
+                }
+            }
+        }
         map
     }
 }
@@ -91,27 +92,26 @@ pub struct Trypsin {
 /// # Important invariant about [`Digest`]:
 /// * two digests are equal if and only if their sequences are equal
 ///   i.e., protein ID is ignored for equality and hashing
-pub struct Digest<'s> {
-    /// Parent protein ID
-    pub protein: &'s str,
+pub struct Digest {
+    pub decoy: bool,
     /// Tryptic peptide sequence
-    pub sequence: &'s str,
+    pub sequence: String,
     /// Missed cleavages
     pub missed_cleavages: u8,
     pub idx: u16,
 }
 
-impl<'s> PartialEq for Digest<'s> {
+impl PartialEq for Digest {
     fn eq(&self, other: &Self) -> bool {
         self.sequence == other.sequence
     }
 }
 
-impl<'s> Eq for Digest<'s> {
+impl Eq for Digest {
     fn assert_receiver_is_total_eq(&self) {}
 }
 
-impl<'s> std::hash::Hash for Digest<'s> {
+impl std::hash::Hash for Digest {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.sequence.hash(state);
     }
@@ -138,7 +138,7 @@ impl Trypsin {
     }
 
     /// Generate a series of tryptic digests for a given `sequence`
-    pub fn digest<'f>(&self, protein: &'f str, sequence: &'f str, is_decoy: bool) -> Vec<Digest<'f>> {
+    pub fn digest(&self, sequence: &str, is_decoy: bool) -> Vec<Digest> {
         let mut digests = Vec::new();
         let mut idx = 0;
         let peptides = self.inner(sequence);
@@ -149,10 +149,11 @@ impl Trypsin {
                 let len = sequence.len();
                 if len >= self.min_len && len <= self.max_len {
                     digests.push(Digest {
-                        protein,
-                        sequence,
+                        // protein,
+                        sequence: sequence.into(),
                         missed_cleavages: cleavage - 1,
                         idx,
+                        decoy: is_decoy,
                     });
                     idx += 1;
                 }
@@ -176,28 +177,9 @@ impl Trypsin {
     }
 }
 
-pub struct Kmer {
-    pub size: usize,
-}
-
-impl Kmer {
-    pub fn digest<'a>(&self, protein: &'a str, sequence: &'a str) -> Vec<Digest<'a>> {
-        let mut digests = Vec::new();
-        for i in 0..sequence.len().saturating_sub(self.size - 1) {
-            digests.push(Digest {
-                protein,
-                sequence: &sequence[i..i + self.size],
-                missed_cleavages: 0,
-                idx: i as u16,
-            })
-        }
-        digests
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{Kmer, Trypsin};
+    use super::Trypsin;
     use std::collections::HashSet;
 
     #[test]
@@ -206,17 +188,16 @@ mod tests {
         let sequence = "MADEEKMADEEK";
         let expected = vec!["MADEEK", "MADEEK"];
 
-        let mut observed = trypsin.digest("A".into(), sequence.into(), false);
+        let mut observed = trypsin.digest(sequence.into(), false);
 
         // Make sure digest worked!
         assert_eq!(
             expected,
-            observed.iter().map(|d| d.sequence).collect::<Vec<_>>()
+            observed.iter().map(|d| &d.sequence).collect::<Vec<_>>()
         );
 
         assert_eq!(observed[0].sequence, observed[1].sequence);
 
-        observed[1].protein = "A";
         // Make sure hashing a digest works
         let set = observed.drain(..).collect::<HashSet<_>>();
         assert_eq!(set.len(), 1);
@@ -227,10 +208,9 @@ mod tests {
         let trypsin = Trypsin::new(0, 2, 50);
         let sequence = "MADEEKLPPGWEKRMSRSSGRVYYFNHITNASQWERPSGN";
         let expected = vec!["MADEEK", "LPPGWEK", "MSR", "SSGR", "VYYFNHITNASQWERPSGN"];
-        // assert_eq!(super::digest(sequence, false), expected);
         assert_eq!(
             trypsin
-                .digest("".into(), sequence.into(), false)
+                .digest(sequence.into(), false)
                 .into_iter()
                 .map(|d| d.sequence)
                 .collect::<Vec<_>>(),
@@ -256,7 +236,7 @@ mod tests {
 
         assert_eq!(
             trypsin
-                .digest("".into(), &sequence, true)
+                .digest(&sequence, true)
                 .into_iter()
                 .map(|d| d.sequence)
                 .collect::<Vec<_>>(),
@@ -283,7 +263,7 @@ mod tests {
         ];
         assert_eq!(
             trypsin
-                .digest("".into(), sequence.into(), false)
+                .digest(sequence.into(), false)
                 .into_iter()
                 .map(|d| d.sequence)
                 .collect::<Vec<_>>(),
@@ -314,24 +294,7 @@ mod tests {
         ];
         assert_eq!(
             trypsin
-                .digest("".into(), sequence.into(), false)
-                .into_iter()
-                .map(|d| d.sequence)
-                .collect::<Vec<_>>(),
-            expected
-        );
-    }
-
-    #[test]
-    fn kmer() {
-        let kmer = Kmer { size: 8 };
-        let sequence = "MADEEKLPPGWEKRMSRS";
-        let expected = [
-            "MADEEKLP", "ADEEKLPP", "DEEKLPPG", "EEKLPPGW", "EKLPPGWE", "KLPPGWEK", "LPPGWEKR",
-            "PPGWEKRM", "PGWEKRMS", "GWEKRMSR", "WEKRMSRS",
-        ];
-        assert_eq!(
-            kmer.digest("".into(), sequence.into())
+                .digest(sequence.into(), false)
                 .into_iter()
                 .map(|d| d.sequence)
                 .collect::<Vec<_>>(),
@@ -342,24 +305,24 @@ mod tests {
     /// Check that picked-peptide approach will match forward and reverse peptides
     #[test]
     fn digest_index() {
-        
         let trypsin = Trypsin::new(0, 2, 50);
 
         let fwd = "MADEEKLPPGWEKRMSRSSGRVYYFNHITNASQWERPSGN";
-        let rev = fwd.chars()
-            .rev()
-            .collect::<String>();
-        
-        let fwd = trypsin.digest("", fwd, false);
-        let mut rev = trypsin.digest("", &rev, true);
+        let rev = fwd.chars().rev().collect::<String>();
+
+        let fwd = trypsin.digest(fwd, false);
+        let mut rev = trypsin.digest(&rev, true);
         rev.sort_by(|a, b| a.idx.cmp(&b.idx));
 
         for (f, r) in fwd.iter().zip(rev.iter()) {
             assert_eq!(f.idx, r.idx);
-            let r_ = r.sequence[..r.sequence.len()-1].chars().rev().collect::<String>();
-            let f_ = &f.sequence[1..f.sequence.len()-1];
-            assert_eq!(f_, r_);
+            let r_ = r.sequence[..r.sequence.len() - 1]
+                .chars()
+                .rev()
+                .skip(1)
+                .collect::<String>();
+            let f_ = &f.sequence[1..f.sequence.len() - 1];
+            assert!(f_.contains(&r_), "{} {}", f_, r_);
         }
-
     }
 }

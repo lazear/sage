@@ -1,12 +1,12 @@
 use crate::fasta::{Fasta, Trypsin};
 use crate::ion_series::{IonSeries, Kind};
 use crate::mass::{Tolerance, NEUTRON};
-use crate::peptide::{Peptide, TargetDecoy};
+use crate::peptide::Peptide;
 use log::error;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::hash::Hash;
 use std::path::PathBuf;
 
@@ -93,42 +93,35 @@ pub struct Parameters {
 }
 
 impl Parameters {
-    fn digest(&self, fasta: &Fasta, trypsin: &Trypsin) -> Vec<TargetDecoy> {
+    fn digest(
+        &self,
+        fasta: &Fasta,
+        trypsin: &Trypsin,
+    ) -> (Vec<Peptide>, HashMap<String, Vec<String>>) {
         // Generate all tryptic peptide sequences, including reversed (decoy)
         // and missed cleavages, if applicable.
-        //
-        // Then, collect in a HashSet so that we only keep unique tryptic peptides
-        let targets = fasta
-            .targets
-            .par_iter()
-            .flat_map(|(protein, sequence)| trypsin.digest(protein, sequence, false))
-            .chain(
-                fasta
-                    .decoys
-                    .par_iter()
-                    .flat_map(|(protein, sequence)| trypsin.digest(protein, sequence, true)),
-            )
-            .collect::<HashSet<_>>();
+        let digests = fasta.digest(trypsin);
 
         // From our set of unique peptide sequence, apply any modifications
         // and convert to [`TargetDecoy`] enum
-        let mut target_decoys = targets
+        let mut target_decoys = digests
             .par_iter()
-            .filter_map(|f| Peptide::try_from(f).ok())
+            .filter_map(|(digest, _)| Peptide::try_from(digest).ok())
             .flat_map(|peptide| peptide.apply(&self.variable_mods, &self.static_mods))
             .filter(|peptide| {
                 peptide.monoisotopic >= self.peptide_min_mass
                     && peptide.monoisotopic <= self.peptide_max_mass
             })
-            .map(
-                |peptide| match peptide.protein.starts_with(&self.decoy_prefix) {
-                    true => TargetDecoy::Decoy(peptide),
-                    false => TargetDecoy::Target(peptide),
-                },
-            )
-            .collect::<Vec<TargetDecoy>>();
-        (&mut target_decoys).par_sort_unstable_by(|a, b| a.neutral().total_cmp(&b.neutral()));
-        target_decoys
+            .collect::<Vec<Peptide>>();
+
+        (&mut target_decoys).par_sort_unstable_by(|a, b| a.monoisotopic.total_cmp(&b.monoisotopic));
+
+        let peptide_graph = digests
+            .into_par_iter()
+            .map(|(digest, proteins)| (digest.sequence, proteins))
+            .collect::<HashMap<String, Vec<String>>>();
+
+        (target_decoys, peptide_graph)
     }
 
     pub fn build(self) -> Result<IndexedDatabase, Box<dyn std::error::Error>> {
@@ -140,7 +133,7 @@ impl Parameters {
         let mut fasta = Fasta::open(&self.fasta, &self.decoy_prefix)?;
         fasta.make_decoys(&self.decoy_prefix);
 
-        let target_decoys = self.digest(&fasta, &trypsin);
+        let (target_decoys, peptide_graph) = self.digest(&fasta, &trypsin);
         let mut fragments = Vec::new();
 
         // Finally, perform in silico digest for our target sequences
@@ -153,7 +146,7 @@ impl Parameters {
             // theoretical fragments are within the search space
             for kind in [Kind::B, Kind::Y] {
                 fragments.extend(
-                    IonSeries::new(peptide.peptide(), kind)
+                    IonSeries::new(peptide, kind)
                         .map(|ion| Theoretical {
                             peptide_index: PeptideIx(idx as u32),
                             // precursor_mz: peptide.neutral(),
@@ -221,8 +214,7 @@ impl Parameters {
             fragments,
             min_value,
             bucket_size: self.bucket_size,
-            fasta,
-            trypsin,
+            peptide_graph,
         })
     }
 }
@@ -246,12 +238,11 @@ pub struct Theoretical {
 }
 
 pub struct IndexedDatabase {
-    pub peptides: Vec<TargetDecoy>,
+    pub peptides: Vec<Peptide>,
     pub fragments: Vec<Theoretical>,
     pub(crate) min_value: Vec<f32>,
     bucket_size: usize,
-    fasta: Fasta,
-    trypsin: Trypsin,
+    peptide_graph: HashMap<String, Vec<String>>,
 }
 
 impl IndexedDatabase {
@@ -271,7 +262,7 @@ impl IndexedDatabase {
 
         let (pre_idx_lo, pre_idx_hi) = binary_search_slice(
             &self.peptides,
-            |p, bounds| p.neutral().total_cmp(bounds),
+            |p, bounds| p.monoisotopic.total_cmp(bounds),
             precursor_lo - (NEUTRON * max_isotope_err as f32).abs(),
             precursor_hi + (NEUTRON * min_isotope_err as f32).abs(),
         );
@@ -295,10 +286,35 @@ impl IndexedDatabase {
     pub fn buckets(&self) -> &[f32] {
         &self.min_value
     }
+
+    pub fn assign_proteins(&self, peptide: &Peptide) -> (usize, String) {
+        let sequence_without_mods = peptide
+            .sequence
+            .iter()
+            .map(|resi| match resi {
+                crate::mass::Residue::Just(r) => r,
+                crate::mass::Residue::Mod(r, _) => r,
+            })
+            .collect::<String>();
+
+        match self.peptide_graph.get(&sequence_without_mods) {
+            Some(proteins) => {
+                let n = proteins.len();
+                let proteins = proteins.join(";");
+                (n, proteins)
+            }
+            None => {
+                panic!(
+                    "BUG: peptide sequence {} doesn't appear in peptide graph!",
+                    &sequence_without_mods
+                );
+            }
+        }
+    }
 }
 
 impl std::ops::Index<PeptideIx> for IndexedDatabase {
-    type Output = TargetDecoy;
+    type Output = Peptide;
 
     fn index(&self, index: PeptideIx) -> &Self::Output {
         &self.peptides[index.0 as usize]
@@ -353,7 +369,7 @@ impl<'d> IndexedQuery<'d> {
 
             // Finally, filter down our slice into exact matches only
             slice[inner_left..inner_right].iter().filter(move |frag| {
-                let neutral = self.db[frag.peptide_index].neutral();
+                let neutral = self.db[frag.peptide_index].monoisotopic;
                 (self.min_isotope_err..=self.max_isotope_err).any(|isotope_err| {
                     let delta = isotope_err as f32 * NEUTRON;
                     (neutral >= precursor_lo - delta) && (neutral <= precursor_hi - delta)

@@ -68,34 +68,17 @@ impl<'p> Iterator for IonSeries<'p> {
 
 #[cfg(test)]
 mod test {
-    use std::str::FromStr;
-
     use super::*;
-    use crate::{
-        mass::{Residue, H2O, PROTON},
-        peptide::Peptide,
-    };
+    use crate::{fasta::Digest, mass::PROTON, peptide::Peptide};
 
-    impl FromStr for Peptide {
-        type Err = char;
-
-        fn from_str(s: &str) -> Result<Self, Self::Err> {
-            let mut sequence = Vec::with_capacity(s.len());
-            let mut monoisotopic = H2O;
-
-            for c in s.chars() {
-                monoisotopic += c.monoisotopic();
-                sequence.push(Residue::Just(c));
-            }
-            Ok(Peptide {
-                protein: String::default(),
-                sequence,
-                nterm: None,
-                missed_cleavages: 0,
-                monoisotopic,
-                idx: 0,
-            })
-        }
+    fn peptide(s: &str) -> Peptide {
+        Peptide::try_from(&Digest {
+            sequence: s.into(),
+            missed_cleavages: 0,
+            idx: 0,
+            decoy: false,
+        })
+        .unwrap()
     }
 
     fn check_within<I: Iterator<Item = Ion>>(iter: I, expected_mz: &[f32]) {
@@ -126,7 +109,7 @@ mod test {
 
     #[test]
     fn iterate_b_ions() {
-        let peptide = "PEPTIDE".parse::<Peptide>().unwrap();
+        let peptide = peptide("PEPTIDE");
 
         // Charge state 2
         let expected_mz = vec![
@@ -138,7 +121,7 @@ mod test {
 
     #[test]
     fn iterate_y_ions() {
-        let peptide = "PEPTIDE".parse::<Peptide>().unwrap();
+        let peptide = peptide("PEPTIDE");
 
         // Charge state 1
         let expected_mz = vec![
@@ -150,16 +133,16 @@ mod test {
 
     #[test]
     fn decoy() {
-        let peptide = "PEPTIDE".parse::<Peptide>().unwrap();
+        let peptide_ = peptide("PEPTIDE");
 
         // Charge state 2
         let expected_mz = vec![
             352.16087, 287.639_6, 239.11319, 188.58935, 132.04732, 74.53385,
         ];
 
-        check_within(ions!(&peptide, Kind::Y, 2.0), &expected_mz);
+        check_within(ions!(&peptide_, Kind::Y, 2.0), &expected_mz);
 
-        let peptide = "EDITPEP".parse::<Peptide>().unwrap();
+        let peptide = peptide("EDITPEP");
 
         // Charge state 2
         let expected_mz = vec![
@@ -171,7 +154,7 @@ mod test {
 
     #[test]
     fn nterm_mod() {
-        let mut peptide = "PEPTIDE".parse::<Peptide>().unwrap();
+        let mut peptide = peptide("PEPTIDE");
         peptide.static_mod('^', 229.01);
 
         // Charge state 1, b-ions should be TMT tagged

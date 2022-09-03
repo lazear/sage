@@ -2,7 +2,7 @@ use clap::{Arg, Command};
 use log::{info, warn};
 use rayon::prelude::*;
 use sage::mass::Tolerance;
-use sage::scoring::{assign_q_values, Scorer};
+use sage::scoring::Scorer;
 use sage::spectrum::SpectrumProcessor;
 use sage::tmt::Isobaric;
 use serde::{Deserialize, Serialize};
@@ -181,7 +181,7 @@ fn process_mzml_file_sps<P: AsRef<Path>>(
         (&mut scores).par_sort_unstable_by(|a, b| b.poisson.total_cmp(&a.poisson));
     }
 
-    let passing_psms = assign_q_values(&mut scores);
+    let passing_psms = sage::lda::assign_q_values(&mut scores);
 
     let mut path = p.as_ref().to_path_buf();
     path.set_extension("sage.pin");
@@ -235,21 +235,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         db.size(),
         (Instant::now() - start).as_millis()
     );
-
-    // let precursor_tol = if search.chimera && search.isotope_errors.1 < 1 {
-    //     match search.precursor_tol {
-    //         Tolerance::Ppm(lo, hi) if (hi - lo).abs() < 500.0 => {
-    //             warn!("chimeric search turned on, but provided precursor window is less than 500 Da wide");
-    //         }
-    //         Tolerance::Da(lo, hi) => {
-    //                 warn!("chimeric search turned on, but provided precursor window is less than 2.5 Da wide - overriding");
-    //             }
-    //         }
-    //     }
-    // } else {
-    //     search.precursor_tol
-    // };
-
 
     if search.chimera && search.report_psms != 1 {
         warn!("chimeric search turned on, but report_psms is not 1 - overriding");

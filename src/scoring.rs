@@ -1,7 +1,7 @@
 use crate::database::{binary_search_slice, IndexedDatabase, PeptideIx, Theoretical};
 use crate::ion_series::Kind;
-use crate::mass::{Tolerance, PROTON, NEUTRON};
-use crate::peptide::TargetDecoy;
+use crate::mass::{Tolerance, NEUTRON, PROTON};
+use crate::peptide::Peptide;
 use crate::spectrum::{Peak, Precursor, ProcessedSpectrum};
 use serde::Serialize;
 
@@ -19,15 +19,17 @@ struct Score {
 
 #[derive(Serialize, Clone, Debug)]
 /// Features of a candidate peptide spectrum match
-pub struct Percolator<'db> {
+pub struct Percolator {
     #[serde(skip_serializing)]
     pub peptide_idx: PeptideIx,
     /// Peptide sequence, including modifications e.g.: NC(+57.021)HK
     pub peptide: String,
     /// Peptide length
     pub peptide_len: usize,
-    /// Name of *a* protein containing this peptide sequence
-    pub proteins: &'db str,
+    /// Proteins containing this peptide sequence
+    pub proteins: String,
+    /// Number of proteins assigned to this peptide sequence
+    pub num_proteins: usize,
     /// Arbitrary spectrum id
     pub specid: usize,
     /// MS2 scan number
@@ -141,7 +143,7 @@ impl<'db> Scorer<'db> {
         spectra: &[ProcessedSpectrum],
         query: &ProcessedSpectrum,
         report_psms: usize,
-    ) -> Vec<Percolator<'db>> {
+    ) -> Vec<Percolator> {
         assert_eq!(
             query.level, 2,
             "internal bug, trying to score a non-MS2 scan!"
@@ -158,7 +160,7 @@ impl<'db> Scorer<'db> {
         spectra: &[ProcessedSpectrum],
         query: &ProcessedSpectrum,
         report_psms: usize,
-    ) -> Vec<Percolator<'db>> {
+    ) -> Vec<Percolator> {
         let (precursor_mass, precursor_charge) = query
             .extract_ms1_precursor()
             .expect("missing MS1 precursor");
@@ -206,22 +208,6 @@ impl<'db> Scorer<'db> {
                     matches += 1;
                 }
             }
-            // for nl in [H2O, NH3] {
-            //     let mass = peak.mass + nl;
-            //     for frag in candidates.page_search(mass) {
-            //         let idx = frag.peptide_index.0 as usize - candidates.pre_idx_lo;
-            //         let mut sc = &mut score_vector[idx];
-            //         match frag.kind {
-            //             Kind::B => {
-            //                 sc.summed_b += peak.intensity * 0.1;
-            //             }
-            //             Kind::Y => {
-            //                 sc.summed_y += peak.intensity * 0.1;
-            //             }
-            //         }
-            //         sc.matched_nl += 1;
-            //     }
-            // }
         }
 
         if matches == 0 {
@@ -268,7 +254,7 @@ impl<'db> Scorer<'db> {
                 .map(|score| score.hyperscore)
                 .unwrap_or_default();
 
-            let peptide = self.db[better.peptide].peptide();
+            let peptide = &self.db[better.peptide];
             let k = (better.matched_b + better.matched_y) as usize;
 
             // Poisson distribution probability mass function
@@ -282,7 +268,7 @@ impl<'db> Scorer<'db> {
             let (b, y) = self.rescore(query, charge, peptide);
 
             let mut isotope_error = 0.0;
-            for i in self.min_isotope_err ..= self.max_isotope_err {
+            for i in self.min_isotope_err..=self.max_isotope_err {
                 let c13 = i as f32 * NEUTRON;
                 let (iso_tol_lo, iso_tol_hi) = self.precursor_tol.bounds(precursor_mass - c13);
                 if peptide.monoisotopic >= iso_tol_lo && peptide.monoisotopic <= iso_tol_hi {
@@ -290,16 +276,20 @@ impl<'db> Scorer<'db> {
                 }
             }
 
-            let delta_mass = (precursor_mass - peptide.monoisotopic - isotope_error).abs() * 1E6 / peptide.monoisotopic;
+            let delta_mass = (precursor_mass - peptide.monoisotopic - isotope_error).abs() * 1E6
+                / peptide.monoisotopic;
+
+            let (num_proteins, proteins) = self.db.assign_proteins(peptide);
 
             reporting.push(Percolator {
                 // Identifiers
                 peptide_idx: better.peptide,
                 peptide: peptide.to_string(),
-                proteins: &peptide.protein,
+                proteins,
+                num_proteins,
                 specid: 0,
                 scannr: query.scan as u32,
-                label: self.db[better.peptide].label(),
+                label: peptide.label(),
                 expmass: precursor_mass + PROTON,
                 calcmass: peptide.monoisotopic + PROTON,
 
@@ -337,7 +327,7 @@ impl<'db> Scorer<'db> {
         &self,
         spectra: &[ProcessedSpectrum],
         query: &ProcessedSpectrum,
-    ) -> Vec<Percolator<'db>> {
+    ) -> Vec<Percolator> {
         let (_, charge) = query
             .extract_ms1_precursor()
             .expect("missing MS1 precursor");
@@ -362,7 +352,7 @@ impl<'db> Scorer<'db> {
         };
 
         let peptide = &self.db[best.peptide_idx];
-        if let TargetDecoy::Target(peptide) = peptide {
+        if !peptide.decoy {
             let mut theo = [Kind::B, Kind::Y]
                 .iter()
                 .flat_map(|kind| {
@@ -398,13 +388,7 @@ impl<'db> Scorer<'db> {
     }
 
     /// Calculate the longest continous chain of B or Y fragment ions
-    fn longest_series(
-        &self,
-        peaks: &[Peak],
-        charge: u8,
-        kind: Kind,
-        peptide: &crate::peptide::Peptide,
-    ) -> usize {
+    fn longest_series(&self, peaks: &[Peak], charge: u8, kind: Kind, peptide: &Peptide) -> usize {
         let mut current_start = peaks.len();
         let mut run = 0;
         let mut longest_run = 0;
@@ -445,7 +429,7 @@ impl<'db> Scorer<'db> {
         &self,
         query: &ProcessedSpectrum,
         charge: u8,
-        candidate: &crate::peptide::Peptide,
+        candidate: &Peptide,
     ) -> (usize, usize) {
         let b = self.longest_series(&query.peaks, charge, Kind::B, candidate);
         let y = self.longest_series(&query.peaks, charge, Kind::Y, candidate);
@@ -485,39 +469,4 @@ pub fn ion_interference(spectra: &[ProcessedSpectrum], ms2: &ProcessedSpectrum) 
     } else {
         Some((total_intensity - selected_intensity) / total_intensity)
     }
-}
-
-/// Assign q_values in place to a set of PSMs, returning the number of PSMs
-/// q <= 0.01
-///
-/// # Invariants
-/// * `scores` must be sorted in descending order (e.g. best PSM is first)
-pub fn assign_q_values(scores: &mut [Percolator]) -> usize {
-    // FDR Calculation:
-    // * Sort by score, descending
-    // * Estimate FDR
-    // * Calculate q-value
-
-    let mut decoy = 1;
-    let mut target = 0;
-
-    for score in scores.iter_mut() {
-        match score.label == -1 {
-            true => decoy += 1,
-            false => target += 1,
-        }
-        score.q_value = decoy as f32 / target as f32;
-    }
-
-    // Reverse slice, and calculate the cumulative minimum
-    let mut q_min = 1.0f32;
-    let mut passing = 0;
-    for score in scores.iter_mut().rev() {
-        q_min = q_min.min(score.q_value);
-        score.q_value = q_min;
-        if q_min <= 0.01 {
-            passing += 1;
-        }
-    }
-    passing
 }

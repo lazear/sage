@@ -169,11 +169,11 @@ fn mk_theoretical(peptide: &Peptide) -> Vec<Peak> {
 }
 
 #[derive(Debug)]
-pub struct Quant<'db, 'ms3> {
+pub struct Quant<'ms3> {
     /// Top hit for this MS3 spectrum
-    pub hit: Percolator<'db>,
+    pub hit: Percolator,
     /// Top chimeric/co-fragmenting hit for this spectrum
-    pub chimera: Option<Percolator<'db>>,
+    pub chimera: Option<Percolator>,
     /// SPS precursor purity for the top hit
     pub hit_purity: Purity,
     /// SPS precursor purity for the chimeric hit
@@ -228,7 +228,7 @@ pub fn quantify_sps<'a, 'b>(
     ms3: &'b ProcessedSpectrum,
     isobaric_labels: &Isobaric,
     isobaric_tolerance: Tolerance,
-) -> Option<Quant<'a, 'b>> {
+) -> Option<Quant<'b>> {
     let first_precursor = ms3
         .precursors
         .first()
@@ -255,7 +255,7 @@ pub fn quantify_sps<'a, 'b>(
     let hit_purity = purity_of_match(
         &ms3.precursors,
         ms2,
-        &mk_theoretical(peptide.peptide()),
+        &mk_theoretical(peptide),
         ms1_charge,
         scorer.fragment_tol,
     );
@@ -265,7 +265,7 @@ pub fn quantify_sps<'a, 'b>(
         purity_of_match(
             &ms3.precursors,
             ms2,
-            &mk_theoretical(scorer.db[score.peptide_idx].peptide()),
+            &mk_theoretical(&scorer.db[score.peptide_idx]),
             ms1_charge,
             scorer.fragment_tol,
         )

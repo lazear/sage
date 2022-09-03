@@ -5,36 +5,9 @@ use crate::{
     mass::{Mass, Residue, H2O, VALID_AA},
 };
 
-#[derive(Debug, Clone)]
-pub enum TargetDecoy {
-    Target(Peptide),
-    Decoy(Peptide),
-}
-
-impl TargetDecoy {
-    pub fn neutral(&self) -> f32 {
-        match self {
-            TargetDecoy::Target(p) | TargetDecoy::Decoy(p) => p.monoisotopic,
-        }
-    }
-
-    pub fn peptide(&self) -> &Peptide {
-        match self {
-            TargetDecoy::Target(p) | TargetDecoy::Decoy(p) => p,
-        }
-    }
-
-    pub fn label(&self) -> i32 {
-        match self {
-            TargetDecoy::Target(_) => 1,
-            TargetDecoy::Decoy(_) => -1,
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct Peptide {
-    pub protein: String,
+    pub decoy: bool,
     pub sequence: Vec<Residue>,
     pub nterm: Option<f32>,
     pub monoisotopic: f32,
@@ -47,6 +20,13 @@ impl Peptide {
         if self.nterm.is_none() {
             self.nterm = Some(m);
             self.monoisotopic += m;
+        }
+    }
+
+    pub fn label(&self) -> i32 {
+        match self.decoy {
+            true => -1,
+            false => 1,
         }
     }
 
@@ -146,7 +126,7 @@ impl<'a> Iterator for VariableMod<'a> {
     }
 }
 
-impl<'a> TryFrom<&Digest<'a>> for Peptide {
+impl TryFrom<&Digest> for Peptide {
     type Error = char;
 
     fn try_from(value: &Digest) -> Result<Self, Self::Error> {
@@ -162,12 +142,13 @@ impl<'a> TryFrom<&Digest<'a>> for Peptide {
         }
 
         Ok(Peptide {
+            decoy: value.decoy,
             sequence,
             monoisotopic,
             nterm: None,
-            protein: value.protein.to_string(),
             missed_cleavages: value.missed_cleavages,
             idx: value.idx,
+            // protein: value.protein.into(),
         })
     }
 }
@@ -196,10 +177,10 @@ mod test {
     fn test_variable_mods() {
         let variable_mods = [('M', 16.), ('C', 57.)];
         let peptide = Peptide::try_from(&Digest {
-            protein: "",
-            sequence: "GCMGCMG",
+            sequence: "GCMGCMG".into(),
             missed_cleavages: 0,
             idx: 0,
+            decoy: false,
         })
         .unwrap();
 
@@ -235,9 +216,9 @@ mod test {
     fn test_variable_mods_nterm() {
         let variable_mods = [('^', 42.), ('M', 16.)];
         let peptide = Peptide::try_from(&Digest {
-            protein: "",
-            sequence: "GCMGCMG",
+            sequence: "GCMGCMG".into(),
             missed_cleavages: 0,
+            decoy: false,
             idx: 0,
         })
         .unwrap();
@@ -270,9 +251,9 @@ mod test {
     #[test]
     fn apply_mods() {
         let peptide = Peptide::try_from(&Digest {
-            protein: "",
-            sequence: "AACAACAA",
+            sequence: "AACAACAA".into(),
             missed_cleavages: 0,
+            decoy: false,
             idx: 0,
         })
         .unwrap();
