@@ -249,7 +249,7 @@ pub fn quantify_sps<'a, 'b>(
         .unwrap_or(2)
         .saturating_sub(1);
 
-    let scores = scorer.score_chimera(spectra, ms2);
+    let scores = scorer.score_chimera(ms2);
     let hit = scores.first()?.clone();
     let peptide = &scorer.db[hit.peptide_idx];
     let hit_purity = purity_of_match(

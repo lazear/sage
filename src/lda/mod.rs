@@ -127,7 +127,7 @@ pub fn score_psms(scores: &mut [Percolator]) -> Option<()> {
     log::trace!("fitting linear discriminant model");
 
     // Declare, so that we have compile time checking of matrix dimensions
-    const FEATURES: usize = 14;
+    const FEATURES: usize = 13;
     let features = scores
         .into_par_iter()
         .flat_map(|perc| {
@@ -150,7 +150,7 @@ pub fn score_psms(scores: &mut [Percolator]) -> Option<()> {
                 (perc.longest_y as f64 / perc.peptide_len as f64),
                 (perc.peptide_len as f64).ln_1p(),
                 (perc.missed_cleavages as f64),
-                perc.num_proteins as f64,
+                // perc.num_proteins as f64,
             ];
             x
         })
@@ -184,6 +184,9 @@ pub fn score_psms(scores: &mut [Percolator]) -> Option<()> {
         .for_each(|(perc, score)| {
             perc.discriminant_score = *score as f32;
             perc.posterior_error = kde.posterior_error(*score).log10() as f32;
+            if perc.posterior_error.is_infinite() {
+                perc.posterior_error = -324.0;
+            }
         });
 
     Some(())

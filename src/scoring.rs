@@ -1,12 +1,12 @@
 use crate::database::{binary_search_slice, IndexedDatabase, PeptideIx, Theoretical};
-use crate::ion_series::Kind;
+use crate::ion_series::{IonSeries, Kind};
 use crate::mass::{Tolerance, NEUTRON, PROTON};
 use crate::peptide::Peptide;
 use crate::spectrum::{Peak, Precursor, ProcessedSpectrum};
 use serde::Serialize;
 
 /// Structure to hold temporary scores
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, Default, Debug)]
 struct Score {
     peptide: PeptideIx,
     matched_b: u16,
@@ -15,6 +15,13 @@ struct Score {
     summed_y: f32,
     hyperscore: f64,
     ppm_difference: f32,
+}
+
+/// Preliminary score - # of matched peaks for each candidate peptide
+#[derive(Copy, Clone, Default, Debug)]
+struct PreScore {
+    peptide: PeptideIx,
+    matched: u32,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -60,6 +67,8 @@ pub struct Percolator {
     pub longest_b: usize,
     /// Longest y-ion series
     pub longest_y: usize,
+
+    pub longest_y_pct: f32,
     /// Number of missed cleavages
     pub missed_cleavages: u8,
     /// Fraction of matched MS2 intensity
@@ -68,8 +77,6 @@ pub struct Percolator {
     pub scored_candidates: usize,
     /// Probability of matching exactly N peaks across all candidates Pr(x=k)
     pub poisson: f64,
-    /// % of MS1 signal in isolation window explained by precursor
-    pub ion_interference: f32,
     /// Combined score from linear discriminant analysis, used for FDR calc
     pub discriminant_score: f32,
     /// Posterior error probability for this PSM / local FDR
@@ -104,6 +111,8 @@ pub struct Scorer<'db> {
     /// Precursor isotope error upper bounds (e.g. 3)
     max_isotope_err: i8,
     max_fragment_charge: Option<u8>,
+    min_fragment_mass: f32,
+    max_fragment_mass: f32,
     factorial: [f64; 32],
     chimera: bool,
 }
@@ -116,6 +125,8 @@ impl<'db> Scorer<'db> {
         min_isotope_err: i8,
         max_isotope_err: i8,
         max_fragment_charge: Option<u8>,
+        min_fragment_mass: f32,
+        max_fragment_mass: f32,
         chimera: bool,
     ) -> Self {
         let mut factorial = [1.0f64; 32];
@@ -133,34 +144,65 @@ impl<'db> Scorer<'db> {
             min_isotope_err,
             max_isotope_err,
             max_fragment_charge,
+            min_fragment_mass,
+            max_fragment_mass,
             factorial,
             chimera,
         }
     }
 
-    pub fn score(
-        &self,
-        spectra: &[ProcessedSpectrum],
-        query: &ProcessedSpectrum,
-        report_psms: usize,
-    ) -> Vec<Percolator> {
+    pub fn score(&self, query: &ProcessedSpectrum, report_psms: usize) -> Vec<Percolator> {
         assert_eq!(
             query.level, 2,
             "internal bug, trying to score a non-MS2 scan!"
         );
         match self.chimera {
-            true => self.score_chimera(spectra, query),
-            false => self.score_standard(spectra, query, report_psms),
+            true => self.score_chimera(query),
+            false => self.score_standard(query, report_psms),
         }
     }
 
-    /// Score a single [`ProcessedSpectrum`] against the database
-    pub fn score_standard(
+    /// Preliminary Score, return # of matched peaks per candidate, sorted high to low
+    fn matched_peaks(
         &self,
-        spectra: &[ProcessedSpectrum],
         query: &ProcessedSpectrum,
-        report_psms: usize,
-    ) -> Vec<Percolator> {
+        precursor_mass: f32,
+        charge: u8,
+    ) -> (usize, Vec<PreScore>) {
+        let candidates = self.db.query(
+            precursor_mass,
+            self.precursor_tol,
+            self.fragment_tol,
+            self.min_isotope_err,
+            self.max_isotope_err,
+        );
+
+        // Allocate space for all potential candidates - many potential candidates
+        let potential = candidates.pre_idx_hi - candidates.pre_idx_lo + 1;
+        let mut score_vector = vec![PreScore::default(); potential];
+
+        let mut matches = 0;
+        for peak in query.peaks.iter() {
+            for charge in 1..charge {
+                let mass = peak.mass * charge as f32;
+                for frag in candidates.page_search(mass) {
+                    let idx = frag.peptide_index.0 as usize - candidates.pre_idx_lo;
+                    let mut sc = &mut score_vector[idx];
+                    sc.peptide = frag.peptide_index;
+                    sc.matched += 1;
+                    matches += 1;
+                }
+            }
+        }
+        if matches == 0 {
+            return (0, Vec::new());
+        }
+        score_vector.sort_unstable_by(|a, b| b.matched.cmp(&a.matched));
+        (matches, score_vector)
+    }
+
+    /// Score a single [`ProcessedSpectrum`] against the database
+    pub fn score_standard(&self, query: &ProcessedSpectrum, report_psms: usize) -> Vec<Percolator> {
         let (precursor_mass, precursor_charge) = query
             .extract_ms1_precursor()
             .expect("missing MS1 precursor");
@@ -173,79 +215,20 @@ impl<'db> Scorer<'db> {
                 .unwrap_or(precursor_charge),
         );
 
-        let candidates = self.db.query(
-            precursor_mass,
-            self.precursor_tol,
-            self.fragment_tol,
-            self.min_isotope_err,
-            self.max_isotope_err,
-        );
+        let (matches, preliminary) = self.matched_peaks(query, precursor_mass, charge);
 
-        // Allocate space for all potential candidates - many potential candidates
-        let potential = candidates.pre_idx_hi - candidates.pre_idx_lo + 1;
-        let mut score_vector: Vec<Score> = vec![Score::default(); potential];
-
-        let mut matches = 0;
-        for peak in query.peaks.iter() {
-            for charge in 1..charge {
-                let mass = peak.mass * charge as f32;
-                for frag in candidates.page_search(mass) {
-                    let idx = frag.peptide_index.0 as usize - candidates.pre_idx_lo;
-                    let mut sc = &mut score_vector[idx];
-                    sc.peptide = frag.peptide_index;
-                    sc.ppm_difference += (frag.fragment_mz - mass).abs() * 1E6 / frag.fragment_mz;
-
-                    match frag.kind {
-                        Kind::B => {
-                            sc.matched_b += 1;
-                            sc.summed_b += peak.intensity;
-                        }
-                        Kind::Y => {
-                            sc.matched_y += 1;
-                            sc.summed_y += peak.intensity;
-                        }
-                    }
-                    matches += 1;
-                }
-            }
-        }
-
-        if matches == 0 {
-            return Vec::new();
-        }
-
-        // Calculating hyperscore is expensive, and if we have 1500 candidates but only report 1 ...
-        // we can probably get away with a fast approximation. Hyperscore & final poisson PMF are dominated by
-        // the number of matched peaks - ideally the best spectrum will be a clear winner.
-        // Sort our scores highest # of matched peaks to lowest, then eliminate all candidates with no matched peaks
-        // Performance profiling showed that we spend about 10% of runtime just calculating hyperscore for all matches
-        score_vector
-            .sort_unstable_by(|a, b| (b.matched_b + b.matched_y).cmp(&(a.matched_b + a.matched_y)));
-        let idx = score_vector
+        let n_calculate = 10.max(report_psms * 2).min(preliminary.len());
+        let mut score_vector = preliminary
             .iter()
-            .enumerate()
-            .filter(|(_, s)| s.matched_b + s.matched_y == 0)
-            .map(|(i, _)| i)
-            .next()
-            .unwrap_or(score_vector.len());
+            .take(n_calculate)
+            .map(|pre| self.score_candidate(query, charge, pre.peptide))
+            .collect::<Vec<_>>();
 
-        score_vector.truncate(idx);
-        let n = score_vector.len();
-
-        // Calculate hyperscore for at least 50 hits (or 2x number of reported PSMs)
-        // then sort that chunk of the vector - we will never actually look at the rest anyway!
-        let actually_calculate = 50.max(report_psms * 2).min(n);
-
-        for score in score_vector.iter_mut().take(actually_calculate) {
-            score.hyperscore = score.hyperscore(&self.factorial);
-        }
-
-        score_vector[..actually_calculate]
-            .sort_unstable_by(|a, b| b.hyperscore.total_cmp(&a.hyperscore));
+        score_vector.sort_unstable_by(|a, b| b.hyperscore.total_cmp(&a.hyperscore));
 
         let mut reporting = Vec::new();
 
-        let lambda = matches as f64 / score_vector.len() as f64;
+        let lambda = matches as f64 / preliminary.len() as f64;
 
         for idx in 0..report_psms.min(score_vector.len()) {
             let better = score_vector[idx];
@@ -255,14 +238,14 @@ impl<'db> Scorer<'db> {
                 .unwrap_or_default();
 
             let peptide = &self.db[better.peptide];
-            let k = (better.matched_b + better.matched_y) as usize;
 
             // Poisson distribution probability mass function
+            let k = (better.matched_b + better.matched_y) as usize;
             let mut poisson = lambda.powi(k as i32) * f64::exp(-lambda)
                 / self.factorial[k.min(self.factorial.len() - 1)];
 
             if poisson.is_infinite() {
-                poisson = 1E-30;
+                poisson = 1E-325;
             }
 
             let (b, y) = self.rescore(query, charge, peptide);
@@ -298,7 +281,7 @@ impl<'db> Scorer<'db> {
                 rt: query.scan_start_time,
                 delta_mass,
                 isotope_error,
-                average_ppm: better.ppm_difference / (better.matched_b + better.matched_y) as f32,
+                average_ppm: better.ppm_difference / k as f32,
                 hyperscore: better.hyperscore,
                 delta_hyperscore: better.hyperscore - next,
                 matched_peaks: k as u32,
@@ -307,9 +290,9 @@ impl<'db> Scorer<'db> {
                 poisson: poisson.log10(),
                 longest_b: b,
                 longest_y: y,
+                longest_y_pct: y as f32 / (peptide.sequence.len() as f32),
                 peptide_len: peptide.sequence.len(),
-                scored_candidates: n,
-                ion_interference: 100.0 * ion_interference(spectra, query).unwrap_or(1.0),
+                scored_candidates: preliminary.len(),
                 missed_cleavages: peptide.missed_cleavages,
 
                 // Outputs
@@ -323,16 +306,12 @@ impl<'db> Scorer<'db> {
 
     /// Return 2 PSMs for each spectra - first is the best match, second PSM is the best match
     /// after all theoretical peaks assigned to the best match are removed
-    pub fn score_chimera(
-        &self,
-        spectra: &[ProcessedSpectrum],
-        query: &ProcessedSpectrum,
-    ) -> Vec<Percolator> {
+    pub fn score_chimera(&self, query: &ProcessedSpectrum) -> Vec<Percolator> {
         let (_, charge) = query
             .extract_ms1_precursor()
             .expect("missing MS1 precursor");
 
-        let mut scores = self.score_standard(spectra, query, 1);
+        let mut scores = self.score_standard(query, 1);
         if scores.is_empty() {
             return scores;
         }
@@ -382,9 +361,72 @@ impl<'db> Scorer<'db> {
                 }
             }
 
-            scores.extend(self.score_standard(spectra, &subtracted, 1));
+            scores.extend(self.score_standard(&subtracted, 1));
         }
         scores
+    }
+
+    /// Calculate full hyperscore for a given PSM
+    fn score_candidate(
+        &self,
+        query: &ProcessedSpectrum,
+        charge: u8,
+        peptide_ix: PeptideIx,
+    ) -> Score {
+        if peptide_ix == PeptideIx::default() {
+            return Score::default();
+        }
+        let mut score = Score {
+            peptide: peptide_ix,
+            ..Default::default()
+        };
+        let peptide = &self.db[peptide_ix];
+
+        // Regenerate theoretical ions
+        let mut fragments = IonSeries::new(peptide, Kind::B)
+            .chain(IonSeries::new(peptide, Kind::Y))
+            .filter(|ion| {
+                ion.monoisotopic_mass >= self.min_fragment_mass
+                    && ion.monoisotopic_mass <= self.max_fragment_mass
+            })
+            .collect::<Vec<_>>();
+
+        fragments.sort_unstable_by(|a, b| a.monoisotopic_mass.total_cmp(&b.monoisotopic_mass));
+
+        for peak in query.peaks.iter() {
+            for charge in 1..charge {
+                let mass = peak.mass * charge as f32;
+                let (lo, hi) = self.fragment_tol.bounds(mass);
+                let window = binary_search_slice(
+                    &fragments,
+                    |frag, mz| frag.monoisotopic_mass.total_cmp(mz),
+                    lo,
+                    hi,
+                );
+
+                for frag in fragments[window.0..window.1]
+                    .iter()
+                    .filter(|frag| frag.monoisotopic_mass >= lo && frag.monoisotopic_mass <= hi)
+                {
+                    score.ppm_difference +=
+                        (frag.monoisotopic_mass - mass).abs() * 1E6 / frag.monoisotopic_mass;
+
+                    match frag.kind {
+                        Kind::B => {
+                            score.matched_b += 1;
+                            score.summed_b += peak.intensity;
+                        }
+                        Kind::Y => {
+                            score.matched_y += 1;
+                            score.summed_y += peak.intensity;
+                        }
+                    }
+                }
+            }
+        }
+
+        score.hyperscore = score.hyperscore(&self.factorial);
+        score
     }
 
     /// Calculate the longest continous chain of B or Y fragment ions
@@ -437,36 +479,36 @@ impl<'db> Scorer<'db> {
     }
 }
 
-/// Calculate percentage of MS1 signal in isolation window that is attributed
-/// to the selected precursor ion
-pub fn ion_interference(spectra: &[ProcessedSpectrum], ms2: &ProcessedSpectrum) -> Option<f32> {
-    // let (mz, charge) = ms2.extract_ms1_precursor();
-    let precursor = ms2.precursors.first()?;
-    let ms1_scan = crate::spectrum::find_spectrum_by_id(spectra, precursor.scan?)?;
+// /// Calculate percentage of MS1 signal in isolation window that is attributed
+// /// to the selected precursor ion
+// pub fn ion_interference(spectra: &[ProcessedSpectrum], ms2: &ProcessedSpectrum) -> Option<f32> {
+//     // let (mz, charge) = ms2.extract_ms1_precursor();
+//     let precursor = ms2.precursors.first()?;
+//     let ms1_scan = crate::spectrum::find_spectrum_by_id(spectra, precursor.scan?)?;
 
-    let isolation_window = precursor
-        .isolation_window
-        .unwrap_or_else(|| Tolerance::Da(-0.5, 0.5));
-    let precursor_mass = (precursor.mz - PROTON) * precursor.charge? as f32;
-    let (lo, hi) = isolation_window.bounds(precursor_mass);
+//     let isolation_window = precursor
+//         .isolation_window
+//         .unwrap_or_else(|| Tolerance::Da(-0.5, 0.5));
+//     let precursor_mass = (precursor.mz - PROTON) * precursor.charge? as f32;
+//     let (lo, hi) = isolation_window.bounds(precursor_mass);
 
-    let (idx_lo, idx_hi) =
-        binary_search_slice(&ms1_scan.peaks, |peak, mz| peak.mass.total_cmp(mz), lo, hi);
+//     let (idx_lo, idx_hi) =
+//         binary_search_slice(&ms1_scan.peaks, |peak, mz| peak.mass.total_cmp(mz), lo, hi);
 
-    let mut selected_intensity = precursor.intensity.unwrap_or(0.0);
-    let mut total_intensity = selected_intensity;
-    for peak in ms1_scan.peaks[idx_lo..idx_hi]
-        .iter()
-        .filter(|peak| peak.mass >= lo && peak.mass <= hi)
-    {
-        if peak.mass == precursor_mass {
-            selected_intensity = peak.intensity;
-        }
-        total_intensity += peak.intensity;
-    }
-    if total_intensity == 0.0 {
-        None
-    } else {
-        Some((total_intensity - selected_intensity) / total_intensity)
-    }
-}
+//     let mut selected_intensity = precursor.intensity.unwrap_or(0.0);
+//     let mut total_intensity = selected_intensity;
+//     for peak in ms1_scan.peaks[idx_lo..idx_hi]
+//         .iter()
+//         .filter(|peak| peak.mass >= lo && peak.mass <= hi)
+//     {
+//         if peak.mass == precursor_mass {
+//             selected_intensity = peak.intensity;
+//         }
+//         total_intensity += peak.intensity;
+//     }
+//     if total_intensity == 0.0 {
+//         None
+//     } else {
+//         Some((total_intensity - selected_intensity) / total_intensity)
+//     }
+// }

@@ -109,7 +109,6 @@ fn process_mzml_file_sps<P: AsRef<Path>>(
         .map(|spec| sp.process(spec))
         .collect::<Vec<_>>();
     log::trace!("{}: read {} spectra", p.as_ref().display(), spectra.len());
-    // info!("read spectra");
 
     let mut path = p.as_ref().to_path_buf();
     path.set_extension("quant.csv");
@@ -169,7 +168,7 @@ fn process_mzml_file_sps<P: AsRef<Path>>(
         scores = spectra
             .par_iter()
             .filter(|spec| spec.peaks.len() >= search.min_peaks && spec.level == 2)
-            .flat_map(|spec| scorer.score(&spectra, spec, search.report_psms))
+            .flat_map(|spec| scorer.score(spec, search.report_psms))
             .collect();
     }
 
@@ -247,6 +246,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         search.isotope_errors.0,
         search.isotope_errors.1,
         search.max_fragment_charge,
+        search.database.fragment_min_mz,
+        search.database.fragment_max_mz,
         search.chimera,
     );
 

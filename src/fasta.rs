@@ -62,21 +62,23 @@ impl Fasta {
     }
 
     pub fn digest(&self, trypsin: &Trypsin) -> HashMap<Digest, Vec<String>> {
-        let mut map: HashMap<Digest, Vec<String>> = HashMap::new();
+        let mut targets: HashMap<Digest, Vec<String>> = HashMap::new();
         for (acc, seq) in &self.targets {
             for digest in trypsin.digest(seq, false) {
-                map.entry(digest).or_default().push(acc.clone());
+                targets.entry(digest).or_default().push(acc.clone());
             }
         }
+        let mut decoys: HashMap<Digest, Vec<String>> = HashMap::new();
         for (acc, seq) in &self.decoys {
             for digest in trypsin.digest(seq, true) {
-                let entry = map.entry(digest).or_default();
-                if entry.is_empty() {
-                    entry.push(acc.clone());
-                }
+                decoys.entry(digest).or_default().push(acc.clone());
             }
         }
-        map
+        // Overwrite decoy entries
+        for (k, v) in targets {
+            decoys.insert(k, v);
+        }
+        decoys
     }
 }
 
