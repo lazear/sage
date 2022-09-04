@@ -8,9 +8,9 @@ Check out the [blog post](https://lazear.github.io/sage/) for more information a
 
 I was inspired by the elegant data structure discussed in the [MSFragger paper](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5409104/), and decided to implement an (open source) version of it in Rust - with great results.
 
-Sage has excellent performance characteristics (2-5x faster, 2-3x reduction in memory use compared to - the closed source - MSFragger), but does not sacrifice code quality or size to do so!
+Sage has excellent performance characteristics (2-5x faster than - the closed source - MSFragger), but does not sacrifice code quality or size to do so!
  
-## Features & Anti-Features
+## Features
 
 - Incredible performance out of the box
 - Effortlessly cross-platform (Linux/MacOS/Windows), effortlessly parallel (uses all of your CPU cores)
@@ -21,9 +21,6 @@ Sage has excellent performance characteristics (2-5x faster, 2-3x reduction in m
 - Percolator/Mokapot compatible output
 - Small and simple codebase
 - Configuration by JSON files
-- Only uses mzML files
-- Only Percolator PIN output
-- Only outputs 1 protein ID even if the peptide is shared by multiple proteins
 
 
 ### Assign multiple peptides to complex spectra
