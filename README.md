@@ -37,64 +37,63 @@ Sage has excellent performance characteristics (2-5x faster, 2-3x reduction in m
 - Both models demonstrate 1:1 results with scikit-learn, but have increased performance
 - No need for a second post-search pipeline step
 
-<img src="figures/pep_model.png" width="600px">
+<img src="figures/SageLDA.png" width="600px">
 
 
 # Usage 
 
 Sage takes a single command line argument: a path to a JSON-encoded parameter file (see below). A new file (`results.json`) will be created that details input/output paths and all search parameters used for the search
 
-Example usage: `sage tmt.json`
+Example usage: `sage config.json`
 
-Sage search settings file:
+Sage search settings files have the following parameters (vast majority are optional):
+
 ```json
 {
   "database": {
-    "bucket_size": 8192,
-    "fragment_min_mz": 75.0,
-    "fragment_max_mz": 1500.0,
-    "peptide_min_len": 5,
-    "peptide_max_len": 50,
-    "missed_cleavages": 1,
-    "static_mods": {
-      "^": 229.1629,
-      "K": 229.1629,
-      "C": 57.0215
+    "bucket_size": 32768,           // How many fragments are in each internal mass bucket
+    "fragment_min_mz": 200.0,       // Optional[float], Minimum mass of fragments to search
+    "fragment_max_mz": 2000.0,      // Optional[float], Maximum mass of fragments to search 
+    "peptide_min_len": 5,           // Optional[float], Minimum AA length of peptides to search
+    "peptide_max_len": 50,          // Optional[float], Maximum AA length of peptides to search
+    "peptide_min_mass": 500.0,      // Optional[float], Minimum monoisotopic mass of peptides to fragment
+    "peptide_max_mass": 5000.0,     // Optional[float], Maximum monoisotopic mass of peptides to fragment
+    "missed_cleavages": 2,  // Optional[int], Number of missed cleavages for tryptic digest
+    "static_mods": {        // Optional[Dict[char, float]] {default={}}, static modifications
+      "^": 304.207,         // Apply static modification to N-terminus
+      "K": 304.207,         // Apply static modification to lysine
+      "C": 57.0215          // Apply static modification to cysteine
     },
-    "variable_mods": {
-      "M": 15.9949
-    }
-    "decoy_prefix": "rev_",
-    "fasta": "2022-07-23-decoys-reviewed-UP000005640.fas"
+    "variable_mods": {      // Optional[Dict[char, float]] {default={}}, variable modifications
+      "M": 15.9949          // Variable mods are applied *before* static mods
+    },
+    "decoy_prefix": "rev_", // Optional[str] {default="rev_"}: Prefix appended to decoy proteins
+    "fasta": "dual.fasta"   // str: mandatory path to fasta file
   },
-  "precursor_tol": {
-    "ppm": [-20, 20]
+  "quant": "Tmt16",
+  "precursor_tol": {        // Tolerance can be either "ppm" or "da"
+    "da": [
+      -3.6,                 // This value is substracted from the experimental precursor to match theoretical peptides
+      1.2                   // This value is added to the experimental precursor to match theoretical peptides
+    ]
   },
-  "fragment_tol": {
-    "ppm": [-10.0, 10.0]
+  "fragment_tol": {         // Tolerance can be either "ppm" or "da"
+    "ppm": [
+     -10                    // This value is subtracted from the experimental fragment to match theoretical fragments 
+     10                     // This value is added to the experimental fragment to match theoretical fragments 
+    ]
   },
-  "isotope_errors": [
-    -1,
-    3
+  "isotope_errors": [       // Optional[Tuple[int, int]]: C13 isotopic envelope to consider for precursor
+    -1,                     // Consider -1 C13 isotope
+    3,                      // Consider up to +3 C13 isotope (-1/0/1/2/3) 
   ],
-  "report_psms": 1,
-  "chimera": false,
-  "deisotope": true,
-  "process_files_parallel": true,
-  "mzml_paths": [
-    "dq_00082_11cell_90min_hrMS2_A1.mzML",
-    "dq_00083_11cell_90min_hrMS2_A3.mzML",
-    "dq_00084_11cell_90min_hrMS2_A5.mzML",
-    "dq_00085_11cell_90min_hrMS2_A7.mzML",
-    "dq_00086_11cell_90min_hrMS2_A9.mzML",
-    "dq_00087_11cell_90min_hrMS2_A11.mzML",
-    "dq_00088_11cell_90min_hrMS2_B1.mzML",
-    "dq_00089_11cell_90min_hrMS2_B3.mzML",
-    "dq_00090_11cell_90min_hrMS2_B5.mzML",
-    "dq_00091_11cell_90min_hrMS2_B7.mzML",
-    "dq_00092_11cell_90min_hrMS2_B9.mzML",
-    "dq_00093_11cell_90min_hrMS2_B11.mzML"
-  ]
+  "deisotope": false,       // Optional[bool] {default=false}: perform deisotoping and charge state deconvolution
+  "chimera": false,         // Optional[bool] {default=false}: search for chimeric/co-fragmenting PSMS
+  "max_peaks": 15,          // Optional[int] {default=15}: only process MS2 spectra with at least N peaks
+  "max_peaks": 150,         // Optional[int] {default=150}: take the top N most intense MS2 peaks to search,
+  "max_fragment_charge": 1, // Optional[int] {default=null}: maximum fragment ion charge states to consider,
+  "report_psms": 1,         // Optional[int] {default=1}: number of PSMs to report for each spectra. Recommend setting to 1, higher values might disrupt LDA
+  "process_files_parallel": true,   // Optional[bool] {default=True}: process files in parallel
+  "mzml_paths": ["path.mzML"]       // List[str]: representing relative (or full) paths to mzML files for search
 }
 ```
-

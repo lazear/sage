@@ -1,6 +1,6 @@
 {
   "database": {
-    "bucket_size": 8192,
+    "bucket_size": 65356,
     "fragment_min_mz": 150.0,
     "fragment_max_mz": 1500.0,
     "peptide_min_len": 5,

@@ -1,13 +1,13 @@
 {
   "database": {
-    "bucket_size": 8192,
-    "fragment_min_mz": 75.0,
+    "bucket_size": 16384,
+    "fragment_min_mz": 150.0,
     "fragment_max_mz": 1500.0,
     "peptide_min_len": 5,
     "peptide_max_len": 50,
     "missed_cleavages": 1,
-    "n_term_mod": 229.1629,
     "static_mods": {
+      "^": 229.1629,
       "K": 229.1629,
       "C": 57.0215
     },
@@ -15,37 +15,30 @@
     "fasta": "2022-07-23-decoys-reviewed-UP000005640.fas"
   },
   "precursor_tol": {
-    "ppm": [
-      -20,
-      20
-    ]
+    "ppm": [-20,20] 
   },
   "fragment_tol": {
-    "ppm": [
-      -10.0,
-      10.0
-    ]
+    "ppm": [-10.0, 10.0]
   },
-  "isotope_errors": [
-    -1,
-    3
-  ],
+  "isotope_errors": [-1, 3],
   "report_psms": 1,
-  "max_fragment_charge": 3,
-  "output_directory": "sage",
+  "chimera": false,
+  "deisotope": true,
+  "output_directory": "output",
   "process_files_parallel": true,
+  "max_fragment_charge": 1,
   "mzml_paths": [
-    "dq_00082_11cell_90min_hrMS2_A1.mzML",
-    "dq_00083_11cell_90min_hrMS2_A3.mzML",
-    "dq_00084_11cell_90min_hrMS2_A5.mzML",
-    "dq_00085_11cell_90min_hrMS2_A7.mzML",
-    "dq_00086_11cell_90min_hrMS2_A9.mzML",
-    "dq_00087_11cell_90min_hrMS2_A11.mzML",
-    "dq_00088_11cell_90min_hrMS2_B1.mzML",
-    "dq_00089_11cell_90min_hrMS2_B3.mzML",
-    "dq_00090_11cell_90min_hrMS2_B5.mzML",
-    "dq_00091_11cell_90min_hrMS2_B7.mzML",
-    "dq_00092_11cell_90min_hrMS2_B9.mzML",
-    "dq_00093_11cell_90min_hrMS2_B11.mzML"
+	"dq_00082_11cell_90min_hrMS2_A1.mzML",
+	"dq_00083_11cell_90min_hrMS2_A3.mzML",
+	"dq_00084_11cell_90min_hrMS2_A5.mzML",
+	"dq_00085_11cell_90min_hrMS2_A7.mzML",
+	"dq_00086_11cell_90min_hrMS2_A9.mzML",
+	"dq_00087_11cell_90min_hrMS2_A11.mzML",
+	"dq_00088_11cell_90min_hrMS2_B1.mzML",
+	"dq_00089_11cell_90min_hrMS2_B3.mzML",
+	"dq_00090_11cell_90min_hrMS2_B5.mzML",
+	"dq_00091_11cell_90min_hrMS2_B7.mzML",
+	"dq_00092_11cell_90min_hrMS2_B9.mzML",
+	"dq_00093_11cell_90min_hrMS2_B11.mzML"
   ]
 }
