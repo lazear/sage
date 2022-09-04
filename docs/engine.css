@@ -75,6 +75,11 @@ thead th:nth-child(5) {
   width: 20%;
 }
 
+table tr {
+    border-bottom: 1px dashed lightgrey;
+
+}
+
 th, td {
   padding: 8;
 }
@@ -174,7 +179,7 @@ blockquote {
 
     .nav-items {
         display: block;
-        position: absolute;
+        position: fixed;
     }
 
 }

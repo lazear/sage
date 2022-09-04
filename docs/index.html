@@ -27,26 +27,30 @@
           <!-- <p>I wanted to see what how far I could get in the creation of a proteomics search engine in a weekend (or
             two), and
             ~1500 lines of code, and this is the result!</p> -->
-          <p>Here are some of the features of Sage</p>
+          <p>Here are some of the features of Sage:</p>
           <ul>
-            <li>Super-<i>ultrafast</i><sup class="footnote-ref"></sup>,
-              <aside class="footnote">What? MSFragger already took <i>ultrafast</i></aside>and light on RAM usage (you
-              have 3 GB of RAM, right?)
+            <li><i>Super-ultrafast</i><sup class="footnote-ref"></sup> out of the box,
+              <aside class="footnote">What? MSFragger already took <i>ultrafast</i></aside>
             </li>
             <li>Cross platform: natively run on Windows, MacOS, or Linux</li>
             <li>Small and simple <a href="https://github.com/lazear/sage">codebase</a>, including comments & tests</li>
-            <li>Fragment based search <i>a la</i> MSFragger</li>
-            <li>Can assign multiple peptides to a single spectrum (chimeric spectra)</li>
+            <li>Fragment indexing strategy <i>a la</i> MSFragger allows for blazing fast narrow & open searches</li>
+            <li>Can assign multiple peptides to a single spectrum <a href="#chimera">(chimeric/co-fragmenting
+                spectra)</a></li>
+            <li>FDR calculation using target-decoy competition, with built-in and incredibly fast <a href="#lda">linear
+                discriminant analysis</a></li>
+            <li>PEP calculation using a built-in non-parametric kernel density estimator</li>
+            <li>Percolator/Mokapot compatible output (provides minimal improvement over built-in LDA model)</li>
+            <li>MS3-TMT quantification, with calculation of SPS precursor ion purity, for <a href="#tmt">reduced TMT
+                interference</a></li>
             <li>Configuration by JSON files</li>
-            <li>Internal q-value/FDR calculation using target-decoy competition</li>
-            <li>Percolator/Mokapot compatible output</li>
-            <li>Accepts mzML files as input</li>
             <li><a href="https://opensource.org/osd">Open Source</a> & Free Software<sup class="footnote-ref"></sup>
               <aside class="footnote">
                 MSFragger is not <a href="https://www.fsf.org/">Free Software</a> despite what others may claim<sup><a
                     href="https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6469856/">1</a></sup> - it's not even open
-                source! There are also a significant number of closed source proteomics tools in general - I tend to
-                believe that scientific software (and science, in general) should be Open and Free!
+                source! There are also a significant number of closed source proteomics tools in general - I believe
+                that scientists deserve to have complete control over the tools they use, especially in a field as
+                dependent on software as proteomics.
               </aside>
             </li>
             <li>Sage is organized as both a binary and an extensible Rust library, enabling integration into other
@@ -55,9 +59,7 @@
 
           <p>And some features that are work-in-progress:</p>
           <ul>
-            <li>Integrated linear discriminant analysis for FDR refinement</li>
-            <li>Protein interference</li>
-            <li>TMT quantification</li>
+            <li>Peptide & protein FDR calculation using picked- approaches</li>
           </ul>
 
           <p>Finally, some disclaimers and forewords:</p>
@@ -85,6 +87,7 @@
               pedagogical tool, as I have tried to keep the codebase small (~1500 loc), well commented, tested, and
               amenable to hacking on.
             </li>
+            <li>Sage only accepts mzML files as input</li>
           </ul>
 
           Now that the boilerplate is out of the way, you can head <a href="#standoff">below</a> if you want to skip
@@ -249,9 +252,7 @@
           My proteomics engine is based off of MSFragger's algorithm, so it would be reasonable to expect them to have
           similar
           performance - however, this is where Rust really shines!
-          On standard searches, Sage absolutely dominates in terms of speed and memory usage - however, MSFragger
-          starts to catch up as windows get larger, and is only 22% slower than Sage in a -100 to +500 Da precursor
-          search.<sup class="footnote-ref"></sup>
+          <sup class="footnote-ref"></sup>
           <aside class="footnote">Perhaps this is due to their <a href="https://pubmed.ncbi.nlm.nih.gov/33332123/">fast
               deisotoping algorithm</a>, which is certainly more advanced that
             what I have implemented.</aside> I will let the results speak for
@@ -260,7 +261,8 @@
           <div style="margin-top: 1rem">
             <ul>
 
-              <li>All searches were run on c5ad.8xlarge EC2 spot instances (32 vCPU cores, 64 GB RAM, NVMe disks)
+              <li>All searches were run on c5ad.8xlarge EC2 spot instances (32 vCPU cores, 64 GB RAM, NVMe disks,
+                $0.75/hr)
                 using:
                 <ul>
                   <li>the same
@@ -292,7 +294,7 @@
               <li><a href="https://github.com/UWPR/Comet">Comet</a> & Sage were both compiled from source on the EC2
                 instance, <a href="https://msfragger.nesvilab.org/">MSFragger</a> jar was used as
                 downloaded, <a href="https://github.com/levitsky/identipy">IdentiPy</a> was installed via pip.</li>
-              <li>I was going to benchmark MSGF+ as well, but it is <strong>ultraslow</strong> (it took over 12 minutes
+              <li>I was going to benchmark MSGF+ as well, but it too slow (it took over 12 minutes
                 for a
                 <i>single</i> mzML file from the TMT dataset - about 750x slower than Sage)</strong>. Given that EC2
                 instances aren't free,
@@ -311,8 +313,8 @@
 
           <h4>If MSFragger is "ultrafast", what is Sage?</h4>
 
-          <p>I half-joke: MSFragger really is fast! But, Sage is about 5x faster than MSFragger, 25x faster than
-            Comet, 300x faster than IdentiPy, and 750x faster than MSGF+ on
+          <p>I half-joke: MSFragger really is fast! But, Sage is about 5x faster than MSFragger, 20 faster than
+            Comet, 150x faster than IdentiPy, and 500x faster than MSGF+ on
             a typical TMT search
             and identifies a similar number of PSMs at 1% FDR.
           </p>
@@ -324,13 +326,13 @@
 
 
           <img src="tmt_search.png" class="large" />
-          <figcaption>It's fast - note that the times on the graph are log2 transformed!</figcaption>
+          <figcaption>Note that the times on the graph are log2 transformed!</figcaption>
 
           <table>
             <thead>
               <tr>
                 <th>Engine</th>
-                <th>Runtime</th>
+                <th>Runtime*</th>
                 <th>Cost to process 12 mzML files</th>
                 <th>PSMs at 1% FDR</th>
               </tr>
@@ -338,37 +340,39 @@
             <tbody>
               <tr>
                 <td>Sage</td>
-                <td>11 s</td>
-                <td>$0.0015</td>
-                <td>97,046</td>
+                <td>18 s</td>
+                <td>$0.0038</td>
+                <td>100,448</td>
               </tr>
               <tr>
                 <td>MSFragger</td>
-                <td>60 s</td>
-                <td>$0.0085†</td>
+                <td>101 s</td>
+                <td>$0.0210†</td>
                 <td>97,844</td>
               </tr>
               <tr>
                 <td>Comet</td>
-                <td>305 s</td>
-                <td>$0.0432</td>
+                <td>345 s</td>
+                <td>$0.0716</td>
                 <td>92,333</td>
               </tr>
               <tr>
                 <td>IdentiPy</td>
-                <td>3088 s</td>
-                <td>$0.4375</td>
+                <td>3128 s</td>
+                <td>$0.6495</td>
                 <td>96,465</td>
               </tr>
               <tr>
                 <td>MSGF+</td>
-                <td>9000 s<sup>#</sup></td>
-                <td>$1.2750</td>
+                <td>>9000 s<sup>#</sup></td>
+                <td>$1.8690</td>
                 <td>-</td>
               </tr>
             </tbody>
           </table>
-          <figcaption>† plus licensing fee, presumably<br>
+          <figcaption>
+            * Including FDR refinement (mokapot for other engines, or Sage's built-in ML models)<br>
+            † plus licensing fee, presumably<br>
             <sup>#</sup> benchmarking terminated after first file due to
             cost, time is extrapolated
           </figcaption>
@@ -406,8 +410,7 @@
           chemoproteomic applications.
 
           <img src="500_search.png" class="large" />
-          <figcaption>MSFragger widens it's lead as the precursor windows get wider - we are still faster though
-            :)</figcaption>
+          <figcaption>MSFragger gains a ~5% lead as the precursor windows get wider</figcaption>
 
           <p>
             And, this is where MSFragger really shines - it identifies ~1,000 extra PSMs from this single file search
@@ -435,30 +438,31 @@
             <tbody>
               <tr>
                 <td>Sage</td>
-                <td>145 s</td>
-                <td>24,178</td>
+                <td>113 s</td>
+                <td>24,432</td>
+              </tr>
+              <tr>
+                <td><a href="#chimera">Sage Chimera</a></td>
+                <td>171 s</td>
+                <td><strong>28,049</strong></td>
               </tr>
               <tr>
                 <td>MSFragger</td>
                 <td>185 s</td>
                 <td>25,534</td>
               </tr>
-              <tr>
-                <td><a href="#chimera">Sage Chimera</a></td>
-                <td>245 s</td>
-                <td><strong>26,822</strong></td>
-              </tr>
             </tbody>
           </table>
 
           <p>Don't think that you need a beefy c5ad.8xlarge instance to go fast - I can complete the same 600 Da open
-            search on my <strong>MacBook M1 Air</strong> (8 cores, 16 GB RAM) in 370 seconds!</p>
+            search on my <strong>MacBook M1 Air</strong> (8 cores, 16 GB RAM) in ~7.5 minutes!</p>
 
           <img src="delta_mass.png" class="large">
           <figcaption>Open chimeric search with Sage reveals common modifications. Y-axis trimmed, vast majority
             (>15,000) of PSMs are centered around 0</figcaption>
 
         </section>
+        <!--  
         <section class="section">
           <h2>Benchmarking against synthetic peptide datasets</h2>
 
@@ -503,17 +507,16 @@
             </tbody>
           </table>
 
-          <!-- <img src="MassIVE_1.png" /> -->
           <figcaption># of correctly identified PSMs from ProteomeTools HCD Synthetic Spectral Library - Sage correctly
             identifies an extra 5,000 PSMs</figcaption>
 
           <div>I wasn't satisfied with 260,000 spectra - luckily for me, MassIVE also hosts a 2.1 million spectra HCD
             library from <i>in vivo</i> proteomics experiments, which I
-            downloaded next. Sage cranked through 2.1M spectra in 78 seconds - 48 seconds of which was spent just
-            parsing the mzML file<sup class="footnote-ref"></sup>
+            downloaded next. Sage cranked through 2.1M spectra in 137 seconds - 62 seconds of which was spent just
+            parsing the mzML file, and another 48 seconds on fitting a non-parametric model for PEP calculation<sup class="footnote-ref"></sup>
             <aside class="footnote">
               I promised myself I wouldn't get started on a rant about XML based file formats...
-            </aside> - yes, that's 70k spectra/s on a c5ad.8xlarge instance (I've seen speeds up to 2,500
+            </aside> - yes, that's 79k spectra/s on a c5ad.8xlarge instance (I've seen speeds >2,500
             specta/CPU-second)
           </div>
           <p>(NB: no variable mods (only cysteine carbidomethylation) and only 1 missed cleavage were used in search,
@@ -529,8 +532,7 @@
             <thead>
               <tr>
                 <th>Engine</th>
-                <th>Runtime</th>
-                <!-- <th>Memory</th> -->
+                <th>Runtime*</th>
                 <th>1% FDR</th>
                 <th>All</th>
               </tr>
@@ -538,28 +540,32 @@
             <tbody>
               <tr>
                 <td>Sage</td>
-                <td>78 s</td>
+                <td>137 s</td>
                 <td>782,049</td>
                 <td>815,548</td>
               </tr>
               <tr>
                 <td>MSFragger</td>
-                <td>221 s</td>
+                <td>437 s</td>
                 <td>777,186</td>
                 <td>795,633</td>
               </tr>
               <tr>
                 <td>Comet</td>
-                <td>1286 s</td>
+                <td>1744 s</td>
                 <td>787,541</td>
                 <td>815,261</td>
               </tr>
             </tbody>
           </table>
+          <figcaption>
+            * Including FDR refinement (mokapot for other engines, or Sage's built-in LDA model)<br>
+          </figcaption>
 
           <p>All of the engines performed within 2% with regards to correct PSM identifications for both the synthetic
             and <i>in vivo</i> spectral libraries</p>
         </section>
+      -->
         <section class="section">
           <h2><a id="chimera"></a>Chimeric spectra with Sage</h2>
           I was able to add in matching of chimeric spectra to Sage in ~55 lines of code (a nice benefit to writing your
@@ -583,9 +589,110 @@
           <figcaption>Example of a chimeric spectra from PXD001468</figcaption>
 
           Running these chimeric spectra through the <a href="https://iomics.ugent.be/deeplc/">DeepLC</a> retention time
-          predictor shows that many of these chimeric spectra also make sense from a co-elution perspective.
+          predictor shows that many of these spectra also make sense from a co-elution perspective.
           <img src="chimera_rt.png">
+        </section>
+        <section class="section">
+          <h2><a id="lda"></a>Linear Discriminant Analysis</h2>
+          Most database search algorithms compute multiple scores for a given peptide-spectrum match (e.g. XCorr, Delta
+          CN).
+          In the olden days (especially before target-decoy competition), mass spectrometrists would apply separate
+          thresholds to each score to refine the false discovery rate - the majority of search engines do not directly
+          calculate the FDR.
+          <p>
+            Several post-searching approaches (Percolator, PeptideProphet, etc) have been described that utilize machine
+            learning or expectation-maximization algorithms to
+            combine multiple features in order to better refine the FDR - this yields more PSMs for final analysis when
+            compared to simple filtering off of just 1 score feature (XCorr/etc).
+          </p>
+          <p>
+            In my opinion, the most explanable approach is "linear discriminant analysis" - this technique returns a
+            linear combination of features that can be reduced to a single "discriminant score" that maximizes the
+            distance between our target and decoy PSMs.
+          </p>
+          For instance, here are a subset of the features Sage calculates for each candidate peptide-spectrum match:
+          <table>
+            <thead>
+              <th>Feature</th>
+              <th>Description</th>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Hyperscore</td>
+                <td>Primary score function</td>
+              </tr>
+              <tr>
+                <td>Delta hyperscore</td>
+                <td>Δ between current candidate and next best candidate</td>
+              </tr>
+              <tr>
+                <td>Delta mass</td>
+                <td>Difference between experimental & calculated precursor mass</td>
+              </tr>
+              <tr>
+                <td>Average ppm</td>
+                <td>Average difference between experiment & calculated fragment masses</td>
+              </tr>
+              <tr>
+                <td>Longest y</td>
+                <td># of y-ions in the longest continous ion ladder</td>
+              </tr>
+              <tr>
+                <td>Poisson</td>
+                <td>Log probability of matching exactly N fragment peaks</td>
+              </tr>
+            </tbody>
+          </table>
 
+          <p>
+            These features can all be combined to find a combination that performs better than filtering off of one
+            alone.
+          </p>
+          <img src="SageLDA.png">
+          <figcaption>Sage LDA typically performs well within 1% of Percolator/Mokapot</figcaption>
+
+          <p>
+            I got tired of having to post-process my results, so I implemented Linear Discriminant Analysis directly in
+            Sage (see graph above) - this allows us to find the coefficient for each feature that provides the best
+            separation between our known-decoys and targets.
+            Unfortunately, Rust doesn't have a strong selection of ML libraries, so I had to built it out completely
+            from scratch - starting with a linear algebra module. As a side benefit, I now understand what a eigenvector
+            is!
+          </p>
+          <p>
+            In the end, I built a hand-rolled LDA algorithm that achieves 1:1 results with the popular Python
+            scikit-learn package, but is 25-50% faster. I also implemented a non-parametric model (kernel density
+            estimation) for calculation of the "posterior error probability" (local FDR - the probability that a given
+            PSM is incorrect) for each PSM.
+            For a full discussion on false discovery rates and posterior error probabilities, I highly recommend the
+            excellent paper
+            <a href="https://noble.gs.washington.edu/papers/kall2008posterior.pdf">Käll et al., 2008</a>.
+          </p>
+          <img src="PEP.png" class="large">
+          <figcaption>Sage accurately & rapidly computes FDR and PEP</figcaption>
+        </section>
+        <section class="section">
+          <h2><a id="tmt"></a>MS3-TMT Quantification</h2>
+          This post is already getting crazy long, so I will just quickly note that Sage is capable of quantifying
+          MS3-TMT reporter ions while searching!
+
+          <p>
+            It also has some fun features, like calculation of "SPS purity" - what percentage of total MS2 ion intensity
+            selected for MS3 came from matched b-/y- ions?
+          </p>
+
+          <img src="hypro.png">
+          <figcaption>Quantification of yeast peptides from HYpro16 TMT interference dataset</figcaption>
+
+          <p>
+            Making my own TMT quantification engine allowed me to do some investigation into ProteomeDiscoverer's
+            signal-to-noise TMT measurement... and as best as I can tell, it is the reporter ion counts multiple by MS3
+            ion injection time, and then divided by some constant factor (R<sup>2</sup> = 0.998).
+          </p>
+
+          <img src="pd_sn.png">
+          <figcaption>Background contour is based off of linear regression, scatter plots are (X, Y) TMT measurements
+            conducted by Sage, and colored by their ProteomeDiscoverer reported S/N. Internal data</figcaption>
 
         </section>
         <section class="section">
@@ -600,7 +707,6 @@
             Until then, I recommend continuing to use MSFragger if you're doing wide-open searches.<sup
               class="footnote-ref"></sup>
           <aside class="footnote">
-            Or if you need to use variable mods, or an enzyme that's not Trypsin, etc etc.<br>
             I did not originally intend to develop a production-ready tool, but I think with some additional work, Sage
             could get there
           </aside>
