@@ -48,7 +48,7 @@ Example usage: `sage config.json`
 
 Sage search settings files have the following parameters (vast majority are optional):
 
-```json
+```jsonc
 {
   "database": {
     "bucket_size": 32768,           // How many fragments are in each internal mass bucket
