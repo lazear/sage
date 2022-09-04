@@ -15,6 +15,7 @@ Sage has excellent performance characteristics (2-5x faster than - the closed so
 - Incredible performance out of the box
 - Effortlessly cross-platform (Linux/MacOS/Windows), effortlessly parallel (uses all of your CPU cores)
 - Fragment indexing strategy allows for blazing fast narrow and open searches
+- MS3-TMT quantification (experimental!)
 - Capable of searching for chimeric/co-fragmenting spectra
 - FDR calculation using target-decoy competition, with built-in linear discriminant anlysis
 - PEP calculation using a non-parametric model (KDE)
@@ -28,7 +29,7 @@ Sage has excellent performance characteristics (2-5x faster than - the closed so
 <img src="figures/chimera_27525.png" width="800">
 
 
-### Sage includes built-in model for FDR refinement and PEP calculation
+### Sage includes built-in models for FDR refinement and posterior error probability calculation
 
 - Hand-rolled, 100% pure Rust implementations of Linear Discriminant Analysis and KDE-mixture models for refinement of false discovery rates
 - Both models demonstrate 1:1 results with scikit-learn, but have increased performance
@@ -67,7 +68,7 @@ Sage search settings files have the following parameters (vast majority are opti
     "decoy_prefix": "rev_", // Optional[str] {default="rev_"}: Prefix appended to decoy proteins
     "fasta": "dual.fasta"   // str: mandatory path to fasta file
   },
-  "quant": "Tmt16",
+  "quant": "Tmt16",         // Optional[str], one of "Tmt6", "Tmt10", "Tmt11", "Tmt16", or "Tmt18"
   "precursor_tol": {        // Tolerance can be either "ppm" or "da"
     "da": [
       -3.6,                 // This value is substracted from the experimental precursor to match theoretical peptides
