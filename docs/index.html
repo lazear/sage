@@ -249,11 +249,6 @@
         <section class="section" id="standoff">
           <h2>Benchmarking Results</h2>
 
-          My proteomics engine is based off of MSFragger's algorithm, so it would be reasonable to expect them to have
-          similar
-          performance - however, this is where Rust really shines! I will let the results speak for
-          themselves, though!
-
           <div style="margin-top: 1rem">
             <ul>
 
@@ -285,21 +280,28 @@
                   href="https://github.com/lazear/sage/tree/master/figures/benchmark_params">Sage GitHub
                   repository</a>.
               </li>
-              <li>All searches were performed without variable modifications, since each engine handles these somewhat differently</li>
+              <li>All searches were performed without variable modifications, since each engine handles these somewhat
+                differently</li>
               <li>Performance will vary across systems - Sage performs best on amd64 systems running *nix operating
                 systems - but it will also run pretty well on aarch64 or Windows setups!</li>
               <li><a href="https://github.com/UWPR/Comet">Comet</a> & Sage were both compiled from source on the EC2
                 instance, <a href="https://msfragger.nesvilab.org/">MSFragger</a> jar was used as
                 downloaded, <a href="https://github.com/levitsky/identipy">IdentiPy</a> was installed via pip.</li>
-              <li>I was going to benchmark MSGF+ as well, but it too slow (it took over 12 minutes
+              <li>I was going to benchmark MSGF+ as well, but it was too slow (it took over 12 minutes
                 for a
-                <i>single</i> mzML file from the TMT dataset - about 750x slower than Sage)</strong>. Given that EC2
+                <i>single</i> mzML file from the TMT dataset - about 500x slower than Sage). Given that EC2
                 instances aren't free,
-                I will let the reader spend $1 to run a single replicate of this benchmark themselves :)
+                I will let the reader spend $2 to run a single replicate of this benchmark themselves
               </li>
             </ul>
           </div>
 
+
+          <p>
+            My proteomics engine is based off of MSFragger's algorithm, so it would be reasonable to expect them to have
+            similar
+            performance - however, this is where Rust really shines!
+          </p>
           <p>To benchmark TMT search performance, I downloaded high res TMT-MS2 data from the paper <a
               href="https://pubs.acs.org/doi/10.1021/acs.analchem.9b05685?goto=supporting-info">Benchmarking the
               Orbitrap
@@ -310,14 +312,14 @@
 
           <h4>If MSFragger is "ultrafast", what is Sage?</h4>
 
-          <p>I half-joke: MSFragger really is fast! But, Sage is about 5x faster than MSFragger, 20 faster than
+          <p>I half-joke: MSFragger really is fast! But, Sage is about 5x faster than MSFragger, 20x faster than
             Comet, 150x faster than IdentiPy, and 500x faster than MSGF+ on
             a typical TMT search
             and identifies a similar number of PSMs at 1% FDR.
           </p>
-          <p>Sage is so fast that computational cost of searching becomes irrelevant - you could
+          <p>Sage is so fast (~2500 PSMs/cpu-second for a narrow search) that the computational cost of searching becomes irrelevant - you could
             re-process all of PRIDE's annotated PSMs
-            (580,917,172 at current count) using Sage for less than $3, assuming you had the bandwidth to keep the
+            (580,917,172 at current count) using Sage for less than $3, assuming you had the bandwidth and disk IO to keep the
             engine fed!
           </p>
 
@@ -381,7 +383,7 @@
           identification rates and identity overlap when compared against both Comet and MSFragger<br>
 
           <img src="venn.png" width="80%" />
-          <figcaption>PSM identity overlap from Mokapot results
+          <figcaption>Overlap of peptide spectrum matches at 1% spectrum FDR
           </figcaption>
 
           <h3>Open search</h3>
@@ -423,7 +425,7 @@
           </p>
 
 
-          <strong>-100 to 500 Da precursor, ±10 ppm fragment window:</strong>
+          <strong>-100 to +500 Da precursor, ±10 ppm fragment window:</strong>
           <table>
             <thead>
               <tr>
@@ -568,7 +570,7 @@
           I was able to add in matching of chimeric spectra to Sage in ~55 lines of code (a nice benefit to writing your
           own search engine!). The algorithm is straight forward: after finding the best candidate for a spectrum,
           remove peaks assigned to that candidate, and search it again!
-          <br>This works quite well in practice - I've observed around a 10% increase in PSMs at the cost of a 50-90%
+          <br>This works quite well in practice - I've observed around a 10% increase in PSMs at the cost of a ~50%
           increase in total run time. Here are some nice examples of
           spectra that can have multiple candidate peptides assigned (from the first file of the TMT benchmark data set)
 
@@ -598,12 +600,12 @@
           calculate the FDR.
           <p>
             Several post-searching approaches (Percolator, PeptideProphet, etc) have been described that utilize machine
-            learning or expectation-maximization algorithms to
-            combine multiple features in order to better refine the FDR - this yields more PSMs for final analysis when
+            learning or Bayesian expectation-maximization to
+            combine multiple features in order to better refine score cutoffs - this yields more PSMs for final analysis when
             compared to simple filtering off of just 1 score feature (XCorr/etc).
           </p>
           <p>
-            In my opinion, the most explanable approach is "linear discriminant analysis" - this technique returns a
+            The approach I took with Sage is "linear discriminant analysis" - this technique returns a
             linear combination of features that can be reduced to a single "discriminant score" that maximizes the
             distance between our target and decoy PSMs.
           </p>
@@ -653,8 +655,8 @@
             Sage (see graph above) - this allows us to find the coefficient for each feature that provides the best
             separation between our known-decoys and targets.
             Unfortunately, Rust doesn't have a strong selection of ML libraries, so I had to built it out completely
-            from scratch - starting with a linear algebra module. As a side benefit, I now understand what a eigenvector
-            is!
+            from scratch - starting with a basic linear algebra module. As a side benefit, I now understand what a eigenvector
+            is and how to perform Gauss-Jordan elimination!
           </p>
           <p>
             In the end, I built a hand-rolled LDA algorithm that achieves 1:1 results with the popular Python
