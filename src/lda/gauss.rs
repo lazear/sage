@@ -30,14 +30,35 @@ impl Gauss {
         g.reduce();
         g.backfill();
 
-        let eye = Matrix::identity(g.left.rows);
+        // let eye = Matrix::identity(g.left.rows);
 
         // If `left` is the identity matrix, then `right` contains
         // the solution to the system of equations
-        match g.left.is_close(&eye, 0.00001) {
+        // match g.left.is_close(&eye, 0.00001) {
+        match g.left_solved() {
             true => Some(g.right),
             false => None,
         }
+    }
+
+    // Is `left` an identity matrix, or else contains rows of all zeros?
+    fn left_solved(&self) -> bool {
+        let n = self.left.cols;
+        for i in 0..n {
+            for j in 0..n {
+                let x = self.left[(i, j)];
+                if i == j {
+                    if x != 1.0 && x != 0.0 {
+                        return false;
+                    }
+                } else {
+                    if x != 0.0 {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
     }
 
     fn echelon(&mut self) {

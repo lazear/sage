@@ -37,6 +37,10 @@ Sage has excellent performance characteristics (2-5x faster than - the closed so
 
 <img src="figures/SageLDA.png" width="600px">
 
+- Further boost PSM identification using prediction of retention times by a [linear regression model](https://doi.org/10.1021/ac070262k)
+
+<img src="figures/rt_model.png" width="600px">
+
 # Installation
 
 1. Install the [Rust programming language compiler](https://rustup.rs/)

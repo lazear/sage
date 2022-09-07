@@ -12,11 +12,12 @@ mod gauss;
 mod kde;
 mod matrix;
 mod qvalue;
+mod retention_model;
 use matrix::Matrix;
 pub use qvalue::assign_q_values;
 use rayon::prelude::*;
 
-use crate::scoring::Percolator;
+use crate::{database::IndexedDatabase, scoring::Percolator};
 
 #[allow(dead_code)]
 fn all_close(lhs: &[f64], rhs: &[f64], eps: f64) -> bool {
@@ -68,11 +69,17 @@ impl LinearDiscriminantAnalysis {
             let mut class_mean = class_data.mean();
 
             // Any zeroes in the covariance matrix will cause LDA to fail:
-            // Attempt to rectify by making the scatter matrices contain 1 instead
+            // Attempt to rectify by making the matrices contain 1 instead
+            let ln2 = (2.0f64).ln();
             for col in class_mean.iter_mut() {
                 if *col == 0.0 {
                     log::trace!(
-                        "attempting to apply correction to LDA model, where class mean = 0.0"
+                        "- attempting to apply correction to LDA model, where class mean = 0.0"
+                    );
+                    *col = -1.0;
+                } else if (*col - ln2).abs() <= 1E-8 {
+                    log::trace!(
+                        "- attempting to apply correction to LDA model, where class mean = ln(2)"
                     );
                     *col = -1.0;
                 }
@@ -113,7 +120,7 @@ impl LinearDiscriminantAnalysis {
             evec.iter_mut().for_each(|c| *c *= -1.0);
         }
 
-        log::trace!("linear model fit with eigenvector: {:?}", evec);
+        log::trace!("- linear model fit with eigenvector: {:?}", evec);
 
         Some(LinearDiscriminantAnalysis { eigenvector: evec })
     }
@@ -123,11 +130,32 @@ impl LinearDiscriminantAnalysis {
     }
 }
 
-pub fn score_psms(scores: &mut [Percolator]) -> Option<()> {
-    log::trace!("fitting linear discriminant model");
+pub fn score_psms(db: &IndexedDatabase, scores: &mut [Percolator]) -> Option<()> {
+    log::trace!("fitting linear discriminant model...");
+
+    // Poisson probability is usually the best single feature for refining FDR.
+    // Take our set of 1% FDR filtered PSMs, and use them to train a linear
+    // regression model for predicting retention time
+    scores.par_sort_unstable_by(|a, b| a.poisson.total_cmp(&b.poisson));
+    let passing = assign_q_values(scores);
+
+    // Training LR might fail - not enough values, or r-squared is < 0.7
+    if let Some(lr) = retention_model::RetentionModel::fit(db, &scores[..passing]) {
+        log::trace!("- fit retention time model, rsq = {}", lr.r2);
+        let predicted_rts = lr.predict(db, &scores);
+        scores
+            .iter_mut()
+            .zip(&predicted_rts)
+            .for_each(|(score, &rt)| {
+                // LR can sometimes predict crazy values - clamp predicted RT
+                let bounded = rt.max(lr.rt_min - 10.0).min(lr.rt_max + 10.0) as f32;
+                score.predicted_rt = bounded;
+                score.delta_rt = (score.rt - bounded).powi(2) / score.rt;
+            });
+    }
 
     // Declare, so that we have compile time checking of matrix dimensions
-    const FEATURES: usize = 13;
+    const FEATURES: usize = 15;
     let features = scores
         .into_par_iter()
         .flat_map(|perc| {
@@ -136,6 +164,9 @@ pub fn score_psms(scores: &mut [Percolator]) -> Option<()> {
                 _ => 3.5,
             };
 
+            // Transform features - LDA requires that each feature is normally
+            // distributed. This is not true for all of our inputs, so we log
+            // transform many of them to get them closer to a gaussian distr.
             let x: [f64; FEATURES] = [
                 (perc.hyperscore).ln_1p(),
                 (perc.delta_hyperscore).ln_1p(),
@@ -150,7 +181,8 @@ pub fn score_psms(scores: &mut [Percolator]) -> Option<()> {
                 (perc.longest_y as f64 / perc.peptide_len as f64),
                 (perc.peptide_len as f64).ln_1p(),
                 (perc.missed_cleavages as f64),
-                // perc.num_proteins as f64,
+                (perc.rt as f64),
+                (perc.delta_rt as f64).ln_1p(),
             ];
             x
         })
@@ -175,7 +207,7 @@ pub fn score_psms(scores: &mut [Percolator]) -> Option<()> {
     }
     let discriminants = lda.score(&features);
 
-    log::trace!("fitting non-parametric model for posterior error probabilities");
+    log::trace!("- fitting non-parametric model for posterior error probabilities");
     let kde = kde::Estimator::fit(&discriminants, &decoys);
 
     scores
@@ -185,6 +217,8 @@ pub fn score_psms(scores: &mut [Percolator]) -> Option<()> {
             perc.discriminant_score = *score as f32;
             perc.posterior_error = kde.posterior_error(*score).log10() as f32;
             if perc.posterior_error.is_infinite() {
+                // This is approximately the log10 of the smallest positive
+                // non-zero f64
                 perc.posterior_error = -324.0;
             }
         });

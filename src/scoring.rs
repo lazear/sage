@@ -51,6 +51,8 @@ pub struct Percolator {
     pub charge: u8,
     /// Retention time
     pub rt: f32,
+    pub predicted_rt: f32,
+    pub delta_rt: f32,
     /// Difference between expmass and calcmass
     pub delta_mass: f32,
     /// C13 isotope error
@@ -310,6 +312,8 @@ impl<'db> Scorer<'db> {
                 discriminant_score: 0.0,
                 posterior_error: 1.0,
                 q_value: 1.0,
+                predicted_rt: 0.0,
+                delta_rt: 1.0,
             })
         }
         reporting

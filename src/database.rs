@@ -216,12 +216,27 @@ impl Parameters {
             })
             .collect::<Vec<_>>();
 
+        let mut potential_mods = self
+            .static_mods
+            .iter()
+            .map(|(&x, &y)| (x, y))
+            .collect::<Vec<(char, f32)>>();
+        for (resi, mass) in &self.variable_mods {
+            match self.static_mods.get(resi) {
+                Some(mass_) if mass_ == mass => {}
+                _ => {
+                    potential_mods.push((*resi, *mass));
+                }
+            }
+        }
+
         Ok(IndexedDatabase {
             peptides: target_decoys,
             fragments,
             min_value,
             bucket_size: self.bucket_size,
             peptide_graph,
+            potential_mods,
         })
     }
 }
@@ -248,6 +263,8 @@ pub struct IndexedDatabase {
     pub peptides: Vec<Peptide>,
     pub fragments: Vec<Theoretical>,
     pub(crate) min_value: Vec<f32>,
+    /// Keep a list of potential (AA, mass) modifications for RT prediction
+    pub potential_mods: Vec<(char, f32)>,
     bucket_size: usize,
     peptide_graph: HashMap<String, Vec<String>>,
 }

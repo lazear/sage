@@ -77,6 +77,12 @@ impl Matrix {
         matrix
     }
 
+    /// Consume `self`, returning the underlying data in row-major order
+    pub fn take(self) -> Vec<f64> {
+        self.data
+    }
+
+    /// Treat `data` as a column vector
     pub fn col_vector(data: Vec<f64>) -> Matrix {
         let rows = data.len();
         Matrix {
@@ -86,6 +92,7 @@ impl Matrix {
         }
     }
 
+    /// Treat `data` as a row vector
     pub fn row_vector(data: Vec<f64>) -> Matrix {
         let cols = data.len();
         Matrix {
@@ -111,6 +118,7 @@ impl Matrix {
         self.data.get_mut(self.cols * row + col)
     }
 
+    /// Return an iterator over values in a single row
     pub fn row(&self, row: usize) -> Iter<'_, Row> {
         Iter {
             data: self,
@@ -120,6 +128,7 @@ impl Matrix {
         }
     }
 
+    /// Return an iterator over values in a single column
     pub fn col(&self, col: usize) -> Iter<'_, Col> {
         Iter {
             data: self,
@@ -147,8 +156,7 @@ impl Matrix {
     // Use power method to find the eigenvector with the largest
     // corresponding eigenvalue
     pub fn power_method(&self, initial: &[f64]) -> Vec<f64> {
-        // Pick a starting vector
-
+        // Normalize starting vector
         let n = norm(initial);
         let mut v = initial.iter().map(|i| i / n).collect::<Vec<_>>();
 
@@ -181,6 +189,7 @@ impl Matrix {
         mat
     }
 
+    /// Parallel dot product of a matrix and row vector
     pub fn dotv(&self, rhs: &[f64]) -> Vec<f64> {
         assert_eq!(
             self.cols,
@@ -196,6 +205,11 @@ impl Matrix {
             .collect::<Vec<_>>()
     }
 
+    /// Parallel matrix multiplication
+    ///
+    /// # Panics
+    ///
+    /// * This function will panic if `self.cols != rhs.rows`
     pub fn dot(&self, rhs: &Matrix) -> Matrix {
         assert_eq!(
             self.cols, rhs.rows,

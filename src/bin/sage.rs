@@ -58,7 +58,7 @@ impl Search {
         let database = request.database.make_parameters();
         let isotope_errors = request.isotope_errors.unwrap_or((0, 0));
         if isotope_errors.0 > isotope_errors.1 {
-            panic!("Minimum isotope_error value greater than maximum! Correct usage: `isotope_errors: [-1, 3]`");
+            log::warn!("Minimum isotope_error value greater than maximum! Typical usage: `isotope_errors: [-1, 3]`");
         }
         Ok(Search {
             database,
@@ -93,8 +93,10 @@ fn process_mzml_file_sps<P: AsRef<Path>>(
         search.deisotope,
     );
 
-    // TODO: error checking
-
+    // TODO:
+    //  - more robust error checking
+    //  - better error messages, there are several places we use try operator
+    //      that could be replaced with a custom error type
     if p.as_ref()
         .extension()
         .expect("expecting .mzML files as input!")
@@ -176,7 +178,7 @@ fn process_mzml_file_sps<P: AsRef<Path>>(
             .collect();
     }
 
-    if sage::lda::score_psms(&mut scores).is_some() {
+    if sage::lda::score_psms(&scorer.db, &mut scores).is_some() {
         (&mut scores)
             .par_sort_unstable_by(|a, b| b.discriminant_score.total_cmp(&a.discriminant_score));
     } else {
