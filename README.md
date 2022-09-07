@@ -54,9 +54,14 @@ cargo run --release tests/config.json
 
 # Usage 
 
-Sage takes a single command line argument: a path to a JSON-encoded parameter file (see below). A new file (`results.json`) will be created that details input/output paths and all search parameters used for the search
+Sage takes a single command line argument: a path to a JSON-encoded parameter file (see below). 
 
 Example usage: `sage config.json`
+
+Running Sage will produce several output files:
+- Record of search parameters (`results.json`) will be created that details input/output paths and all search parameters used for the search
+- MS2 search results will be stored as a Percolator-compatible (`<mzML path>.sage.pin`) file - this is just a tab-separated file, which can be opened in Excel/Pandas/etc
+- MS3 search results will be stored as a CSV (`<mzML path>.quant.csv`) if "quant" option is used in the parameter file
 
 Sage search settings files have the following parameters:
 

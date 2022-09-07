@@ -114,6 +114,10 @@ fn process_mzml_file_sps<P: AsRef<Path>>(
     path.set_extension("quant.csv");
 
     if let Some(mut directory) = search.output_directory.clone() {
+        // If directory doesn't exist, attempt to create it
+        if !directory.exists() {
+            std::fs::create_dir_all(&directory)?;
+        }
         directory.push(path.file_name().expect("BUG: should be a filename!"));
         path = directory;
     }
