@@ -177,7 +177,7 @@ fn process_mzml_file_sps<P: AsRef<Path>>(
             .par_sort_unstable_by(|a, b| b.discriminant_score.total_cmp(&a.discriminant_score));
     } else {
         log::warn!("linear model fitting failed, falling back to poisson-based FDR calculation");
-        (&mut scores).par_sort_unstable_by(|a, b| b.poisson.total_cmp(&a.poisson));
+        (&mut scores).par_sort_unstable_by(|a, b| a.poisson.total_cmp(&b.poisson));
     }
 
     let passing_psms = sage::lda::assign_q_values(&mut scores);

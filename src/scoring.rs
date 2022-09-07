@@ -168,7 +168,7 @@ impl<'db> Scorer<'db> {
         query: &ProcessedSpectrum,
         precursor_mass: f32,
         charge: u8,
-    ) -> (usize, Vec<PreScore>) {
+    ) -> (usize, usize, Vec<PreScore>) {
         let candidates = self.db.query(
             precursor_mass,
             self.precursor_tol,
@@ -182,12 +182,16 @@ impl<'db> Scorer<'db> {
         let mut score_vector = vec![PreScore::default(); potential];
 
         let mut matches = 0;
+        let mut scored_candidates = 0;
         for peak in query.peaks.iter() {
             for charge in 1..charge {
                 let mass = peak.mass * charge as f32;
                 for frag in candidates.page_search(mass) {
                     let idx = frag.peptide_index.0 as usize - candidates.pre_idx_lo;
                     let mut sc = &mut score_vector[idx];
+                    if sc.matched == 0 {
+                        scored_candidates += 1;
+                    }
                     sc.peptide = frag.peptide_index;
                     sc.matched += 1;
                     matches += 1;
@@ -195,10 +199,10 @@ impl<'db> Scorer<'db> {
             }
         }
         if matches == 0 {
-            return (0, Vec::new());
+            return (matches, scored_candidates, Vec::new());
         }
         score_vector.sort_unstable_by(|a, b| b.matched.cmp(&a.matched));
-        (matches, score_vector)
+        (matches, scored_candidates, score_vector)
     }
 
     /// Score a single [`ProcessedSpectrum`] against the database
@@ -215,24 +219,30 @@ impl<'db> Scorer<'db> {
                 .unwrap_or(precursor_charge),
         );
 
-        let (matches, preliminary) = self.matched_peaks(query, precursor_mass, charge);
+        let (matches, scored_candidates, preliminary) =
+            self.matched_peaks(query, precursor_mass, charge);
 
         let n_calculate = 10.max(report_psms * 2).min(preliminary.len());
         let mut score_vector = preliminary
             .iter()
-            .filter(|sc| sc.peptide != PeptideIx::default())
+            .filter(|sc| sc.peptide != PeptideIx::default() && sc.matched > 1)
             .take(n_calculate)
             .map(|pre| self.score_candidate(query, charge, pre.peptide))
+            // This shouldn't be necessary, see:
+            // https://github.com/lazear/sage/issues/10
+            .filter(|sc| sc.matched_b + sc.matched_y > 0)
             .collect::<Vec<_>>();
 
         score_vector.sort_unstable_by(|a, b| b.hyperscore.total_cmp(&a.hyperscore));
 
         let mut reporting = Vec::new();
 
-        let lambda = matches as f64 / preliminary.len() as f64;
+        // Expected value for poisson distribution
+        let lambda = matches as f64 / scored_candidates as f64;
 
         for idx in 0..report_psms.min(score_vector.len()) {
             let better = score_vector[idx];
+
             let next = score_vector
                 .get(idx + 1)
                 .map(|score| score.hyperscore)
@@ -293,7 +303,7 @@ impl<'db> Scorer<'db> {
                 longest_y: y,
                 longest_y_pct: y as f32 / (peptide.sequence.len() as f32),
                 peptide_len: peptide.sequence.len(),
-                scored_candidates: preliminary.len(),
+                scored_candidates,
                 missed_cleavages: peptide.missed_cleavages,
 
                 // Outputs
