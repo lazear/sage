@@ -134,35 +134,42 @@ impl Parameters {
         fasta.make_decoys(&self.decoy_prefix);
 
         let (target_decoys, peptide_graph) = self.digest(&fasta, &trypsin);
-        let mut fragments = Vec::new();
 
         // Finally, perform in silico digest for our target sequences
-        // Note that multiple charge states are actually handled by the
-        // [`SpectrumProcessor`], so we don't annotate charge states anywhere
-        // else - we used to though, and could always revert to that - but it
-        // saves a ton of memory to not generate 3-4x as many theoretical fragments
-        for (idx, peptide) in target_decoys.iter().enumerate() {
-            // Generate both B and Y ions, then filter down to make sure that
-            // theoretical fragments are within the search space
-            for kind in [Kind::B, Kind::Y] {
-                fragments.extend(
-                    IonSeries::new(peptide, kind)
-                        .map(|ion| Theoretical {
-                            peptide_index: PeptideIx(idx as u32),
-                            // precursor_mz: peptide.neutral(),
-                            fragment_mz: ion.monoisotopic_mass,
-                            kind: ion.kind,
-                        })
-                        .filter(|frag| {
-                            frag.fragment_mz >= self.fragment_min_mz
-                                && frag.fragment_mz <= self.fragment_max_mz
-                        }),
-                );
-            }
-        }
+        // Note that multiple charge states are actually handled by
+        // [`SpectrumProcessor`] or during scoring - all theoretical
+        // fragments are monoisotopic/uncharged
+        let mut fragments = target_decoys
+            .par_iter()
+            .enumerate()
+            .flat_map_iter(|(idx, peptide)| {
+                // Generate both B and Y ions, then filter down to make sure that
+                // theoretical fragments are within the search space
+                IonSeries::new(peptide, Kind::B)
+                    .map(move |ion| Theoretical {
+                        peptide_index: PeptideIx(idx as u32),
+                        fragment_mz: ion.monoisotopic_mass,
+                        kind: ion.kind,
+                    })
+                    .chain(
+                        // This code duplication is unfortunately needed to satisfy borrowck
+                        // rather than mapping over [Kind::B, Kind::Y]
+                        IonSeries::new(peptide, Kind::Y)
+                            .map(move |ion| Theoretical {
+                                peptide_index: PeptideIx(idx as u32),
+                                fragment_mz: ion.monoisotopic_mass,
+                                kind: ion.kind,
+                            })
+                            .filter(|frag| {
+                                frag.fragment_mz >= self.fragment_min_mz
+                                    && frag.fragment_mz <= self.fragment_max_mz
+                            }),
+                    )
+            })
+            .collect::<Vec<_>>();
 
         // Sort all of our theoretical fragments by m/z, from low to high
-        (&mut fragments).par_sort_by(|a, b| a.fragment_mz.total_cmp(&b.fragment_mz));
+        (&mut fragments).par_sort_unstable_by(|a, b| a.fragment_mz.total_cmp(&b.fragment_mz));
 
         // Now, we bucket all of our theoretical fragments, and within each bucket
         // sort by precursor m/z - and save the minimum *fragment* m/z in a separate

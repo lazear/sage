@@ -220,6 +220,7 @@ impl<'db> Scorer<'db> {
         let n_calculate = 10.max(report_psms * 2).min(preliminary.len());
         let mut score_vector = preliminary
             .iter()
+            .filter(|sc| sc.peptide != PeptideIx::default())
             .take(n_calculate)
             .map(|pre| self.score_candidate(query, charge, pre.peptide))
             .collect::<Vec<_>>();

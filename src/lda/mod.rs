@@ -131,7 +131,7 @@ pub fn score_psms(scores: &mut [Percolator]) -> Option<()> {
     let features = scores
         .into_par_iter()
         .flat_map(|perc| {
-            let poisson = match perc.poisson.ln_1p() {
+            let poisson = match (-perc.poisson).ln_1p() {
                 x if x.is_finite() => x,
                 _ => 3.5,
             };

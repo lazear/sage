@@ -37,8 +37,9 @@ impl Kde {
 
         let sum = self
             .sample
-            .iter()
-            .fold(0.0, |acc, xi| acc + self.kernel((x - xi) / h));
+            .par_iter()
+            .fold(|| 0.0, |acc, xi| acc + self.kernel((x - xi) / h))
+            .sum::<f64>();
 
         sum / self.constant
     }

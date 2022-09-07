@@ -36,7 +36,10 @@ impl Gauss {
         // the solution to the system of equations
         match g.left.is_close(&eye, 0.00001) {
             true => Some(g.right),
-            false => None,
+            false => {
+                eprintln!("{:?}", g.left);
+                None
+            }
         }
     }
 
