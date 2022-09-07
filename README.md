@@ -37,6 +37,20 @@ Sage has excellent performance characteristics (2-5x faster than - the closed so
 
 <img src="figures/SageLDA.png" width="600px">
 
+# Installation
+
+1. Install the [Rust programming language compiler](https://rustup.rs/)
+2. Download Sage source code via git: `git clone https://github.com/lazear/sage.git` or by [zip file](https://github.com/lazear/sage/archive/refs/heads/master.zip)
+3. Compile: `cargo build --release`
+4. Run: `./target/release/sage config.json`
+
+Once you have Rust installed, you can copy and paste the following lines into your terminal to complete the above instructions, and run Sage on the example mzML provided in the repository (a single scan from PXD016766)
+
+```sh
+git clone https://github.com/lazear/sage.git
+cd sage
+cargo run --release tests/config.json 
+```
 
 # Usage 
 
@@ -44,7 +58,11 @@ Sage takes a single command line argument: a path to a JSON-encoded parameter fi
 
 Example usage: `sage config.json`
 
-Sage search settings files have the following parameters (vast majority are optional):
+Sage search settings files have the following parameters:
+
+Two notes:
+- The majority of parameters are optional - only "database.fasta", "precursor_tol", and "fragment_tol" are required. Sage will try and use reasonable defaults for any parameters not supplied
+- Tolerances are specified on the *experimental* m/z values. To perform a -100 to +500 Da open search (mass window applied to *precursor*), you would use `"da": [-500, 100]`
 
 ```jsonc
 {
@@ -71,8 +89,8 @@ Sage search settings files have the following parameters (vast majority are opti
   "quant": "Tmt16",         // Optional[str], one of "Tmt6", "Tmt10", "Tmt11", "Tmt16", or "Tmt18"
   "precursor_tol": {        // Tolerance can be either "ppm" or "da"
     "da": [
-      -3.6,                 // This value is substracted from the experimental precursor to match theoretical peptides
-      1.2                   // This value is added to the experimental precursor to match theoretical peptides
+      -500,                 // This value is substracted from the experimental precursor to match theoretical peptides
+      100                   // This value is added to the experimental precursor to match theoretical peptides
     ]
   },
   "fragment_tol": {         // Tolerance can be either "ppm" or "da"
