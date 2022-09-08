@@ -130,28 +130,30 @@ impl LinearDiscriminantAnalysis {
     }
 }
 
-pub fn score_psms(db: &IndexedDatabase, scores: &mut [Percolator]) -> Option<()> {
+pub fn score_psms(db: &IndexedDatabase, scores: &mut [Percolator], predict_rt: bool) -> Option<()> {
     log::trace!("fitting linear discriminant model...");
 
-    // Poisson probability is usually the best single feature for refining FDR.
-    // Take our set of 1% FDR filtered PSMs, and use them to train a linear
-    // regression model for predicting retention time
-    scores.par_sort_unstable_by(|a, b| a.poisson.total_cmp(&b.poisson));
-    let passing = assign_q_values(scores);
+    if predict_rt {
+        // Poisson probability is usually the best single feature for refining FDR.
+        // Take our set of 1% FDR filtered PSMs, and use them to train a linear
+        // regression model for predicting retention time
+        scores.par_sort_unstable_by(|a, b| a.poisson.total_cmp(&b.poisson));
+        let passing = assign_q_values(scores);
 
-    // Training LR might fail - not enough values, or r-squared is < 0.7
-    if let Some(lr) = retention_model::RetentionModel::fit(db, &scores[..passing]) {
-        log::trace!("- fit retention time model, rsq = {}", lr.r2);
-        let predicted_rts = lr.predict(db, &scores);
-        scores
-            .iter_mut()
-            .zip(&predicted_rts)
-            .for_each(|(score, &rt)| {
-                // LR can sometimes predict crazy values - clamp predicted RT
-                let bounded = rt.max(lr.rt_min - 10.0).min(lr.rt_max + 10.0) as f32;
-                score.predicted_rt = bounded;
-                score.delta_rt = (score.rt - bounded).powi(2) / score.rt;
-            });
+        // Training LR might fail - not enough values, or r-squared is < 0.7
+        if let Some(lr) = retention_model::RetentionModel::fit(db, &scores[..passing]) {
+            log::trace!("- fit retention time model, rsq = {}", lr.r2);
+            let predicted_rts = lr.predict(db, &scores);
+            scores
+                .iter_mut()
+                .zip(&predicted_rts)
+                .for_each(|(score, &rt)| {
+                    // LR can sometimes predict crazy values - clamp predicted RT
+                    let bounded = rt.max(lr.rt_min - 10.0).min(lr.rt_max + 10.0) as f32;
+                    score.predicted_rt = bounded;
+                    score.delta_rt = (score.rt - bounded).powi(2) / score.rt;
+                });
+        }
     }
 
     // Declare, so that we have compile time checking of matrix dimensions

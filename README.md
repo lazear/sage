@@ -37,7 +37,7 @@ Sage has excellent performance characteristics (2-5x faster than - the closed so
 
 <img src="figures/SageLDA.png" width="600px">
 
-- Further boost PSM identification using prediction of retention times by a [linear regression model](https://doi.org/10.1021/ac070262k)
+- Further boost PSM identification (by 1-3%) using prediction of retention times by a [linear regression model](https://doi.org/10.1021/ac070262k)
 
 <img src="figures/rt_model.png" width="600px">
 
@@ -114,11 +114,11 @@ Two notes:
   ],
   "deisotope": false,       // Optional[bool] {default=false}: perform deisotoping and charge state deconvolution
   "chimera": false,         // Optional[bool] {default=false}: search for chimeric/co-fragmenting PSMS
+  "predict_rt": false,    // Optional[bool] {default=true}: use retention time prediction model as an feature for LDA
   "max_peaks": 15,          // Optional[int] {default=15}: only process MS2 spectra with at least N peaks
   "max_peaks": 150,         // Optional[int] {default=150}: take the top N most intense MS2 peaks to search,
   "max_fragment_charge": 1, // Optional[int] {default=null}: maximum fragment ion charge states to consider,
   "report_psms": 1,         // Optional[int] {default=1}: number of PSMs to report for each spectra. Recommend setting to 1, higher values might disrupt LDA
-  "process_files_parallel": true,   // Optional[bool] {default=True}: process files in parallel
   "mzml_paths": ["path.mzML"]       // List[str]: representing relative (or full) paths to mzML files for search
 }
 ```

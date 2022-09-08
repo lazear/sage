@@ -23,7 +23,7 @@ struct Search {
     max_peaks: usize,
     max_fragment_charge: Option<u8>,
     report_psms: usize,
-    process_files_parallel: bool,
+    predict_rt: bool,
     mzml_paths: Vec<PathBuf>,
     pin_paths: Vec<PathBuf>,
     search_time: f32,
@@ -46,7 +46,7 @@ struct Input {
     isotope_errors: Option<(i8, i8)>,
     deisotope: Option<bool>,
     quant: Option<Isobaric>,
-    process_files_parallel: Option<bool>,
+    predict_rt: Option<bool>,
     output_directory: Option<PathBuf>,
     mzml_paths: Vec<PathBuf>,
 }
@@ -72,9 +72,9 @@ impl Search {
             isotope_errors: request.isotope_errors.unwrap_or((0, 0)),
             deisotope: request.deisotope.unwrap_or(true),
             chimera: request.chimera.unwrap_or(false),
+            predict_rt: request.predict_rt.unwrap_or(true),
             pin_paths: Vec::new(),
             mzml_paths: request.mzml_paths,
-            process_files_parallel: request.process_files_parallel.unwrap_or(true),
             output_directory: request.output_directory,
             search_time: 0.0,
         })
@@ -178,7 +178,7 @@ fn process_mzml_file_sps<P: AsRef<Path>>(
             .collect();
     }
 
-    if sage::lda::score_psms(&scorer.db, &mut scores).is_some() {
+    if sage::lda::score_psms(&scorer.db, &mut scores, search.predict_rt).is_some() {
         (&mut scores)
             .par_sort_unstable_by(|a, b| b.discriminant_score.total_cmp(&a.discriminant_score));
     } else {
@@ -261,18 +261,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         search.chimera,
     );
 
-    let output_paths = match search.process_files_parallel {
-        true => search
-            .mzml_paths
-            .par_iter()
-            .map(|ms2_path| process_mzml_file_sps(ms2_path, &search, &scorer))
-            .collect::<Vec<_>>(),
-        false => search
-            .mzml_paths
-            .iter()
-            .map(|ms2_path| process_mzml_file_sps(ms2_path, &search, &scorer))
-            .collect::<Vec<_>>(),
-    };
+    let output_paths = search
+        .mzml_paths
+        .par_iter()
+        .map(|ms2_path| process_mzml_file_sps(ms2_path, &search, &scorer))
+        .collect::<Vec<_>>();
 
     search.search_time = (Instant::now() - start).as_secs_f32();
 
