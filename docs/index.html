@@ -414,13 +414,9 @@
           chemoproteomic applications.
 
           <img src="500_search.png" class="large" />
-          <figcaption>MSFragger gains a ~5% lead as the precursor windows get wider</figcaption>
+          <figcaption>MSFragger maintains a ~2% lead as the precursor windows get wider</figcaption>
 
           <p>
-            And, this is where MSFragger really shines - it identifies ~1,000 extra PSMs from this single file search
-            when we
-            really open up the precursor window. Room for improvement for Sage! (Read below to see one strategy of
-            improving this - chimeric searching)
             You'll note that Comet isn't in this graph - I don't think there's any point in benchmarking it, timewise,
             and
             it also doesn't seem amenable to doing a non-symmetrical precursor window. Given that most modifications
@@ -443,7 +439,7 @@
               <tr>
                 <td>Sage</td>
                 <td>109 s</td>
-                <td>24,432</td>
+                <td>24,542</td>
               </tr>
               <tr>
                 <td><a href="#chimera">Sage Chimera</a></td>
@@ -453,7 +449,7 @@
               <tr>
                 <td>MSFragger</td>
                 <td>225 s</td>
-                <td>25,534</td>
+                <td>24,911</td>
               </tr>
             </tbody>
           </table>
