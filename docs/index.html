@@ -155,6 +155,10 @@
             reformulation of database searching, and it captured my imagination enough that I had to try my hand at
             implementing it.</p>
 
+            <p><strong>NB:</strong> John Yates brought a very cool paper to my attention: a search engine called <a href="https://t.co/vv0XcaCqM9">Interrogator</a> that presented a fragment-indexing approach in 2005!
+              Yet another closed source proteomics tool...  perhaps one reason it never caught on?
+            </p>
+
         </section>
         <section class="section">
           <h2><a id="data-structure"></a>Fragment Index data structure</h2>
@@ -316,9 +320,11 @@
             a typical TMT search
             and identifies a similar number of PSMs at 1% FDR.
           </p>
-          <p>Sage is so fast (~2500 PSMs/cpu-second for a narrow search) that the computational cost of searching becomes irrelevant - you could
+          <p>Sage is so fast (~2500 PSMs/cpu-second for a narrow search) that the computational cost of searching
+            becomes irrelevant - you could
             re-process all of PRIDE's annotated PSMs
-            (580,917,172 at current count) using Sage for less than $3, assuming you had the bandwidth and disk IO to keep the
+            (580,917,172 at current count) using Sage for less than $3, assuming you had the bandwidth and disk IO to
+            keep the
             engine fed!
           </p>
 
@@ -429,28 +435,33 @@
             <thead>
               <tr>
                 <th>Engine</th>
-                <th>Runtime</th>
+                <th>Runtime*</th>
                 <th>PSMs at 1% FDR</th>
               </tr>
             </thead>
             <tbody>
               <tr>
                 <td>Sage</td>
-                <td>113 s</td>
+                <td>109 s</td>
                 <td>24,432</td>
               </tr>
               <tr>
                 <td><a href="#chimera">Sage Chimera</a></td>
-                <td>171 s</td>
-                <td><strong>28,049</strong></td>
+                <td>164 s</td>
+                <td><strong>28,724</strong></td>
               </tr>
               <tr>
                 <td>MSFragger</td>
-                <td>185 s</td>
+                <td>225 s</td>
                 <td>25,534</td>
               </tr>
             </tbody>
           </table>
+          <figcaption>* Including FDR refinement (mokapot for other engines - 15s, or Sage's built-in ML models)
+          </figcaption>
+
+          <p>Note that Sage's LDA is capable of scoring & reporting PSMs per spectra, even if chimeric searching is
+            turned off - this yields some <strong>28,367</strong> under 1% FDR in the same 109 second time frame</p>
 
           <p>Don't think that you need a beefy c5ad.8xlarge instance to go fast - I can complete the same 600 Da open
             search on my <strong>MacBook M1 Air</strong> (8 cores, 16 GB RAM) in ~7.5 minutes!</p>
@@ -591,7 +602,8 @@
           <img src="chimera_rt.png">
         </section>
         <section class="section">
-          <h2><a id="lda"></a>Linear Discriminant Analysis</h2>
+          <!-- <h2><a id="lda"></a>Linear Discriminant Analysis</h2> -->
+          <h2><a id="lda"></a>Integrated Machine Learning</h2>
           Most database search algorithms compute multiple scores for a given peptide-spectrum match (e.g. XCorr, Delta
           CN).
           In the olden days (especially before target-decoy competition), mass spectrometrists would apply separate
@@ -600,7 +612,8 @@
           <p>
             Several post-searching approaches (Percolator, PeptideProphet, etc) have been described that utilize machine
             learning or Bayesian expectation-maximization to
-            combine multiple features in order to better refine score cutoffs - this yields more PSMs for final analysis when
+            combine multiple features in order to better refine score cutoffs - this yields more PSMs for final analysis
+            when
             compared to simple filtering off of just 1 score feature (XCorr/etc).
           </p>
           <p>
@@ -639,6 +652,10 @@
                 <td>Poisson</td>
                 <td>Log probability of matching exactly N fragment peaks</td>
               </tr>
+              <tr>
+                <td>Delta RT</td>
+                <td>Difference between experimental & predicted retention time</td>
+              </tr>
             </tbody>
           </table>
 
@@ -654,7 +671,8 @@
             Sage (see graph above) - this allows us to find the coefficient for each feature that provides the best
             separation between our known-decoys and targets.
             Unfortunately, Rust doesn't have a strong selection of ML libraries, so I had to built it out completely
-            from scratch - starting with a basic linear algebra module. As a side benefit, I now understand what a eigenvector
+            from scratch - starting with a basic linear algebra module. As a side benefit, I now understand what a
+            eigenvector
             is and how to perform Gauss-Jordan elimination!
           </p>
           <p>
@@ -668,6 +686,14 @@
           </p>
           <img src="PEP.png" class="large">
           <figcaption>Sage accurately & rapidly computes FDR and PEP</figcaption>
+
+          <p>Sage also comes with a built-in (and simple) model for predicting peptide retention time. We one-hot encode
+            peptide sequences, and perform linear regression to determine retention coefficients for each amino acid.
+            This generally corresponds to a 1-3% boost in PSM identifications, but it can be even more beneficial for chimeric searching, or if `report_psms` is set to a value higher than 1 (reporting multiple PSMs for each MS2 spectra).
+          </p>
+          <img src="rt_model.png">
+          <figcaption>Sage fits an additive <a href="https://pubs.acs.org/doi/10.1021/ac070262k">retention time
+              model</a> for additional features</figcaption>
         </section>
         <section class="section">
           <h2><a id="tmt"></a>MS3-TMT Quantification</h2>
