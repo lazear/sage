@@ -146,25 +146,15 @@ impl Parameters {
                 // Generate both B and Y ions, then filter down to make sure that
                 // theoretical fragments are within the search space
                 IonSeries::new(peptide, Kind::B)
+                    .chain(IonSeries::new(peptide, Kind::Y))
+                    .filter(|ion| {
+                        ion.monoisotopic_mass >= self.fragment_min_mz
+                            && ion.monoisotopic_mass <= self.fragment_max_mz
+                    })
                     .map(move |ion| Theoretical {
                         peptide_index: PeptideIx(idx as u32),
                         fragment_mz: ion.monoisotopic_mass,
-                        kind: ion.kind,
                     })
-                    .chain(
-                        // This code duplication is unfortunately needed to satisfy borrowck
-                        // rather than mapping over [Kind::B, Kind::Y]
-                        IonSeries::new(peptide, Kind::Y)
-                            .map(move |ion| Theoretical {
-                                peptide_index: PeptideIx(idx as u32),
-                                fragment_mz: ion.monoisotopic_mass,
-                                kind: ion.kind,
-                            })
-                            .filter(|frag| {
-                                frag.fragment_mz >= self.fragment_min_mz
-                                    && frag.fragment_mz <= self.fragment_max_mz
-                            }),
-                    )
             })
             .collect::<Vec<_>>();
 
@@ -256,7 +246,6 @@ impl Default for PeptideIx {
 pub struct Theoretical {
     pub peptide_index: PeptideIx,
     pub fragment_mz: f32,
-    pub kind: Kind,
 }
 
 pub struct IndexedDatabase {

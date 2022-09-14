@@ -53,7 +53,6 @@ pub fn peptide_id() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'sta
                 .map(move |ion| Theoretical {
                     peptide_index: PeptideIx(idx as u32),
                     fragment_mz: ion.monoisotopic_mass,
-                    kind: ion.kind,
                 })
         })
         .collect::<Vec<Theoretical>>();

@@ -170,7 +170,7 @@ impl<'db> Scorer<'db> {
         query: &ProcessedSpectrum,
         precursor_mass: f32,
         charge: u8,
-    ) -> (usize, usize, Vec<PreScore>) {
+    ) -> (usize, Vec<PreScore>) {
         let candidates = self.db.query(
             precursor_mass,
             self.precursor_tol,
@@ -201,10 +201,11 @@ impl<'db> Scorer<'db> {
             }
         }
         if matches == 0 {
-            return (matches, scored_candidates, Vec::new());
+            return (matches, Vec::new());
         }
         score_vector.sort_unstable_by(|a, b| b.matched.cmp(&a.matched));
-        (matches, scored_candidates, score_vector)
+        score_vector.truncate(scored_candidates);
+        (matches, score_vector)
     }
 
     /// Score a single [`ProcessedSpectrum`] against the database
@@ -221,18 +222,13 @@ impl<'db> Scorer<'db> {
                 .unwrap_or(precursor_charge),
         );
 
-        let (matches, scored_candidates, preliminary) =
-            self.matched_peaks(query, precursor_mass, charge);
+        let (matches, preliminary) = self.matched_peaks(query, precursor_mass, charge);
 
         let n_calculate = 10.max(report_psms * 2).min(preliminary.len());
         let mut score_vector = preliminary
             .iter()
-            .filter(|sc| sc.peptide != PeptideIx::default() && sc.matched > 1)
             .take(n_calculate)
             .map(|pre| self.score_candidate(query, charge, pre.peptide))
-            // This shouldn't be necessary, see:
-            // https://github.com/lazear/sage/issues/10
-            .filter(|sc| sc.matched_b + sc.matched_y > 0)
             .collect::<Vec<_>>();
 
         score_vector.sort_unstable_by(|a, b| b.hyperscore.total_cmp(&a.hyperscore));
@@ -240,7 +236,7 @@ impl<'db> Scorer<'db> {
         let mut reporting = Vec::new();
 
         // Expected value for poisson distribution
-        let lambda = matches as f64 / scored_candidates as f64;
+        let lambda = matches as f64 / preliminary.len() as f64;
 
         for idx in 0..report_psms.min(score_vector.len()) {
             let better = score_vector[idx];
@@ -305,7 +301,7 @@ impl<'db> Scorer<'db> {
                 longest_y: y,
                 longest_y_pct: y as f32 / (peptide.sequence.len() as f32),
                 peptide_len: peptide.sequence.len(),
-                scored_candidates,
+                scored_candidates: preliminary.len(),
                 missed_cleavages: peptide.missed_cleavages,
 
                 // Outputs
@@ -353,7 +349,6 @@ impl<'db> Scorer<'db> {
                     crate::ion_series::IonSeries::new(peptide, *kind).map(|ion| Theoretical {
                         peptide_index: PeptideIx(0),
                         fragment_mz: ion.monoisotopic_mass,
-                        kind: ion.kind,
                     })
                 })
                 .collect::<Vec<_>>();
@@ -388,9 +383,6 @@ impl<'db> Scorer<'db> {
         charge: u8,
         peptide_ix: PeptideIx,
     ) -> Score {
-        if peptide_ix == PeptideIx::default() {
-            return Score::default();
-        }
         let mut score = Score {
             peptide: peptide_ix,
             ..Default::default()
@@ -453,7 +445,6 @@ impl<'db> Scorer<'db> {
             .map(|ion| Theoretical {
                 peptide_index: PeptideIx(0),
                 fragment_mz: ion.monoisotopic_mass,
-                kind: ion.kind,
             })
             .enumerate()
         {
