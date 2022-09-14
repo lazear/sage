@@ -37,6 +37,7 @@
             <li>Fragment indexing strategy <i>a la</i> MSFragger allows for blazing fast narrow & open searches</li>
             <li>Can assign multiple peptides to a single spectrum <a href="#chimera">(chimeric/co-fragmenting
                 spectra)</a></li>
+            <li>Integrated retention time prediction for boosting PSM confidence</li>
             <li>FDR calculation using target-decoy competition, with built-in and incredibly fast <a href="#lda">linear
                 discriminant analysis</a></li>
             <li>PEP calculation using a built-in non-parametric kernel density estimator</li>
@@ -465,6 +466,44 @@
           <img src="delta_mass.png" class="large">
           <figcaption>Open chimeric search with Sage reveals common modifications. Y-axis trimmed, vast majority
             (>15,000) of PSMs are centered around 0</figcaption>
+
+            <h4>What about variable mods?</h4>
+            <p>I re-ran the same analysis as above, this time including methionine oxidation as a variable modification, and allowing for 2 missed cleavages to mimic a typical "real life" database search.
+              Sage demonstrates significant improvements in resource consumption over MSFragger, while identifying only 0.05% less PSMs
+            </p>
+            <strong>-100 to +500 Da precursor, ±10 ppm fragment window:</strong>
+          <table>
+            <thead>
+              <tr>
+                <th>Engine</th>
+                <th>Runtime</th>
+                <th>Max RAM usage</th>
+                <th>PSMs at 1% FDR</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Sage</td>
+                <td>172 s</td>
+                <td>7.65 GB</td>
+                <td>27,443</td>
+              </tr>
+              <tr>
+                <td>MSFragger</td>
+                <td>340 s</td>
+                <td>11.55 GB</td>
+                <td>27,589</td>
+              </tr>
+              <tr>
+                <td><strong>Improvement</strong></td>
+                <td><strong>49% faster </strong></td>
+                <td><strong>34% less RAM</strong></td>
+                <td><strong style="color: red">0.05% less PSMs</strong></td>
+              </tr>
+            </tbody>
+          </table>
+          <figcaption>Mokapot used for both Sage & MSFragger. Sage LDA alone scored 26,496 PSMs at 1% FDR
+          </figcaption>
 
         </section>
         <!--  
