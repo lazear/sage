@@ -5,6 +5,7 @@
     "fragment_max_mz": 1500.0,
     "peptide_min_len": 5,
     "peptide_max_len": 50,
+    "min_ion_index": 2,
     "missed_cleavages": 1,
     "static_mods": {
       "^": 229.1629,

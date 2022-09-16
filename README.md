@@ -8,7 +8,7 @@ Check out the [blog post](https://lazear.github.io/sage/) for more information a
 
 I was inspired by the elegant data structure discussed in the [MSFragger paper](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5409104/), and decided to implement an (open source) version of it in Rust - with great results.
 
-Sage has excellent performance characteristics (2-5x faster than - the closed source - MSFragger), but does not sacrifice code quality or size to do so!
+Sage has excellent performance characteristics (5x faster than - the closed source - MSFragger), but does not sacrifice code quality or size to do so!
  
 ## Features
 
@@ -83,6 +83,7 @@ Two notes:
     "peptide_max_len": 50,          // Optional[float], Maximum AA length of peptides to search
     "peptide_min_mass": 500.0,      // Optional[float], Minimum monoisotopic mass of peptides to fragment
     "peptide_max_mass": 5000.0,     // Optional[float], Maximum monoisotopic mass of peptides to fragment
+    "min_ion_index": 2,     // Optional[int], Do not generate b1/b2/y1/y2 ions
     "missed_cleavages": 2,  // Optional[int], Number of missed cleavages for tryptic digest
     "static_mods": {        // Optional[Dict[char, float]] {default={}}, static modifications
       "^": 304.207,         // Apply static modification to N-terminus
