@@ -132,6 +132,69 @@ mod test {
     }
 
     #[test]
+    fn y_index() {
+        let peptide = peptide("PEPTIDE");
+        // Charge state 1
+        let expected_ion: Vec<(usize, f32)> = vec![
+            (6, 703.31447),
+            (5, 574.27188),
+            (4, 477.21912),
+            (3, 376.17144),
+            (2, 263.08737),
+            (1, 148.06043),
+        ];
+        assert!(IonSeries::new(&peptide, Kind::Y)
+            .enumerate()
+            .map(|(idx, ion)| (peptide.sequence.len().saturating_sub(1) - idx, ion))
+            .zip(expected_ion.into_iter())
+            .all(|((idx, ion), (idx_, mz))| {
+                idx == idx_ && (ion.monoisotopic_mass + PROTON - mz).abs() <= 0.01
+            }),)
+    }
+
+    #[test]
+    fn index_filtering() {
+        let peptide = &peptide("PEPTIDE");
+        let ions = IonSeries::new(peptide, Kind::B)
+            .enumerate()
+            .chain(IonSeries::new(peptide, Kind::Y).enumerate())
+            .filter(|(ion_idx, ion)| {
+                // Don't store b1, b2, y1, y2 ions for preliminary scoring
+                let ion_idx_filter = match ion.kind {
+                    Kind::B => (ion_idx + 1) > 2,
+                    Kind::Y => peptide.sequence.len().saturating_sub(1) - ion_idx > 2,
+                };
+                ion_idx_filter
+            })
+            .map(|(_, mut ion)| {
+                ion.monoisotopic_mass += PROTON;
+                ion
+            })
+            .collect::<Vec<_>>();
+
+        #[rustfmt::skip]
+        let expected = vec![
+            Ion { kind: Kind::B, monoisotopic_mass: 324.155397 },
+            Ion { kind: Kind::B, monoisotopic_mass: 425.203076 },
+            Ion { kind: Kind::B, monoisotopic_mass: 538.287140 },
+            Ion { kind: Kind::B, monoisotopic_mass: 653.314083 },
+            Ion { kind: Kind::Y, monoisotopic_mass: 703.314477 },
+            Ion { kind: Kind::Y, monoisotopic_mass: 574.271884 },
+            Ion { kind: Kind::Y, monoisotopic_mass: 477.219120 },
+            Ion { kind: Kind::Y, monoisotopic_mass: 376.171441 },
+        ];
+
+        assert_eq!(expected.len(), ions.len(), "{:?}\n{:?}", ions, expected);
+        assert!(
+            ions.iter().zip(expected.iter()).all(|(left, right)| {
+                left.kind == right.kind && (left.monoisotopic_mass - right.monoisotopic_mass) <= 0.1
+            }),
+            "{:?}",
+            ions
+        );
+    }
+
+    #[test]
     fn decoy() {
         let peptide_ = peptide("PEPTIDE");
 

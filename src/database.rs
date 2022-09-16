@@ -27,6 +27,9 @@ pub struct Builder {
     peptide_min_mass: Option<f32>,
     /// Maximum peptide monoisotopic mass that will be fragmented
     peptide_max_mass: Option<f32>,
+    /// Minimum ion index to be generated: 1 will remove b1/y1 ions
+    /// 2 will remove b1/b2/y1/y2 ions, etc
+    min_ion_index: Option<usize>,
     /// How many missed cleavages to use
     missed_cleavages: Option<u8>,
     /// Static modifications to add to matching amino acids
@@ -67,6 +70,7 @@ impl Builder {
             peptide_max_len: self.peptide_max_len.unwrap_or(50),
             peptide_min_mass: self.peptide_min_mass.unwrap_or(500.0),
             peptide_max_mass: self.peptide_max_mass.unwrap_or(5000.0),
+            min_ion_index: self.min_ion_index.unwrap_or(0),
             decoy_prefix: self.decoy_prefix.unwrap_or_else(|| "rev_".into()),
             missed_cleavages: self.missed_cleavages.unwrap_or(0),
             static_mods: Self::validate_mods(self.static_mods),
@@ -85,6 +89,7 @@ pub struct Parameters {
     peptide_max_len: usize,
     peptide_min_mass: f32,
     peptide_max_mass: f32,
+    min_ion_index: usize,
     missed_cleavages: u8,
     static_mods: HashMap<char, f32>,
     variable_mods: HashMap<char, f32>,
@@ -146,12 +151,22 @@ impl Parameters {
                 // Generate both B and Y ions, then filter down to make sure that
                 // theoretical fragments are within the search space
                 IonSeries::new(peptide, Kind::B)
-                    .chain(IonSeries::new(peptide, Kind::Y))
-                    .filter(|ion| {
-                        ion.monoisotopic_mass >= self.fragment_min_mz
+                    .enumerate()
+                    .chain(IonSeries::new(peptide, Kind::Y).enumerate())
+                    .filter(|(ion_idx, ion)| {
+                        // Don't store b1, b2, y1, y2 ions for preliminary scoring
+                        let ion_idx_filter = match ion.kind {
+                            Kind::B => (ion_idx + 1) > self.min_ion_index,
+                            Kind::Y => {
+                                peptide.sequence.len().saturating_sub(1) - ion_idx
+                                    > self.min_ion_index
+                            }
+                        };
+                        ion_idx_filter
+                            && ion.monoisotopic_mass >= self.fragment_min_mz
                             && ion.monoisotopic_mass <= self.fragment_max_mz
                     })
-                    .map(move |ion| Theoretical {
+                    .map(move |(_, ion)| Theoretical {
                         peptide_index: PeptideIx(idx as u32),
                         fragment_mz: ion.monoisotopic_mass,
                     })
