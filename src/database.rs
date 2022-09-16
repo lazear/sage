@@ -14,32 +14,32 @@ use std::path::PathBuf;
 /// Parameters used for generating the fragment database
 pub struct Builder {
     /// This parameter allows tuning of the internal search structure
-    bucket_size: Option<usize>,
+    pub bucket_size: Option<usize>,
     /// Minimum fragment m/z that will be stored in the database
-    fragment_min_mz: Option<f32>,
+    pub fragment_min_mz: Option<f32>,
     /// Maximum fragment m/z that will be stored in the database
-    fragment_max_mz: Option<f32>,
+    pub fragment_max_mz: Option<f32>,
     /// Minimum peptide length that will be fragmented
-    peptide_min_len: Option<usize>,
+    pub peptide_min_len: Option<usize>,
     /// Maximum peptide length that will be fragmented
-    peptide_max_len: Option<usize>,
+    pub peptide_max_len: Option<usize>,
     /// Minimum peptide monoisotopic mass that will be fragmented
-    peptide_min_mass: Option<f32>,
+    pub peptide_min_mass: Option<f32>,
     /// Maximum peptide monoisotopic mass that will be fragmented
-    peptide_max_mass: Option<f32>,
+    pub peptide_max_mass: Option<f32>,
     /// Minimum ion index to be generated: 1 will remove b1/y1 ions
     /// 2 will remove b1/b2/y1/y2 ions, etc
-    min_ion_index: Option<usize>,
+    pub min_ion_index: Option<usize>,
     /// How many missed cleavages to use
-    missed_cleavages: Option<u8>,
+    pub missed_cleavages: Option<u8>,
     /// Static modifications to add to matching amino acids
-    static_mods: Option<HashMap<char, f32>>,
+    pub static_mods: Option<HashMap<char, f32>>,
     /// Variable modifications to add to matching amino acids
-    variable_mods: Option<HashMap<char, f32>>,
+    pub variable_mods: Option<HashMap<char, f32>>,
     /// Use this prefix for decoy proteins
-    decoy_prefix: Option<String>,
+    pub decoy_prefix: Option<String>,
     /// Path to fasta database
-    fasta: PathBuf,
+    pub fasta: PathBuf,
 }
 
 impl Builder {
@@ -70,7 +70,7 @@ impl Builder {
             peptide_max_len: self.peptide_max_len.unwrap_or(50),
             peptide_min_mass: self.peptide_min_mass.unwrap_or(500.0),
             peptide_max_mass: self.peptide_max_mass.unwrap_or(5000.0),
-            min_ion_index: self.min_ion_index.unwrap_or(0),
+            min_ion_index: self.min_ion_index.unwrap_or(2),
             decoy_prefix: self.decoy_prefix.unwrap_or_else(|| "rev_".into()),
             missed_cleavages: self.missed_cleavages.unwrap_or(0),
             static_mods: Self::validate_mods(self.static_mods),

@@ -77,13 +77,13 @@ Two notes:
 {
   "database": {
     "bucket_size": 32768,           // How many fragments are in each internal mass bucket
-    "fragment_min_mz": 200.0,       // Optional[float], Minimum mass of fragments to search
-    "fragment_max_mz": 2000.0,      // Optional[float], Maximum mass of fragments to search 
-    "peptide_min_len": 5,           // Optional[float], Minimum AA length of peptides to search
-    "peptide_max_len": 50,          // Optional[float], Maximum AA length of peptides to search
-    "peptide_min_mass": 500.0,      // Optional[float], Minimum monoisotopic mass of peptides to fragment
-    "peptide_max_mass": 5000.0,     // Optional[float], Maximum monoisotopic mass of peptides to fragment
-    "min_ion_index": 2,     // Optional[int], Do not generate b1/b2/y1/y2 ions
+    "fragment_min_mz": 200.0,       // Optional[float] {default=150.0}, Minimum mass of fragments to search
+    "fragment_max_mz": 2000.0,      // Optional[float] {default=2000.0}, Maximum mass of fragments to search 
+    "peptide_min_len": 5,           // Optional[int]{efault=5}, Minimum AA length of peptides to search
+    "peptide_max_len": 50,          // Optional[int] {default=50}, Maximum AA length of peptides to search
+    "peptide_min_mass": 500.0,      // Optional[float] {default=500.0}, Minimum monoisotopic mass of peptides to fragment
+    "peptide_max_mass": 5000.0,     // Optional[float] {default=5000.0}, Maximum monoisotopic mass of peptides to fragment
+    "min_ion_index": 2,     // Optional[int] {default=2}, Do not generate b1/b2/y1/y2 ions for preliminary searching. Does not affect full scoring of PSMs
     "missed_cleavages": 2,  // Optional[int], Number of missed cleavages for tryptic digest
     "static_mods": {        // Optional[Dict[char, float]] {default={}}, static modifications
       "^": 304.207,         // Apply static modification to N-terminus
@@ -96,7 +96,7 @@ Two notes:
     "decoy_prefix": "rev_", // Optional[str] {default="rev_"}: Prefix appended to decoy proteins
     "fasta": "dual.fasta"   // str: mandatory path to fasta file
   },
-  "quant": "Tmt16",         // Optional[str], one of "Tmt6", "Tmt10", "Tmt11", "Tmt16", or "Tmt18"
+  "quant": "Tmt16",         // Optional[str] {default=null}, one of "Tmt6", "Tmt10", "Tmt11", "Tmt16", or "Tmt18"
   "precursor_tol": {        // Tolerance can be either "ppm" or "da"
     "da": [
       -500,                 // This value is substracted from the experimental precursor to match theoretical peptides
@@ -109,7 +109,7 @@ Two notes:
      10                     // This value is added to the experimental fragment to match theoretical fragments 
     ]
   },
-  "isotope_errors": [       // Optional[Tuple[int, int]]: C13 isotopic envelope to consider for precursor
+  "isotope_errors": [       // Optional[Tuple[int, int]] {default=[0,0]}: C13 isotopic envelope to consider for precursor
     -1,                     // Consider -1 C13 isotope
     3,                      // Consider up to +3 C13 isotope (-1/0/1/2/3) 
   ],
