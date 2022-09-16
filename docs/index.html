@@ -439,12 +439,12 @@
             <tbody>
               <tr>
                 <td>Sage</td>
-                <td>109 s</td>
-                <td>24,542</td>
+                <td>44 s</td>
+                <td>24,682</td>
               </tr>
               <tr>
                 <td><a href="#chimera">Sage Chimera</a></td>
-                <td>164 s</td>
+                <td>70 s</td>
                 <td><strong>28,724</strong></td>
               </tr>
               <tr>
@@ -458,10 +458,10 @@
           </figcaption>
 
           <p>Note that Sage's LDA is capable of scoring & reporting multiple PSMs per spectra, even if chimeric searching is
-            turned off - this yields some <strong>28,367</strong> under 1% FDR in the same 109 second time frame</p>
+            turned off - this yields some <strong>28,367</strong> under 1% FDR in the same 44 second time frame</p>
 
           <p>Don't think that you need a beefy c5ad.8xlarge instance to go fast - I can complete the same 600 Da open
-            search on my <strong>MacBook M1 Air</strong> (8 cores, 16 GB RAM) in ~7.5 minutes!</p>
+            search on my <strong>MacBook M1 Air</strong> (8 cores, 16 GB RAM) in 219 seconds. No, that's not a typo - Sage runs faster on an 8-core Macbook Air than MSFragger does on a 32-core EC2 instance</p>
 
           <img src="delta_mass.png" class="large">
           <figcaption>Open chimeric search with Sage reveals common modifications. Y-axis trimmed, vast majority
@@ -484,9 +484,9 @@
             <tbody>
               <tr>
                 <td>Sage</td>
-                <td>172 s</td>
-                <td>7.65 GB</td>
-                <td>27,443</td>
+                <td>68 s</td>
+                <td>7.3 GB</td>
+                <td>27,500</td>
               </tr>
               <tr>
                 <td>MSFragger</td>
@@ -496,9 +496,9 @@
               </tr>
               <tr>
                 <td><strong>Improvement</strong></td>
-                <td><strong>49% less runtime </strong></td>
-                <td><strong>34% less RAM</strong></td>
-                <td><strong style="color: red">0.05% less PSMs</strong></td>
+                <td><strong style="color: green">80% less runtime </strong></td>
+                <td><strong style="color: green">37% less RAM</strong></td>
+                <td><strong style="color: black">0.3% less PSMs</strong></td>
               </tr>
             </tbody>
           </table>
