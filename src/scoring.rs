@@ -224,7 +224,7 @@ impl<'db> Scorer<'db> {
 
         let (matches, preliminary) = self.matched_peaks(query, precursor_mass, charge);
 
-        let n_calculate = 10.max(report_psms * 2).min(preliminary.len());
+        let n_calculate = 50.max(report_psms * 2).min(preliminary.len());
         let mut score_vector = preliminary
             .iter()
             .take(n_calculate)
@@ -346,7 +346,7 @@ impl<'db> Scorer<'db> {
             let mut theo = [Kind::B, Kind::Y]
                 .iter()
                 .flat_map(|kind| {
-                    crate::ion_series::IonSeries::new(peptide, *kind).map(|ion| Theoretical {
+                    IonSeries::new(peptide, *kind).map(|ion| Theoretical {
                         peptide_index: PeptideIx(0),
                         fragment_mz: ion.monoisotopic_mass,
                     })
@@ -441,7 +441,7 @@ impl<'db> Scorer<'db> {
         let mut current_start = peaks.len();
         let mut run = 0;
         let mut longest_run = 0;
-        'outer: for (idx, frag) in crate::ion_series::IonSeries::new(peptide, kind)
+        'outer: for (idx, frag) in IonSeries::new(peptide, kind)
             .map(|ion| Theoretical {
                 peptide_index: PeptideIx(0),
                 fragment_mz: ion.monoisotopic_mass,

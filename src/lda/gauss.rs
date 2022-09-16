@@ -51,10 +51,8 @@ impl Gauss {
                     if x != 1.0 && x != 0.0 {
                         return false;
                     }
-                } else {
-                    if x != 0.0 {
-                        return false;
-                    }
+                } else if x != 0.0 {
+                    return false;
                 }
             }
         }

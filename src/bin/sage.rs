@@ -178,7 +178,7 @@ fn process_mzml_file_sps<P: AsRef<Path>>(
             .collect();
     }
 
-    if sage::lda::score_psms(&scorer.db, &mut scores, search.predict_rt).is_some() {
+    if sage::lda::score_psms(scorer.db, &mut scores, search.predict_rt).is_some() {
         (&mut scores)
             .par_sort_unstable_by(|a, b| b.discriminant_score.total_cmp(&a.discriminant_score));
     } else {

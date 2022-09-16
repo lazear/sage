@@ -143,7 +143,7 @@ pub fn score_psms(db: &IndexedDatabase, scores: &mut [Percolator], predict_rt: b
         // Training LR might fail - not enough values, or r-squared is < 0.7
         if let Some(lr) = retention_model::RetentionModel::fit(db, &scores[..passing]) {
             log::trace!("- fit retention time model, rsq = {}", lr.r2);
-            let predicted_rts = lr.predict(db, &scores);
+            let predicted_rts = lr.predict(db, scores);
             scores
                 .iter_mut()
                 .zip(&predicted_rts)
