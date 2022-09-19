@@ -2,7 +2,7 @@ use super::norm;
 use rayon::prelude::*;
 use std::fmt::{self, Debug};
 use std::marker::PhantomData;
-use std::ops::{Add, AddAssign, Index, IndexMut};
+use std::ops::{Add, AddAssign, Div, Index, IndexMut};
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct Row;
@@ -285,6 +285,15 @@ impl AddAssign<Matrix> for Matrix {
         for i in 0..self.data.len() {
             self.data[i] += rhs.data[i];
         }
+    }
+}
+
+impl Div<f64> for Matrix {
+    type Output = Matrix;
+
+    fn div(mut self, rhs: f64) -> Self::Output {
+        self.data.iter_mut().for_each(|x| *x /= rhs);
+        self
     }
 }
 

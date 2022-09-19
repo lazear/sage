@@ -1,6 +1,6 @@
 use crate::database::{binary_search_slice, IndexedDatabase, PeptideIx, Theoretical};
 use crate::ion_series::{IonSeries, Kind};
-use crate::mass::{Tolerance, NEUTRON, PROTON};
+use crate::mass::{Tolerance, NEUTRON};
 use crate::peptide::Peptide;
 use crate::spectrum::{Peak, Precursor, ProcessedSpectrum};
 use serde::Serialize;
@@ -43,9 +43,9 @@ pub struct Percolator {
     pub scannr: u32,
     /// Target/Decoy label, -1 is decoy, 1 is target
     pub label: i32,
-    /// Experimental mass MH+
+    /// Experimental mass
     pub expmass: f32,
-    /// Calculated mass, MH+
+    /// Calculated mass
     pub calcmass: f32,
     /// Reported precursor charge
     pub charge: u8,
@@ -85,6 +85,10 @@ pub struct Percolator {
     pub posterior_error: f32,
     /// Assigned q_value
     pub q_value: f32,
+
+    pub ms2_intensity: f32,
+    pub ms1_intensity: f32,
+    pub ms1_apex: f32,
 }
 
 impl Score {
@@ -282,8 +286,8 @@ impl<'db> Scorer<'db> {
                 specid: 0,
                 scannr: query.scan as u32,
                 label: peptide.label(),
-                expmass: precursor_mass + PROTON,
-                calcmass: peptide.monoisotopic + PROTON,
+                expmass: precursor_mass,
+                calcmass: peptide.monoisotopic,
 
                 // Features
                 charge: precursor_charge,
@@ -310,6 +314,9 @@ impl<'db> Scorer<'db> {
                 q_value: 1.0,
                 predicted_rt: 0.0,
                 delta_rt: 1.0,
+                ms2_intensity: better.summed_b + better.summed_y,
+                ms1_intensity: 0.0,
+                ms1_apex: 0.0,
             })
         }
         reporting

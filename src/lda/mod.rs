@@ -9,8 +9,8 @@
 //! to enable LDA.
 
 mod gauss;
-mod kde;
-mod matrix;
+pub mod kde;
+pub mod matrix;
 mod qvalue;
 mod retention_model;
 use matrix::Matrix;

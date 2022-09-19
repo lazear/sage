@@ -8,17 +8,17 @@
 
 use super::*;
 
-pub struct Kde {
-    sample: Vec<f64>,
+pub struct Kde<'a> {
+    sample: &'a [f64],
     bandwidth: f64,
     constant: f64,
 }
 
-impl Kde {
-    pub fn new(sample: Vec<f64>) -> Self {
+impl<'a> Kde<'a> {
+    pub fn new(sample: &'a [f64]) -> Self {
         let factor = 4. / 3.;
         let exponent = 1. / 5.;
-        let sigma = std(&sample);
+        let sigma = std(sample);
         let bandwidth = sigma * (factor / sample.len() as f64).powf(exponent);
         let constant = (2.0 * std::f64::consts::PI).sqrt() * bandwidth * sample.len() as f64;
         Self {
@@ -71,8 +71,8 @@ impl Estimator {
 
         // P(decoy)
         let pi = d.len() as f64 / scores.len() as f64;
-        let decoy = Kde::new(d);
-        let target = Kde::new(t);
+        let decoy = Kde::new(&d);
+        let target = Kde::new(&t);
 
         // Essentially, np.linspace(scores.min(), scores.max(), 1000)
         let bin_size = 1000;
@@ -82,7 +82,7 @@ impl Estimator {
             min_score = min_score.min(*s);
             max_score = max_score.max(*s);
         }
-        let score_step = (max_score - min_score) / bin_size as f64;
+        let score_step = (max_score - min_score) / (bin_size - 1) as f64;
 
         // Calculate PEP for 1000 evenly spaced scores
         let mut bins = (0..bin_size)

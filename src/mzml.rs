@@ -1,8 +1,10 @@
 use crate::mass::Tolerance;
 use crate::spectrum::Precursor;
+use flate2::bufread::GzDecoder;
+use flate2::read::ZlibDecoder;
 use quick_xml::events::Event;
 use quick_xml::Reader;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -123,24 +125,28 @@ impl MzMlReader {
     }
 
     /// Convenience method
-    pub fn read_ms2<P: AsRef<Path>>(
-        p: P,
-    ) -> Result<Vec<Spectrum>, Box<dyn std::error::Error + Send + Sync + 'static>> {
-        let file = std::fs::File::open(p)?;
-        let reader = BufReader::new(file);
-        Self::with_level_filter(2).parse(reader)
-    }
-
-    /// Convenience method
     pub fn read<P: AsRef<Path>>(
         p: P,
     ) -> Result<Vec<Spectrum>, Box<dyn std::error::Error + Send + Sync + 'static>> {
-        let file = std::fs::File::open(p)?;
+        let file = std::fs::File::open(&p)?;
         let reader = BufReader::new(file);
-        Self::default().parse(reader)
+
+        // Does `path` end in ".gz" or ".gzip"?
+        match p.as_ref().extension() {
+            Some(ext) if ext == "gz" || ext == "gzip" => {
+                let mut reader = GzDecoder::new(reader);
+                let mut buffer = Vec::new();
+                reader.read_to_end(&mut buffer)?;
+                Self::default().parse(buffer.as_slice())
+            }
+            _ => Self::default().parse(reader),
+        }
     }
 
-    pub fn parse<B: BufRead>(
+    /// Here be dragons -
+    /// Seriously, this kinda sucks because it's a giant imperative, stateful loop.
+    /// But I also don't want to spend any more time working on an mzML parser...
+    fn parse<B: BufRead>(
         &self,
         b: B,
     ) -> Result<Vec<Spectrum>, Box<dyn std::error::Error + Send + Sync + 'static>> {
@@ -149,6 +155,7 @@ impl MzMlReader {
 
         let mut state = None;
         let mut compression = false;
+        let mut output_buffer = Vec::with_capacity(4096);
         let mut binary_dtype = Dtype::F64;
         let mut binary_array = BinaryKind::Intensity;
 
@@ -311,9 +318,12 @@ impl MzMlReader {
                         }
                         let decoded = base64::decode(raw)?;
                         let bytes = match compression {
-                            false => decoded,
-                            true => miniz_oxide::inflate::decompress_to_vec_zlib(&decoded)
-                                .map_err(|_| MzMlError::BadCompression)?,
+                            false => &decoded,
+                            true => {
+                                let mut r = ZlibDecoder::new(decoded.as_slice());
+                                let n = r.read_to_end(&mut output_buffer)?;
+                                &output_buffer[..n]
+                            }
                         };
 
                         let array = match binary_dtype {
@@ -339,6 +349,7 @@ impl MzMlReader {
                                     .collect::<Vec<f32>>()
                             }
                         };
+                        output_buffer.clear();
 
                         match binary_array {
                             BinaryKind::Intensity => {

@@ -16,7 +16,7 @@ csv = "1"
 clap = { version="4.0", features = ["cargo", "unicode"] }
 env_logger = "0.8.4"
 log = "0.4.0"
-miniz_oxide = "0.5.3"
+flate2 = "1.0"
 regex = "1.6"
 rayon = "1.5"
 serde = { version="1.0", features = ["derive"] }

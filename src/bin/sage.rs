@@ -1,6 +1,7 @@
 use clap::{Arg, Command};
 use log::{info, warn};
 use rayon::prelude::*;
+use sage::lfq::LfqIndex;
 use sage::mass::Tolerance;
 use sage::scoring::Scorer;
 use sage::spectrum::SpectrumProcessor;
@@ -115,14 +116,6 @@ fn process_mzml_file_sps<P: AsRef<Path>>(
     //  - more robust error checking
     //  - better error messages, there are several places we use try operator
     //      that could be replaced with a custom error type
-    if p.as_ref()
-        .extension()
-        .expect("expecting .mzML files as input!")
-        .to_ascii_lowercase()
-        != "mzml"
-    {
-        panic!("expecting .mzML files as input!")
-    }
 
     let spectra = sage::mzml::MzMlReader::read(&p)?
         .into_par_iter()
@@ -205,6 +198,11 @@ fn process_mzml_file_sps<P: AsRef<Path>>(
     }
 
     let passing_psms = sage::lda::assign_q_values(&mut scores);
+
+    let lfq = LfqIndex::new(&scores);
+    let mut xic = p.as_ref().to_path_buf();
+    xic.set_extension("xic.csv");
+    lfq.quantify(&spectra, &mut scores, xic);
 
     let mut path = p.as_ref().to_path_buf();
     path.set_extension("sage.pin");
