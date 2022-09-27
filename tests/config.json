@@ -9,7 +9,7 @@
             "C": 57.0216
         },
         "decoy_prefix": "rev_",
-        "fasta": "2022-07-23-decoys-reviewed-UP000005640.fas"
+        "fasta": "tests/Q99536.fasta"
     },
     "deisotope": true,
     "chimera": false,
