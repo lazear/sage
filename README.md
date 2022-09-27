@@ -111,12 +111,12 @@ Two notes:
   },
   "isotope_errors": [       // Optional[Tuple[int, int]] {default=[0,0]}: C13 isotopic envelope to consider for precursor
     -1,                     // Consider -1 C13 isotope
-    3,                      // Consider up to +3 C13 isotope (-1/0/1/2/3) 
+    3                       // Consider up to +3 C13 isotope (-1/0/1/2/3) 
   ],
   "deisotope": false,       // Optional[bool] {default=false}: perform deisotoping and charge state deconvolution
   "chimera": false,         // Optional[bool] {default=false}: search for chimeric/co-fragmenting PSMS
   "predict_rt": false,    // Optional[bool] {default=true}: use retention time prediction model as an feature for LDA
-  "max_peaks": 15,          // Optional[int] {default=15}: only process MS2 spectra with at least N peaks
+  "min_peaks": 15,          // Optional[int] {default=15}: only process MS2 spectra with at least N peaks
   "max_peaks": 150,         // Optional[int] {default=150}: take the top N most intense MS2 peaks to search,
   "max_fragment_charge": 1, // Optional[int] {default=null}: maximum fragment ion charge states to consider,
   "report_psms": 1,         // Optional[int] {default=1}: number of PSMs to report for each spectra. Recommend setting to 1, higher values might disrupt LDA
