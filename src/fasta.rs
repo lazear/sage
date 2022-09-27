@@ -14,11 +14,10 @@ impl Fasta {
 
         let mut targets = Vec::new();
         let mut decoys = Vec::new();
-        let mut iter = buf.as_str().lines();
-        let mut last_id = iter.next().unwrap();
+        let mut last_id = "";
         let mut s = String::new();
 
-        for line in iter {
+        for line in buf.as_str().lines() {
             if line.is_empty() {
                 continue;
             }
@@ -38,7 +37,7 @@ impl Fasta {
         }
 
         if !s.is_empty() {
-            let acc: String = last_id.split('|').nth(1).unwrap().into();
+            let acc: String = last_id.split_ascii_whitespace().next().unwrap().into();
             match acc.starts_with(decoy_prefix) {
                 true => decoys.push((acc, s)),
                 false => targets.push((acc, s)),
