@@ -105,7 +105,7 @@ Two notes:
   },
   "fragment_tol": {         // Tolerance can be either "ppm" or "da"
     "ppm": [
-     -10                    // This value is subtracted from the experimental fragment to match theoretical fragments 
+     -10,                   // This value is subtracted from the experimental fragment to match theoretical fragments 
      10                     // This value is added to the experimental fragment to match theoretical fragments 
     ]
   },
