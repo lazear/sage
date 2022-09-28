@@ -258,7 +258,13 @@ impl SpectrumProcessor {
         };
 
         peaks.sort_unstable_by(|a, b| a.mass.total_cmp(&b.mass));
-        let total_intensity = peaks.iter().map(|peak| peak.intensity).sum::<f32>();
+        let total_intensity = if spectrum.total_ion_current > 0.0 {
+            // Use total ion current from mzML file
+            spectrum.total_ion_current
+        } else {
+            // Calculate total ion current
+            peaks.iter().map(|peak| peak.intensity).sum::<f32>()
+        };
 
         ProcessedSpectrum {
             level: spectrum.ms_level,

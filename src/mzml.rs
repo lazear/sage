@@ -29,15 +29,17 @@ pub struct Spectrum {
     pub ms_level: u8,
     pub scan_id: usize,
     pub precursors: Vec<Precursor>,
+    /// Profile or Centroided data
     pub representation: Representation,
-
-    // Scan start time
+    /// Scan start time
     pub scan_start_time: f32,
-    // Ion injection time
+    /// Ion injection time
     pub ion_injection_time: f32,
-    // M/z array
+    /// Total ion current
+    pub total_ion_current: f32,
+    /// M/z array
     pub mz: Vec<f32>,
-    // Intensity array
+    /// Intensity array
     pub intensity: Vec<f32>,
 }
 
@@ -91,6 +93,10 @@ const FLOAT_32: &str = "MS:1000521";
 const MS_LEVEL: &str = "MS:1000511";
 const PROFILE: &str = "MS:1000128";
 const CENTROID: &str = "MS:1000127";
+const TOTAL_ION_CURRENT: &str = "MS:1000285";
+
+const SCAN_START_TIME: &str = "MS:1000016";
+const ION_INJECTION_TIME: &str = "MS:1000927";
 
 const SELECTED_ION_MZ: &str = "MS:1000744";
 const SELECTED_ION_INT: &str = "MS:1000042";
@@ -240,6 +246,17 @@ impl MzMlReader {
                             }
                             PROFILE => spectrum.representation = Representation::Profile,
                             CENTROID => spectrum.representation = Representation::Centroid,
+                            TOTAL_ION_CURRENT => {
+                                let value = extract!(ev, b"value");
+                                let value = std::str::from_utf8(&value)?.parse::<f32>()?;
+                                if value == 0.0 {
+                                    // No ion current, break out of current state
+                                    spectrum = Spectrum::default();
+                                    state = None;
+                                } else {
+                                    spectrum.total_ion_current = value;
+                                }
+                            }
                             _ => {}
                         }
                     }
@@ -272,8 +289,8 @@ impl MzMlReader {
                         let value = extract!(ev, b"value");
                         let value = std::str::from_utf8(&value)?;
                         match accession {
-                            "MS:1000016" => spectrum.scan_start_time = value.parse()?,
-                            "MS:1000927" => spectrum.ion_injection_time = value.parse()?,
+                            SCAN_START_TIME => spectrum.scan_start_time = value.parse()?,
+                            ION_INJECTION_TIME => spectrum.ion_injection_time = value.parse()?,
                             _ => {}
                         }
                     }
@@ -288,6 +305,10 @@ impl MzMlReader {
                             }
                         }
                         let raw = text.unescaped()?;
+                        // There are occasionally empty binary data arrays...
+                        if raw.is_empty() {
+                            continue;
+                        }
                         let decoded = base64::decode(raw)?;
                         let bytes = match compression {
                             false => decoded,
@@ -347,15 +368,13 @@ impl MzMlReader {
                         }
                         (Some(State::Scan), b"scan") => Some(State::Spectrum),
                         (_, b"spectrum") => {
-                            match self.ms_level {
-                                Some(filter) => {
-                                    if spectrum.ms_level == filter {
-                                        spectra.push(spectrum);
-                                    }
-                                }
-                                _ => {
-                                    spectra.push(spectrum);
-                                }
+                            let allow = self
+                                .ms_level
+                                .as_ref()
+                                .map(|&level| level == spectrum.ms_level)
+                                .unwrap_or(true);
+                            if allow {
+                                spectra.push(spectrum);
                             }
                             spectrum = Spectrum::default();
                             None
