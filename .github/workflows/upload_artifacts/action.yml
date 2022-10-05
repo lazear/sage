@@ -1,0 +1,34 @@
+name: Upload Artifacts
+description: Upload the Sage executable artifacts.
+
+inputs:
+  name:
+    required: true
+    type: string
+  token:
+    required: true
+    type: string
+  path:
+    required: false
+    type: string
+    default: target/release/sage
+
+runs:
+  using: "composite"
+  steps:
+
+  - name: Upload build artifacts
+    uses: actions/upload-artifact@v3
+    with:
+      name: ${{ inputs.name }}
+      path: ${{ inputs.path }}
+
+  - name: Upload artifacts to the release
+    uses: svenstaro/upload-release-action@v2
+    if: ${{ github.event_name == 'release' }}
+    with:
+      repo_token: ${{ inputs.token }}
+      tag: ${{ github.ref }}
+      asset_name: ${{ inputs.name  }}
+      file: ${{ inputs.path }}
+      overwrite: true
