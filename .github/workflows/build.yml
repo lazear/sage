@@ -1,0 +1,102 @@
+name: Build Sage Executables
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+  release:
+    types: [ created ]
+
+jobs:
+  build_ubuntu:
+    name: Build Sage for Linux
+    runs-on: ubuntu-latest
+    container: ubuntu:14.04 # GLIBC 2.19
+    steps:
+    - name: Install dependencies
+      run: |
+        sudo apt-get update && sudo apt-get upgrade -y
+        sudo apt-get install -y curl build-essential
+
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Get Cargo toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+
+    - name: Build Sage
+      uses: actions-rs/cargo@v1
+      with:
+        command: build
+        args: --release
+
+    - name: Upload executable to release
+      uses: ./.github/workflows/upload_artifacts
+      with:
+        name: Linux 64-bit
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+
+  build_windows:
+    name: Build Sage for Windows
+    runs-on: windows-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Get Cargo toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+
+    - name: Build Sage
+      uses: actions-rs/cargo@v1
+      with:
+        command: build
+        args: --release
+
+    - name: Upload executable to release
+      uses: ./.github/workflows/upload_artifacts
+      with:
+        name: Windows 64-bit
+        token: ${{ secrets.GITHUB_TOKEN }}
+        path: target/release/sage.exe
+
+
+  build_macos:
+    name: Build Sage for MacOS
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-apple-darwin
+            name: MacOS (Intel)
+          - target: aarch64-apple-darwin
+            name: MacOS (Apple Silicon)
+
+    runs-on: macos-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Get Cargo toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        target: ${{ matrix.target }}
+        override: true
+
+    - name: Build Sage
+      uses: actions-rs/cargo@v1
+      with:
+        command: build
+        args: --release --target ${{ matrix.target }}
+
+    - name: Upload to Release
+      uses: ./.github/workflows/upload_artifacts
+      with:
+        name: ${{ matrix.name }}
+        token: ${{ secrets.GITHUB_TOKEN }}
+        path: target/${{ matrix.target }}/release/sage
