@@ -12,19 +12,24 @@ license = "MIT"
 
 [dependencies]
 anyhow = "1.0"
+async-compression = { version = "0.3", features = ["tokio", "gzip", "zlib"] }
+aws-config = "0.49"
+aws-sdk-s3 = "0.19"
 base64 = "0.13"
+bytes = "1.0"
 csv = "1"
 clap = { version="4.0", features = ["cargo", "unicode"] }
 env_logger = "0.8.4"
 log = "0.4.0"
-flate2 = "1.0"
+http = "0.2"
 regex = "1.6"
 rayon = "1.5"
+tokio = { version = "1.0", features = ["fs", "io-util", "rt"] }
 serde = { version="1.0", features = ["derive"] }
 serde_json = "1.0"
-quick-xml = "0.23"
+quick-xml = { version = "0.25", features = ["async-tokio"] }
 
 [profile.release]
-lto = "fat"
-codegen-units = 1
-panic = "abort"
+#lto = "fat"
+#codegen-units = 1
+#panic = "abort"

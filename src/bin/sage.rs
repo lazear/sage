@@ -2,6 +2,7 @@ use clap::{Arg, Command};
 use log::info;
 use rayon::prelude::*;
 use sage::mass::Tolerance;
+use sage::mzml::CloudPath;
 use sage::scoring::Scorer;
 use sage::spectrum::SpectrumProcessor;
 use sage::tmt::Isobaric;
@@ -25,11 +26,11 @@ struct Search {
     report_psms: usize,
     predict_rt: bool,
     parallel: bool,
-    mzml_paths: Vec<PathBuf>,
-    pin_paths: Vec<PathBuf>,
+    mzml_paths: Vec<String>,
+    pin_paths: Vec<String>,
 
     #[serde(skip_serializing)]
-    output_directory: Option<PathBuf>,
+    output_directory: CloudPath,
 }
 
 #[derive(Deserialize)]
@@ -47,9 +48,9 @@ struct Input {
     deisotope: Option<bool>,
     quant: Option<Quant>,
     predict_rt: Option<bool>,
-    output_directory: Option<PathBuf>,
+    output_directory: Option<String>,
     parallel: Option<bool>,
-    mzml_paths: Option<Vec<PathBuf>>,
+    mzml_paths: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -73,16 +74,23 @@ impl Input {
 
         let mzml_paths = self.mzml_paths.expect("'mzml_paths' must be provided!");
 
-        if let Some(dir) = &self.output_directory {
-            std::fs::create_dir_all(&dir)?;
-        }
+        let output_directory = match self.output_directory {
+            Some(path) => {
+                let path = path.parse::<CloudPath>()?;
+                if let CloudPath::Local(p) = &path {
+                    std::fs::create_dir_all(p)?;
+                }
+                path
+            }
+            None => CloudPath::Local(std::env::current_dir()?),
+        };
 
         Ok(Search {
             database,
             quant: self.quant.unwrap_or_default(),
             parallel: self.parallel.unwrap_or(true),
             mzml_paths,
-            output_directory: self.output_directory,
+            output_directory,
             precursor_tol: self.precursor_tol,
             fragment_tol: self.fragment_tol,
             report_psms: self.report_psms.unwrap_or(1),
@@ -170,37 +178,30 @@ impl Runner {
 
     // Create a path for `file_name` in the specified output directory, if it exists,
     // otherwise, write to current directory
-    fn make_path<S: AsRef<str>>(&self, file_name: S) -> Option<PathBuf> {
-        self.parameters
-            .output_directory
-            .clone()
-            .or_else(|| std::env::current_dir().ok())
-            .map(|mut directory| {
-                directory.push(file_name.as_ref());
-                directory
-            })
+    fn make_path<S: AsRef<str>>(&self, file_name: S) -> sage::mzml::CloudPath {
+        let mut path = self.parameters.output_directory.clone();
+        path.push(file_name);
+        path
     }
 
-    fn write_features(&self, features: &[sage::scoring::Percolator]) -> anyhow::Result<PathBuf> {
-        let path = self
-            .make_path("search.pin")
-            .expect("no output directory specified, and current directory is invalid!");
+    fn write_features(&self, features: &[sage::scoring::Percolator]) -> anyhow::Result<String> {
+        let path = self.make_path("search.pin");
         let mut wtr = csv::WriterBuilder::new()
             .delimiter(b'\t')
-            .from_path(&path)?;
+            .from_writer(vec![]);
         for feat in features {
             wtr.serialize(feat)?;
         }
         wtr.flush()?;
-        Ok(path)
+        let bytes = wtr.into_inner()?;
+        path.write_bytes_sync(bytes)?;
+        Ok(path.to_string())
     }
 
-    fn write_quant(&self, quant: &[sage::tmt::TmtQuant]) -> anyhow::Result<PathBuf> {
-        let path = self
-            .make_path("quant.csv")
-            .expect("no output directory specified, and current directory is invalid!");
+    fn write_quant(&self, quant: &[sage::tmt::TmtQuant]) -> anyhow::Result<String> {
+        let path = self.make_path("quant.csv");
 
-        let mut wtr = csv::WriterBuilder::new().from_path(&path)?;
+        let mut wtr = csv::WriterBuilder::new().from_writer(vec![]);
         let mut headers = vec![
             "file_id".into(),
             "scannr".into(),
@@ -227,10 +228,13 @@ impl Runner {
             wtr.write_record(&record)?;
         }
         wtr.flush()?;
-        Ok(path)
+
+        let bytes = wtr.into_inner()?;
+        path.write_bytes_sync(bytes)?;
+        Ok(path.to_string())
     }
 
-    fn process_file<P: AsRef<Path>>(
+    fn process_file<P: AsRef<str>>(
         &self,
         scorer: &Scorer,
         path: P,
@@ -244,16 +248,12 @@ impl Runner {
             file_id,
         );
 
-        let spectra = sage::mzml::MzMlReader::read(&path)?
+        let spectra = sage::mzml::read_mzml(&path)?
             .into_par_iter()
             .map(|spec| sp.process(spec))
             .collect::<Vec<_>>();
 
-        log::trace!(
-            "{}: read {} spectra",
-            path.as_ref().display(),
-            spectra.len()
-        );
+        log::trace!("{}: read {} spectra", path.as_ref(), spectra.len());
 
         let mut features: Vec<_> = spectra
             .par_iter()
@@ -334,13 +334,12 @@ impl Runner {
         let run_time = (Instant::now() - self.start).as_secs();
         info!("finished in {}s", run_time);
 
-        let path = self
-            .make_path("results.json")
-            .expect("no output directory specified, and current directory is invalid!");
-        let writer = std::fs::File::create(&path)?;
-        self.parameters.pin_paths.push(path);
+        let path = self.make_path("results.json");
+        self.parameters.pin_paths.push(path.to_string());
         println!("{}", serde_json::to_string_pretty(&self.parameters)?);
-        serde_json::to_writer_pretty(writer, &self.parameters)?;
+
+        let bytes = serde_json::to_vec_pretty(&self.parameters)?;
+        path.write_bytes_sync(bytes)?;
 
         Ok(())
     }

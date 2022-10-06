@@ -20,7 +20,7 @@ VWPFEKVADAMKQMQEKKNVGKVLLVPGPEKEN";
 /// Data from PXD001468 - searched with 10ppm precursor and fragment tolerance
 /// Top hit after FDR refinement using [mokapot](https://github.com/wfondrie/mokapot)
 pub fn peptide_id() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-    let spectra = sage::mzml::MzMlReader::read("tests/LQSRPAAPPAPGPGQLTLR.mzML")?;
+    let spectra = sage::mzml::read_mzml("tests/LQSRPAAPPAPGPGQLTLR.mzML")?;
     assert_eq!(spectra.len(), 1);
 
     let sp = SpectrumProcessor::new(100, 0.0, 1500.0, true, 0);
