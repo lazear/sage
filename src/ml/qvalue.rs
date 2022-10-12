@@ -5,7 +5,7 @@ use crate::scoring::Percolator;
 ///
 /// # Invariants
 /// * `scores` must be sorted in descending order (e.g. best PSM is first)
-pub fn assign_q_values(scores: &mut [Percolator]) -> usize {
+pub fn spectrum_q_value(scores: &mut [Percolator]) -> usize {
     // FDR Calculation:
     // * Sort by score, descending
     // * Estimate FDR

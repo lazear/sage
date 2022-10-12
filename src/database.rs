@@ -133,7 +133,8 @@ impl Parameters {
         (target_decoys, peptide_graph)
     }
 
-    pub fn build(self) -> Result<IndexedDatabase, Box<dyn std::error::Error>> {
+    // pub fn build(self) -> Result<IndexedDatabase, Box<dyn std::error::Error + Send + Sync + 'static>> {
+    pub fn build(self) -> anyhow::Result<IndexedDatabase> {
         let trypsin = Trypsin::new(
             self.missed_cleavages,
             self.peptide_min_len,

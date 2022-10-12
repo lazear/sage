@@ -5,7 +5,7 @@
 //! the matrix inv(Sw).dot(Sb) - or we solve the linear sysem Sw.dot(x) = Sb,
 //! then calculate the eigenvalue for x. This is the approach we take.
 
-use super::*;
+use super::matrix::Matrix;
 
 #[derive(Debug)]
 pub struct Gauss {

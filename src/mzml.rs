@@ -125,9 +125,7 @@ impl MzMlReader {
     }
 
     /// Convenience method
-    pub fn read<P: AsRef<Path>>(
-        p: P,
-    ) -> Result<Vec<Spectrum>, Box<dyn std::error::Error + Send + Sync + 'static>> {
+    pub fn read<P: AsRef<Path>>(p: P) -> anyhow::Result<Vec<Spectrum>> {
         let file = std::fs::File::open(&p)?;
         let reader = BufReader::new(file);
 
@@ -146,10 +144,7 @@ impl MzMlReader {
     /// Here be dragons -
     /// Seriously, this kinda sucks because it's a giant imperative, stateful loop.
     /// But I also don't want to spend any more time working on an mzML parser...
-    fn parse<B: BufRead>(
-        &self,
-        b: B,
-    ) -> Result<Vec<Spectrum>, Box<dyn std::error::Error + Send + Sync + 'static>> {
+    fn parse<B: BufRead>(&self, b: B) -> anyhow::Result<Vec<Spectrum>> {
         let mut reader = Reader::from_reader(b);
         let mut buf = Vec::new();
 
@@ -230,9 +225,9 @@ impl MzMlReader {
                             INTENSITY_ARRAY => binary_array = BinaryKind::Intensity,
                             MZ_ARRAY => binary_array = BinaryKind::Mz,
                             _ => {
-                                return Err(Box::new(MzMlError::UnsupportedCV(
+                                return Err(anyhow::Error::from(MzMlError::UnsupportedCV(
                                     accession.to_string(),
-                                )))
+                                )));
                             }
                         }
                     }

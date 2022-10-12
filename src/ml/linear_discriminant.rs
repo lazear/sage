@@ -8,37 +8,11 @@
 //! (complete with Gauss-Jordan elimination and eigenvector calculation) from scratch
 //! to enable LDA.
 
-mod gauss;
-pub mod kde;
-pub mod matrix;
-mod qvalue;
-mod retention_model;
-use matrix::Matrix;
-pub use qvalue::assign_q_values;
+use super::gauss::Gauss;
+use super::matrix::Matrix;
 use rayon::prelude::*;
 
 use crate::{database::IndexedDatabase, scoring::Percolator};
-
-#[allow(dead_code)]
-fn all_close(lhs: &[f64], rhs: &[f64], eps: f64) -> bool {
-    lhs.iter()
-        .zip(rhs.iter())
-        .all(|(l, r)| (l - r).abs() <= eps)
-}
-
-pub fn norm(slice: &[f64]) -> f64 {
-    slice.iter().fold(0.0, |acc, x| acc + x.powi(2)).sqrt()
-}
-
-pub fn mean(slice: &[f64]) -> f64 {
-    slice.iter().sum::<f64>() / slice.len() as f64
-}
-
-pub fn std(slice: &[f64]) -> f64 {
-    let mean = mean(slice);
-    let x = slice.iter().fold(0.0, |acc, x| acc + (x - mean).powi(2));
-    (x / slice.len() as f64).sqrt()
-}
 
 pub struct LinearDiscriminantAnalysis {
     eigenvector: Vec<f64>,
@@ -108,8 +82,8 @@ impl LinearDiscriminantAnalysis {
 
         // Use overall mean as the initial vector for power method... seems
         // unlikely to be the actual best eigenvector!
-        let mut evec = gauss::Gauss::solve(scatter_within, scatter_between)
-            .map(|mat| mat.power_method(&x_bar))?;
+        let mut evec =
+            Gauss::solve(scatter_within, scatter_between).map(|mat| mat.power_method(&x_bar))?;
 
         // In some cases, power method can return eigenvector with signs flipped -
         // Make it so that Target class scores are higher than Decoy, so that
@@ -130,31 +104,8 @@ impl LinearDiscriminantAnalysis {
     }
 }
 
-pub fn score_psms(db: &IndexedDatabase, scores: &mut [Percolator], predict_rt: bool) -> Option<()> {
+pub fn score_psms(scores: &mut [Percolator]) -> Option<()> {
     log::trace!("fitting linear discriminant model...");
-
-    if predict_rt {
-        // Poisson probability is usually the best single feature for refining FDR.
-        // Take our set of 1% FDR filtered PSMs, and use them to train a linear
-        // regression model for predicting retention time
-        scores.par_sort_unstable_by(|a, b| a.poisson.total_cmp(&b.poisson));
-        let passing = assign_q_values(scores);
-
-        // Training LR might fail - not enough values, or r-squared is < 0.7
-        if let Some(lr) = retention_model::RetentionModel::fit(db, &scores[..passing]) {
-            log::trace!("- fit retention time model, rsq = {}", lr.r2);
-            let predicted_rts = lr.predict(db, scores);
-            scores
-                .iter_mut()
-                .zip(&predicted_rts)
-                .for_each(|(score, &rt)| {
-                    // LR can sometimes predict crazy values - clamp predicted RT
-                    let bounded = rt.max(lr.rt_min - 10.0).min(lr.rt_max + 10.0) as f32;
-                    score.predicted_rt = bounded;
-                    score.delta_rt = (score.rt - bounded).powi(2) / score.rt;
-                });
-        }
-    }
 
     // Declare, so that we have compile time checking of matrix dimensions
     const FEATURES: usize = 15;
@@ -210,7 +161,7 @@ pub fn score_psms(db: &IndexedDatabase, scores: &mut [Percolator], predict_rt: b
     let discriminants = lda.score(&features);
 
     log::trace!("- fitting non-parametric model for posterior error probabilities");
-    let kde = kde::Estimator::fit(&discriminants, &decoys);
+    let kde = super::kde::Estimator::fit(&discriminants, &decoys);
 
     scores
         .iter_mut()
@@ -231,6 +182,7 @@ pub fn score_psms(db: &IndexedDatabase, scores: &mut [Percolator], predict_rt: b
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::ml::*;
 
     #[test]
     fn linear_discriminant() {

@@ -6,6 +6,7 @@ use crate::mass::{Tolerance, H2O, NH3, PROTON};
 use crate::peptide::Peptide;
 use crate::scoring::{Percolator, Scorer};
 use crate::spectrum::{self, Peak, Precursor, ProcessedSpectrum};
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -188,7 +189,7 @@ pub struct Quant<'ms3> {
 /// `labels`, within a given tolerance window.
 /// This function is MS-level agnostic, so it can be used for either MS2 or MS3
 /// quant.
-pub fn quantify<'a>(
+pub fn find_reporter_ions<'a>(
     peaks: &'a [Peak],
     labels: &[f32],
     label_tolerance: Tolerance,
@@ -276,11 +277,64 @@ pub fn quantify_sps<'a, 'b>(
         hit_purity,
         chimera,
         chimera_purity,
-        intensities: quantify(
+        intensities: find_reporter_ions(
             &ms3.peaks,
             isobaric_labels.reporter_masses(),
             isobaric_tolerance,
         ),
         spectrum: ms3,
     })
+}
+
+pub struct TmtQuant {
+    pub scannr: usize,
+    pub file_id: usize,
+    pub ion_injection_time: f32,
+    pub peaks: Vec<f32>,
+}
+
+/// Quantify isobaric tags from an MS2 or MS3 spectrum
+///
+/// * `spectra`: a slice (generally entire mzML) of spectra, that can be searched
+///     for precursor spectra
+/// * `isobaric_labels`: specify label m/zs to be used
+/// * `isobaric_tolerance`: specify label tolerance
+/// * `level`: MSn level to extract isobaric peaks from
+pub fn quantify(
+    spectra: &[ProcessedSpectrum],
+    isobaric_labels: &Isobaric,
+    isobaric_tolerance: Tolerance,
+    level: u8,
+) -> Vec<TmtQuant> {
+    spectra
+        .par_iter()
+        .filter(|spectrum| spectrum.level == level)
+        .filter_map(|spectrum| {
+            let scannr = match level {
+                1 => return None,
+                2 => spectrum.scan,
+                _ => spectrum
+                    .precursors
+                    .first()
+                    .and_then(|precursor| precursor.scan)
+                    .unwrap_or(0),
+            };
+
+            let peaks = find_reporter_ions(
+                &spectrum.peaks,
+                isobaric_labels.reporter_masses(),
+                isobaric_tolerance,
+            )
+            .into_iter()
+            .map(|peak| peak.map(|p| p.intensity).unwrap_or_default())
+            .collect();
+
+            Some(TmtQuant {
+                scannr,
+                file_id: spectrum.file_id,
+                ion_injection_time: spectrum.ion_injection_time,
+                peaks,
+            })
+        })
+        .collect()
 }

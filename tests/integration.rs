@@ -23,7 +23,7 @@ pub fn peptide_id() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'sta
     let spectra = sage::mzml::MzMlReader::read("tests/LQSRPAAPPAPGPGQLTLR.mzML")?;
     assert_eq!(spectra.len(), 1);
 
-    let sp = SpectrumProcessor::new(100, 0.0, 1500.0, true);
+    let sp = SpectrumProcessor::new(100, 0.0, 1500.0, true, 0);
     let processed = sp.process(spectra[0].clone());
     assert!(processed.peaks.len() <= 300);
 

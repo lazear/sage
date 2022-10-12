@@ -3,13 +3,36 @@
 //! See Klammer et al., Anal. Chem. 2007, 79, 16, 6111–6118
 //! https://doi.org/10.1021/ac070262k
 
-use super::{gauss::Gauss, Matrix};
+use super::{gauss::Gauss, matrix::Matrix};
 use crate::database::IndexedDatabase;
 use crate::mass::VALID_AA;
 use crate::peptide::Peptide;
 use crate::scoring::Percolator;
 use rayon::prelude::*;
 
+/// Try to fit a retention time prediction model
+pub fn predict(db: &IndexedDatabase, features: &mut [Percolator]) -> Option<()> {
+    // Poisson probability is usually the best single feature for refining FDR.
+    // Take our set of 1% FDR filtered PSMs, and use them to train a linear
+    // regression model for predicting retention time
+    features.par_sort_unstable_by(|a, b| a.poisson.total_cmp(&b.poisson));
+    let passing = super::qvalue::spectrum_q_value(features);
+
+    // Training LR might fail - not enough values, or r-squared is < 0.7
+    let lr = RetentionModel::fit(db, &features[..passing])?;
+    log::trace!("- fit retention time model, rsq = {}", lr.r2);
+    let predicted_rts = lr.predict(db, features);
+    features
+        .iter_mut()
+        .zip(&predicted_rts)
+        .for_each(|(score, &rt)| {
+            // LR can sometimes predict crazy values - clamp predicted RT
+            let bounded = rt.max(lr.rt_min - 10.0).min(lr.rt_max + 10.0) as f32;
+            score.predicted_rt = bounded;
+            score.delta_rt = (score.rt - bounded).powi(2) / score.rt;
+        });
+    Some(())
+}
 pub struct RetentionModel {
     beta: Matrix,
     map: [usize; 26],

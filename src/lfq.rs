@@ -1,21 +1,19 @@
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
 
 use crate::database::{binary_search_slice, PeptideIx};
-use crate::lda;
-use crate::mass::{Tolerance, NEUTRON, PROTON};
+use crate::mass::{Tolerance, NEUTRON};
 use crate::scoring::Percolator;
 use crate::spectrum::ProcessedSpectrum;
 
-pub fn quantify<P: AsRef<Path>>(
+pub fn quantify(
     features: &mut [Percolator],
     spectra: &[ProcessedSpectrum],
-    xic: P,
+    // xic: P,
 ) {
     let index = LfqIndex::new(features);
-    index.quantify(spectra, features, xic)
+    index.quantify(spectra, features)
 }
 
 /// Create a data structure analogous to [`IndexedDatabase`] - instaed of
@@ -69,14 +67,14 @@ impl LfqIndex {
         let min_charge = 2u8;
         let max_charge = features
             .iter()
-            .filter(|feat| feat.label == 1 && feat.q_value <= 0.01)
+            // .filter(|feat| feat.label == 1 && feat.q_value <= 0.01)
             .map(|feat| feat.charge)
             .max()
             .unwrap_or(4);
 
         let mut entries = features
             .par_iter()
-            .filter(|feat| feat.q_value <= 0.01 && feat.label == 1)
+            // .filter(|feat| feat.q_value <= 0.01 && feat.label == 1)
             .flat_map(|feat| {
                 (min_charge..=max_charge)
                     .par_bridge()
@@ -139,11 +137,11 @@ impl LfqIndex {
         }
     }
 
-    pub fn quantify<P: AsRef<Path>>(
+    pub fn quantify(
         &self,
         spectra: &[ProcessedSpectrum],
         features: &mut [Percolator],
-        xic: P,
+        // xic: P,
     ) {
         log::trace!("LFQ");
         // In the name of parallelism, we have to do some unecessary allocations!
@@ -206,20 +204,21 @@ impl LfqIndex {
             if let Some(area) = map.get(&feature.peptide_idx) {
                 feature.ms1_intensity = area.integrated_area;
                 feature.ms1_apex = area.apex;
+                feature.ms1_apex_rt = area.rt;
             }
         }
 
-        let mut wtr = csv::WriterBuilder::new().from_path(xic).unwrap();
-        for score in scores.values() {
-            for score in score {
-                wtr.serialize(score).unwrap();
-            }
-        }
-        wtr.flush().unwrap();
+        // let mut wtr = csv::WriterBuilder::new().from_path(xic).unwrap();
+        // for score in scores.values() {
+        //     for score in score {
+        //         wtr.serialize(score).unwrap();
+        //     }
+        // }
+        // wtr.flush().unwrap();
     }
 }
 
-struct Area {
+pub struct Area {
     apex: f32,
     integrated_area: f32,
     fwhm: f32,
@@ -242,7 +241,7 @@ fn integrate(points: &[Quant], kernel: &[f32], rt_min: f32, rt_max: f32) -> Area
 
     // Calculate KDE-smoothed density of MS1 ions
     let rt = points.iter().map(|pt| pt.rt as f64).collect::<Vec<_>>();
-    let kde = lda::kde::Kde::new(&rt);
+    let kde = crate::ml::kde::Kde::new(&rt);
 
     // Scaled the smoothed MS1 intensites by MS1 ion density
     let density = (0..grid_size)

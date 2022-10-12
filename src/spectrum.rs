@@ -24,10 +24,11 @@ pub struct Deisotoped {
 }
 
 pub struct SpectrumProcessor {
-    take_top_n: usize,
-    max_fragment_mz: f32,
-    min_fragment_mz: f32,
-    deisotope: bool,
+    pub take_top_n: usize,
+    pub max_fragment_mz: f32,
+    pub min_fragment_mz: f32,
+    pub deisotope: bool,
+    pub file_id: usize,
 }
 
 #[derive(Default, Debug, Copy, Clone, Serialize)]
@@ -45,6 +46,8 @@ pub struct ProcessedSpectrum {
     pub level: u8,
     /// Scan ID
     pub scan: usize,
+    /// File ID
+    pub file_id: usize,
     /// Retention time
     pub scan_start_time: f32,
     /// Ion injection time
@@ -53,7 +56,7 @@ pub struct ProcessedSpectrum {
     pub precursors: Vec<Precursor>,
     /// MS peaks
     pub peaks: Vec<Peak>,
-
+    /// Total ion current
     pub total_intensity: f32,
 }
 
@@ -177,17 +180,27 @@ impl ProcessedSpectrum {
 }
 
 impl SpectrumProcessor {
+    /// Create a new [`SpectrumProcessor`]
+    ///
+    /// # Arguments
+    /// * `take_top_n`: Keep only the top N most intense peaks from the spectrum
+    /// * `min_fragment_mz`: Keep only fragments >= this m/z
+    /// * `max_fragment_mz`: Keep only fragments <= this m/z
+    /// * `deisotope`: Perform deisotoping & charge state deconvolution
+    /// * `file_id`: Store this value in all [`ProcessedSpectrum`]
     pub fn new(
         take_top_n: usize,
         min_fragment_mz: f32,
         max_fragment_mz: f32,
         deisotope: bool,
+        file_id: usize,
     ) -> Self {
         Self {
             take_top_n,
             min_fragment_mz,
             max_fragment_mz,
             deisotope,
+            file_id,
         }
     }
 
@@ -269,6 +282,7 @@ impl SpectrumProcessor {
         ProcessedSpectrum {
             level: spectrum.ms_level,
             scan: spectrum.scan_id,
+            file_id: self.file_id,
             scan_start_time: spectrum.scan_start_time,
             ion_injection_time: spectrum.ion_injection_time,
             precursors: spectrum.precursors,

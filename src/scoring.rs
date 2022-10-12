@@ -31,6 +31,9 @@ pub struct Percolator {
     pub peptide_idx: PeptideIx,
     /// Peptide sequence, including modifications e.g.: NC(+57.021)HK
     pub peptide: String,
+    /// Internal peptide decoy index, used to match forward & reversed sequences
+    /// See: Lin et al., DOI: 10.1021/acs.jproteome.2c00282
+    pub peptide_decoy_idx: u16,
     /// Peptide length
     pub peptide_len: usize,
     /// Proteins containing this peptide sequence
@@ -39,6 +42,8 @@ pub struct Percolator {
     pub num_proteins: usize,
     /// Arbitrary spectrum id
     pub specid: usize,
+    /// File identifier
+    pub file_id: usize,
     /// MS2 scan number
     pub scannr: u32,
     /// Target/Decoy label, -1 is decoy, 1 is target
@@ -51,7 +56,9 @@ pub struct Percolator {
     pub charge: u8,
     /// Retention time
     pub rt: f32,
+    /// Predicted RT, if enabled
     pub predicted_rt: f32,
+    /// Difference between predicted & observed RT
     pub delta_rt: f32,
     /// Difference between expmass and calcmass
     pub delta_mass: f32,
@@ -69,7 +76,7 @@ pub struct Percolator {
     pub longest_b: usize,
     /// Longest y-ion series
     pub longest_y: usize,
-
+    /// Longest y-ion series, divided by peptide length
     pub longest_y_pct: f32,
     /// Number of missed cleavages
     pub missed_cleavages: u8,
@@ -89,6 +96,7 @@ pub struct Percolator {
     pub ms2_intensity: f32,
     pub ms1_intensity: f32,
     pub ms1_apex: f32,
+    pub ms1_apex_rt: f32,
 }
 
 impl Score {
@@ -281,10 +289,12 @@ impl<'db> Scorer<'db> {
                 // Identifiers
                 peptide_idx: better.peptide,
                 peptide: peptide.to_string(),
+                peptide_decoy_idx: peptide.idx,
                 proteins,
                 num_proteins,
                 specid: 0,
                 scannr: query.scan as u32,
+                file_id: query.file_id,
                 label: peptide.label(),
                 expmass: precursor_mass,
                 calcmass: peptide.monoisotopic,
@@ -317,6 +327,7 @@ impl<'db> Scorer<'db> {
                 ms2_intensity: better.summed_b + better.summed_y,
                 ms1_intensity: 0.0,
                 ms1_apex: 0.0,
+                ms1_apex_rt: 0.0,
             })
         }
         reporting

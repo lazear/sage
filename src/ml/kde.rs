@@ -7,6 +7,7 @@
 //! Ma, 2012 [https://pubmed.ncbi.nlm.nih.gov/23176103/]
 
 use super::*;
+use rayon::prelude::*;
 
 pub struct Kde<'a> {
     sample: &'a [f64],
