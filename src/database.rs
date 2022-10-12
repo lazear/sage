@@ -78,6 +78,10 @@ impl Builder {
             fasta: self.fasta,
         }
     }
+
+    pub fn update_fasta(&mut self, fasta: PathBuf) {
+        self.fasta = fasta
+    }
 }
 
 #[derive(Serialize, Clone, Debug)]
