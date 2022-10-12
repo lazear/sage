@@ -29,7 +29,7 @@ pub fn peptide_id() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'sta
 
     let sequence = SEQUENCE.split_whitespace().collect::<String>();
     let mut peptides = Trypsin::new(0, 5, 50)
-        .digest(&sequence, false)
+        .digest(&sequence)
         .into_iter()
         .map(|dig| Peptide::try_from(&dig))
         .collect::<Result<Vec<Peptide>, _>>()

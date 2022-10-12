@@ -7,6 +7,9 @@ Cargo.lock
 *.pin
 *.txt
 *.csv
+*.tsv
+*.gz
 *.json
 *.ms2
 *.fasta
+*.fas

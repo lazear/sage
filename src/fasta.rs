@@ -4,16 +4,16 @@ use std::path::Path;
 
 pub struct Fasta {
     pub targets: Vec<(String, String)>,
-    pub decoys: Vec<(String, String)>,
+    decoy_prefix: String,
 }
 
 impl Fasta {
     /// Open and parse a fasta file
-    pub fn open<P: AsRef<Path>>(path: P, decoy_prefix: &str) -> io::Result<Fasta> {
+    pub fn open<P: AsRef<Path>, S: Into<String>>(path: P, decoy_prefix: S) -> io::Result<Fasta> {
+        let decoy_prefix = decoy_prefix.into();
         let buf = std::fs::read_to_string(path)?;
 
         let mut targets = Vec::new();
-        let mut decoys = Vec::new();
         let mut last_id = "";
         let mut s = String::new();
 
@@ -25,9 +25,8 @@ impl Fasta {
                 if !s.is_empty() {
                     let acc: String = last_id.split_ascii_whitespace().next().unwrap().into();
                     let seq = std::mem::take(&mut s);
-                    match acc.starts_with(decoy_prefix) {
-                        true => decoys.push((acc, seq)),
-                        false => targets.push((acc, seq)),
+                    if !acc.starts_with(&decoy_prefix) {
+                        targets.push((acc, seq));
                     }
                 }
                 last_id = id;
@@ -38,42 +37,30 @@ impl Fasta {
 
         if !s.is_empty() {
             let acc: String = last_id.split_ascii_whitespace().next().unwrap().into();
-            match acc.starts_with(decoy_prefix) {
-                true => decoys.push((acc, s)),
-                false => targets.push((acc, s)),
+            if !acc.starts_with(&decoy_prefix) {
+                targets.push((acc, s));
             }
         }
 
-        Ok(Fasta { targets, decoys })
-    }
-
-    pub fn make_decoys(&mut self, decoy_prefix: &str) {
-        if !self.decoys.is_empty() {
-            return;
-        }
-        let decoys = self
-            .targets
-            .iter()
-            .map(|(p, s)| (format!("{}{}", decoy_prefix, p), s.chars().rev().collect()))
-            .collect::<Vec<_>>();
-
-        self.decoys = decoys;
+        Ok(Fasta {
+            targets,
+            decoy_prefix,
+        })
     }
 
     pub fn digest(&self, trypsin: &Trypsin) -> HashMap<Digest, Vec<String>> {
         let mut targets: HashMap<Digest, Vec<String>> = HashMap::new();
+        let mut decoys: HashMap<Digest, Vec<String>> = HashMap::new();
         for (acc, seq) in &self.targets {
-            for digest in trypsin.digest(seq, false) {
+            for digest in trypsin.digest(seq) {
+                decoys
+                    .entry(digest.reverse())
+                    .or_default()
+                    .push(format!("{}{}", self.decoy_prefix, acc));
                 targets.entry(digest).or_default().push(acc.clone());
             }
         }
-        let mut decoys: HashMap<Digest, Vec<String>> = HashMap::new();
-        for (acc, seq) in &self.decoys {
-            for digest in trypsin.digest(seq, true) {
-                decoys.entry(digest).or_default().push(acc.clone());
-            }
-        }
-        // Overwrite decoy entries
+
         for (k, v) in targets {
             decoys.insert(k, v);
         }
@@ -100,6 +87,25 @@ pub struct Digest {
     /// Missed cleavages
     pub missed_cleavages: u8,
     pub idx: u16,
+}
+
+impl Digest {
+    fn reverse(&self) -> Self {
+        if self.decoy {
+            return self.clone();
+        }
+
+        let mut sequence = self.sequence.chars().rev().collect::<Vec<char>>();
+        let n = sequence.len().saturating_sub(1);
+        sequence.swap(0, n);
+
+        Digest {
+            decoy: true,
+            sequence: sequence.into_iter().collect(),
+            missed_cleavages: self.missed_cleavages,
+            idx: self.idx,
+        }
+    }
 }
 
 impl PartialEq for Digest {
@@ -139,7 +145,7 @@ impl Trypsin {
     }
 
     /// Generate a series of tryptic digests for a given `sequence`
-    pub fn digest(&self, sequence: &str, is_decoy: bool) -> Vec<Digest> {
+    pub fn digest(&self, sequence: &str) -> Vec<Digest> {
         let mut digests = Vec::new();
         let mut idx = 0;
         let peptides = self.inner(sequence);
@@ -150,19 +156,14 @@ impl Trypsin {
                 let len = sequence.len();
                 if len >= self.min_len && len <= self.max_len {
                     digests.push(Digest {
-                        // protein,
                         sequence: sequence.into(),
                         missed_cleavages: cleavage - 1,
                         idx,
-                        decoy: is_decoy,
+                        decoy: false,
                     });
                     idx += 1;
                 }
             }
-        }
-        if is_decoy {
-            let n = digests.len() as u16;
-            digests.iter_mut().for_each(|dig| dig.idx = n - dig.idx - 1);
         }
         digests
     }
@@ -189,7 +190,7 @@ mod tests {
         let sequence = "MADEEKMADEEK";
         let expected = vec!["MADEEK", "MADEEK"];
 
-        let mut observed = trypsin.digest(sequence.into(), false);
+        let mut observed = trypsin.digest(sequence.into());
 
         // Make sure digest worked!
         assert_eq!(
@@ -211,7 +212,7 @@ mod tests {
         let expected = vec!["MADEEK", "LPPGWEK", "MSR", "SSGR", "VYYFNHITNASQWERPSGN"];
         assert_eq!(
             trypsin
-                .digest(sequence.into(), false)
+                .digest(sequence.into())
                 .into_iter()
                 .map(|d| d.sequence)
                 .collect::<Vec<_>>(),
@@ -222,24 +223,15 @@ mod tests {
     #[test]
     fn reverse() {
         let trypsin = Trypsin::new(0, 2, 50);
-        let sequence = "MADEEKLPPGWEKRMSRSSGRVYYFNHITNASQWERPSGN"
-            .chars()
-            .rev()
-            .collect::<String>();
-        let expected = vec![
-            "NGSPR",
-            "EWQSANTIHNFYYVR",
-            "GSSR",
-            "SMR",
-            "EWGPPLK",
-            "EEDAM",
-        ];
+        let sequence = "MADEEKLPPGWEKRMSRSSGRVYYFNHITNASQWERPSGN";
+
+        let expected = vec!["MEEDAK", "LEWGPPK", "MSR", "SGSR", "VGSPREWQSANTIHNFYYN"];
 
         assert_eq!(
             trypsin
-                .digest(&sequence, true)
+                .digest(&sequence)
                 .into_iter()
-                .map(|d| d.sequence)
+                .map(|d| d.reverse().sequence)
                 .collect::<Vec<_>>(),
             expected
         );
@@ -264,7 +256,7 @@ mod tests {
         ];
         assert_eq!(
             trypsin
-                .digest(sequence.into(), false)
+                .digest(sequence.into())
                 .into_iter()
                 .map(|d| d.sequence)
                 .collect::<Vec<_>>(),
@@ -295,7 +287,7 @@ mod tests {
         ];
         assert_eq!(
             trypsin
-                .digest(sequence.into(), false)
+                .digest(sequence.into())
                 .into_iter()
                 .map(|d| d.sequence)
                 .collect::<Vec<_>>(),
@@ -309,21 +301,19 @@ mod tests {
         let trypsin = Trypsin::new(0, 2, 50);
 
         let fwd = "MADEEKLPPGWEKRMSRSSGRVYYFNHITNASQWERPSGN";
-        let rev = fwd.chars().rev().collect::<String>();
 
-        let fwd = trypsin.digest(fwd, false);
-        let mut rev = trypsin.digest(&rev, true);
-        rev.sort_by(|a, b| a.idx.cmp(&b.idx));
+        let fwd = trypsin.digest(fwd);
+        let rev = fwd.iter().map(|d| d.reverse()).collect::<Vec<_>>();
 
         for (f, r) in fwd.iter().zip(rev.iter()) {
             assert_eq!(f.idx, r.idx);
-            let r_ = r.sequence[..r.sequence.len() - 1]
+            let r_ = r.sequence[1..r.sequence.len() - 1]
                 .chars()
                 .rev()
-                .skip(1)
                 .collect::<String>();
+
             let f_ = &f.sequence[1..f.sequence.len() - 1];
-            assert!(f_.contains(&r_), "{} {}", f_, r_);
+            assert_eq!(f_, r_);
         }
     }
 }
