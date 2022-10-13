@@ -140,8 +140,7 @@ impl Parameters {
             self.peptide_min_len,
             self.peptide_max_len,
         );
-        let mut fasta = Fasta::open(&self.fasta, &self.decoy_prefix)?;
-        // fasta.make_decoys(&self.decoy_prefix);
+        let fasta = Fasta::open(&self.fasta, &self.decoy_prefix)?;
 
         let (target_decoys, peptide_graph) = self.digest(&fasta, &trypsin);
 

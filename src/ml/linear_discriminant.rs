@@ -12,7 +12,7 @@ use super::gauss::Gauss;
 use super::matrix::Matrix;
 use rayon::prelude::*;
 
-use crate::{database::IndexedDatabase, scoring::Percolator};
+use crate::scoring::Percolator;
 
 pub struct LinearDiscriminantAnalysis {
     eigenvector: Vec<f64>,

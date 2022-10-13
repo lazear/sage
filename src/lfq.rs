@@ -7,11 +7,7 @@ use crate::mass::{Tolerance, NEUTRON};
 use crate::scoring::Percolator;
 use crate::spectrum::ProcessedSpectrum;
 
-pub fn quantify(
-    features: &mut [Percolator],
-    spectra: &[ProcessedSpectrum],
-    // xic: P,
-) {
+pub fn quantify(features: &mut [Percolator], spectra: &[ProcessedSpectrum]) {
     let index = LfqIndex::new(features);
     index.quantify(spectra, features)
 }
@@ -65,16 +61,10 @@ struct Quant {
 impl LfqIndex {
     pub fn new(features: &[Percolator]) -> Self {
         let min_charge = 2u8;
-        let max_charge = features
-            .iter()
-            // .filter(|feat| feat.label == 1 && feat.q_value <= 0.01)
-            .map(|feat| feat.charge)
-            .max()
-            .unwrap_or(4);
+        let max_charge = features.iter().map(|feat| feat.charge).max().unwrap_or(4);
 
         let mut entries = features
             .par_iter()
-            // .filter(|feat| feat.q_value <= 0.01 && feat.label == 1)
             .flat_map(|feat| {
                 (min_charge..=max_charge)
                     .par_bridge()
@@ -137,12 +127,7 @@ impl LfqIndex {
         }
     }
 
-    pub fn quantify(
-        &self,
-        spectra: &[ProcessedSpectrum],
-        features: &mut [Percolator],
-        // xic: P,
-    ) {
+    pub fn quantify(&self, spectra: &[ProcessedSpectrum], features: &mut [Percolator]) {
         log::trace!("LFQ");
         // In the name of parallelism, we have to do some unecessary allocations!
         let temp = spectra
@@ -207,14 +192,6 @@ impl LfqIndex {
                 feature.ms1_apex_rt = area.rt;
             }
         }
-
-        // let mut wtr = csv::WriterBuilder::new().from_path(xic).unwrap();
-        // for score in scores.values() {
-        //     for score in score {
-        //         wtr.serialize(score).unwrap();
-        //     }
-        // }
-        // wtr.flush().unwrap();
     }
 }
 
