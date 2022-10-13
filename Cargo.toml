@@ -13,7 +13,7 @@ license = "MIT"
 [dependencies]
 base64 = "0.13"
 csv = "1"
-clap = "3.2"
+clap = { version="4.0", features = ["cargo", "unicode"] }
 env_logger = "0.8.4"
 log = "0.4.0"
 miniz_oxide = "0.5.3"

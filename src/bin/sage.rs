@@ -48,20 +48,40 @@ struct Input {
     quant: Option<Isobaric>,
     predict_rt: Option<bool>,
     output_directory: Option<PathBuf>,
-    mzml_paths: Vec<PathBuf>,
+    mzml_paths: Option<Vec<PathBuf>>,
 }
 
 impl Search {
-    pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn load<P: AsRef<Path>>(
+        path: P,
+        mzml_paths: Option<Vec<P>>,
+        fasta: Option<P>,
+        output_directory: Option<P>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let mut file = std::fs::File::open(path)?;
-        let request: Input = serde_json::from_reader(&mut file)?;
+        let mut request: Input = serde_json::from_reader(&mut file)?;
+        if let Some(f) = fasta {
+            request.database.update_fasta(f.as_ref().to_path_buf())
+        };
         let database = request.database.make_parameters();
         let isotope_errors = request.isotope_errors.unwrap_or((0, 0));
         if isotope_errors.0 > isotope_errors.1 {
             log::warn!("Minimum isotope_error value greater than maximum! Typical usage: `isotope_errors: [-1, 3]`");
         }
+        let mzml_paths = match mzml_paths {
+            Some(p) => p.into_iter().map(|f| f.as_ref().to_path_buf()).collect(),
+            _ => request.mzml_paths.expect("'mzml_paths' must be provided!"),
+        };
+
+        let output_directory = match output_directory {
+            Some(p) => Some(p.as_ref().to_path_buf()),
+            _ => request.output_directory,
+        };
+
         Ok(Search {
             database,
+            mzml_paths,
+            output_directory,
             quant: request.quant,
             precursor_tol: request.precursor_tol,
             fragment_tol: request.fragment_tol,
@@ -74,8 +94,6 @@ impl Search {
             chimera: request.chimera.unwrap_or(false),
             predict_rt: request.predict_rt.unwrap_or(true),
             pin_paths: Vec::new(),
-            mzml_paths: request.mzml_paths,
-            output_directory: request.output_directory,
             search_time: 0.0,
         })
     }
@@ -228,14 +246,49 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let start = time::Instant::now();
 
     let matches = Command::new("sage")
+        .version(clap::crate_version!())
         .author("Michael Lazear <michaellazear92@gmail.com>")
-        .arg(Arg::new("parameters").required(true))
+        .about("\u{1F52E} Sage \u{1F9D9} - Proteomics searching so fast it feels like magic!")
+        .arg(
+            Arg::new("parameters")
+                .required(true)
+                .help("The search parameters as a JSON file."),
+        )
+        .arg(Arg::new("mzml_paths").num_args(1..).help(
+            "mzML files to analyze. Overrides mzML files listed in the \
+                     parameter file.",
+        ))
+        .arg(Arg::new("fasta").short('f').long("fasta").help(
+            "The FASTA protein database. Overrides the FASTA file \
+                     specified in the parameter file.",
+        ))
+        .arg(
+            Arg::new("output_directory")
+                .short('o')
+                .long("output_directory")
+                .help(
+                    "Where the search and quant results will be written. \
+                     Overrides the directory specified in the parameter file.",
+                ),
+        )
+        .help_template(
+            "{usage-heading} {usage}\n\n\
+             {about-with-newline}\n\
+             Written by {author-with-newline}Version {version}\n\n\
+             {all-args}{after-help}",
+        )
         .get_matches();
 
     let path = matches
         .get_one::<String>("parameters")
         .expect("required parameters");
-    let mut search = Search::load(path)?;
+    let output_directory = matches.get_one::<String>("output_directory");
+    let fasta = matches.get_one::<String>("fasta");
+    let mzml_paths = matches
+        .get_many::<String>("mzml_paths")
+        .map(|vals| vals.collect());
+
+    let mut search = Search::load(path, mzml_paths, fasta, output_directory)?;
 
     let db = search.database.clone().build()?;
 
