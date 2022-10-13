@@ -48,7 +48,7 @@ struct Input {
     quant: Option<Isobaric>,
     predict_rt: Option<bool>,
     output_directory: Option<PathBuf>,
-    mzml_paths: Vec<PathBuf>,
+    mzml_paths: Option<Vec<PathBuf>>,
 }
 
 impl Search {
@@ -70,7 +70,7 @@ impl Search {
         }
         let mzml_paths = match mzml_paths {
             Some(p) => p.into_iter().map(|f| f.as_ref().to_path_buf()).collect(),
-            _ => request.mzml_paths,
+            _ => request.mzml_paths.expect("'mzml_paths' must be provided!"),
         };
 
         let output_directory = match output_directory {

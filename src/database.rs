@@ -39,7 +39,7 @@ pub struct Builder {
     /// Use this prefix for decoy proteins
     pub decoy_prefix: Option<String>,
     /// Path to fasta database
-    pub fasta: PathBuf,
+    pub fasta: Option<PathBuf>,
 }
 
 impl Builder {
@@ -75,12 +75,12 @@ impl Builder {
             missed_cleavages: self.missed_cleavages.unwrap_or(0),
             static_mods: Self::validate_mods(self.static_mods),
             variable_mods: Self::validate_mods(self.variable_mods),
-            fasta: self.fasta,
+            fasta: self.fasta.expect("A fasta file must be provided!"),
         }
     }
 
     pub fn update_fasta(&mut self, fasta: PathBuf) {
-        self.fasta = fasta
+        self.fasta = Some(fasta)
     }
 }
 

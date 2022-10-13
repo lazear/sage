@@ -22,3 +22,14 @@ jobs:
       run: cargo test --verbose
     - name: Run VAT1_HUMAN search
       run: cargo run tests/config.json
+    - name: Run with CLI args
+      run: |
+        cargo run -- \
+          -f tests/Q99536.fasta \
+          -o foo \
+          tests/config-cli.json \
+          tests/*.mzML
+        if [ ! - LQSRPAAPPAPGPGQLTLR.sage.pin ]; then
+          echo "FILE NOT FOUND!"
+          exit 1
+        fi
