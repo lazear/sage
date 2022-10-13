@@ -56,7 +56,7 @@ impl Search {
         path: P,
         mzml_paths: Option<Vec<P>>,
         fasta: Option<P>,
-        output_directory: Option<P>
+        output_directory: Option<P>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let mut file = std::fs::File::open(path)?;
         let mut request: Input = serde_json::from_reader(&mut file)?;
@@ -69,11 +69,7 @@ impl Search {
             log::warn!("Minimum isotope_error value greater than maximum! Typical usage: `isotope_errors: [-1, 3]`");
         }
         let mzml_paths = match mzml_paths {
-            Some(p) => {
-                p.into_iter()
-                 .map(|f| f.as_ref().to_path_buf())
-                 .collect()
-            },
+            Some(p) => p.into_iter().map(|f| f.as_ref().to_path_buf()).collect(),
             _ => request.mzml_paths,
         };
 
@@ -256,39 +252,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .arg(
             Arg::new("parameters")
                 .required(true)
-                .help("The search parameters as a JSON file.")
+                .help("The search parameters as a JSON file."),
         )
-        .arg(
-            Arg::new("mzml_paths")
-                .num_args(1..)
-                .help(
-                    "mzML files to analyze. Overrides mzML files listed in the \
-                     parameter file."
-                )
-        )
-        .arg(
-            Arg::new("fasta")
-                .short('f')
-                .long("fasta")
-                .help(
-                    "The FASTA protein database. Overrides the FASTA file \
-                     specified in the parameter file."
-                )
-        )
+        .arg(Arg::new("mzml_paths").num_args(1..).help(
+            "mzML files to analyze. Overrides mzML files listed in the \
+                     parameter file.",
+        ))
+        .arg(Arg::new("fasta").short('f').long("fasta").help(
+            "The FASTA protein database. Overrides the FASTA file \
+                     specified in the parameter file.",
+        ))
         .arg(
             Arg::new("output_directory")
                 .short('o')
                 .long("output_directory")
                 .help(
                     "Where the search and quant results will be written. \
-                     Overrides the directory specified in the parameter file."
-                )
+                     Overrides the directory specified in the parameter file.",
+                ),
         )
         .help_template(
             "{usage-heading} {usage}\n\n\
              {about-with-newline}\n\
              Written by {author-with-newline}Version {version}\n\n\
-             {all-args}{after-help}"
+             {all-args}{after-help}",
         )
         .get_matches();
 
@@ -297,7 +284,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("required parameters");
     let output_directory = matches.get_one::<String>("output_directory");
     let fasta = matches.get_one::<String>("fasta");
-    let mzml_paths = matches.get_many::<String>("mzml_paths")
+    let mzml_paths = matches
+        .get_many::<String>("mzml_paths")
         .map(|vals| vals.collect());
 
     let mut search = Search::load(path, mzml_paths, fasta, output_directory)?;
