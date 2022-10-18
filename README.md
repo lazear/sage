@@ -171,3 +171,17 @@ Two notes:
   "mzml_paths": ["path.mzML"]       // List[str]: representing relative (or full) paths to mzML files for search
 }
 ```
+
+## Using the docker image
+
+Sage can be used from a docker image!
+
+```shell
+$ docker pull ghcr.io/lazear/sage:master
+$ docker run -it --rm -v ${PWD}:/data ghcr.io/lazear/sage:master sage -o /data /data/config.json
+# The sage executable is located in /app/sage in the image
+```
+
+> `-v ${PWD}:/data` means it will mount your current directory as `/data`
+> in the docker image. Make sure all the paths in your command and configuration
+> use the location in the image and not your local directory
