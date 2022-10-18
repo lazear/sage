@@ -66,9 +66,47 @@ cargo run --release tests/config.json
 
 # Usage 
 
-Sage takes a single command line argument: a path to a JSON-encoded parameter file (see below). 
+```shell
+$ sage --help
+Usage: sage [OPTIONS] <parameters> [mzml_paths]...
+
+🔮 Sage 🧙 - Proteomics searching so fast it feels like magic!
+
+Arguments:
+  <parameters>     The search parameters as a JSON file.
+  [mzml_paths]...  mzML files to analyze. Overrides mzML files listed in the parameter file.
+
+Options:
+  -f, --fasta <fasta>
+          The FASTA protein database. Overrides the FASTA file specified in the parameter file.
+  -o, --output_directory <output_directory>
+          Where the search and quant results will be written. Overrides the directory specified in the parameter file.
+  -h, --help
+          Print help information
+  -V, --version
+          Print version information
+```
+
+Sage is called from the command line using and requires a path to a JSON-encoded parameter file as an argument (see below). 
 
 Example usage: `sage config.json`
+
+Some options in the parameters file can be over-written using the command line
+interface. These are:
+
+1. The paths to the raw mzML data
+2. The path to the database (fasta file)
+3. The output directory
+
+like so ...
+
+```
+# specify fasta and output dir:
+sage -f proteins.fasta -o cool_project config.json
+
+# And specify mzML files:
+sage -f proteins.fasta config.json *.mzML
+```
 
 Running Sage will produce several output files:
 - Record of search parameters (`results.json`) will be created that details input/output paths and all search parameters used for the search
@@ -82,6 +120,8 @@ Two notes:
 - Tolerances are specified on the *experimental* m/z values. To perform a -100 to +500 Da open search (mass window applied to *precursor*), you would use `"da": [-500, 100]`
 
 ```jsonc
+// Note that json does not allow comments, they are here just as explaination
+// but need to be removed in a real config.json file
 {
   "database": {
     "bucket_size": 32768,           // How many fragments are in each internal mass bucket
