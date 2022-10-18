@@ -43,7 +43,10 @@ Sage has excellent performance characteristics (5x faster than - the closed sour
 
 # Installation
 
-## Installing the development version
+There is no need to install sage, it is distributed as a standalone executable file.
+This file can be either built directly from the github repository or downloaded
+from a pre-compiled release
+## Compiling the development version
 
 1. Install the [Rust programming language compiler](https://rustup.rs/)
 2. Download Sage source code via git: `git clone https://github.com/lazear/sage.git` or by [zip file](https://github.com/lazear/sage/archive/refs/heads/master.zip)
@@ -58,7 +61,7 @@ cd sage
 cargo run --release tests/config.json 
 ```
 
-## Installing the latest release
+## Downloading the latest release
 
 1. Visit the [Releases](https://github.com/lazear/sage/releases/latest) website.
 2. Download the correct pre-compiled binary for your operating system.
@@ -102,7 +105,7 @@ like so ...
 
 ```
 # specify fasta and output dir:
-sage -f proteins.fasta -o cool_project config.json
+sage -f proteins.fasta -o output_directory config.json
 
 # And specify mzML files:
 sage -f proteins.fasta config.json *.mzML
@@ -120,7 +123,7 @@ Two notes:
 - Tolerances are specified on the *experimental* m/z values. To perform a -100 to +500 Da open search (mass window applied to *precursor*), you would use `"da": [-500, 100]`
 
 ```jsonc
-// Note that json does not allow comments, they are here just as explaination
+// Note that json does not allow comments, they are here just as explanation
 // but need to be removed in a real config.json file
 {
   "database": {
