@@ -15,7 +15,7 @@ Sage has excellent performance characteristics (5x faster than - the closed sour
 - Incredible performance out of the box
 - Effortlessly cross-platform (Linux/MacOS/Windows), effortlessly parallel (uses all of your CPU cores)
 - Fragment indexing strategy allows for blazing fast narrow and open searches
-- MS3-TMT quantification (experimental!)
+- MS3-TMT quantification (R-squared of 0.999 with Proteome Discoverer)
 - Capable of searching for chimeric/co-fragmenting spectra
 - FDR calculation using target-decoy competition, with built-in linear discriminant anlysis
 - PEP calculation using a non-parametric model (KDE)
@@ -23,6 +23,9 @@ Sage has excellent performance characteristics (5x faster than - the closed sour
 - Small and simple codebase
 - Configuration by JSON files
 
+### Experimental features
+
+- Label-free quantification: consider all charge states & isotopologues *a la* FlashLFQ
 
 ### Assign multiple peptides to complex spectra
 
@@ -147,7 +150,10 @@ Two notes:
     "decoy_prefix": "rev_", // Optional[str] {default="rev_"}: Prefix appended to decoy proteins
     "fasta": "dual.fasta"   // str: mandatory path to fasta file
   },
-  "quant": "Tmt16",         // Optional[str] {default=null}, one of "Tmt6", "Tmt10", "Tmt11", "Tmt16", or "Tmt18"
+  "quant": {                // Optional - specify only if TMT or LFQ
+    "tmt": "Tmt16",         // Optional[str] {default=null}, one of "Tmt6", "Tmt10", "Tmt11", "Tmt16", or "Tmt18"
+    "lfq": true,            // Optional[bool] {default=null}, perform label-free quantification
+  },
   "precursor_tol": {        // Tolerance can be either "ppm" or "da"
     "da": [
       -500,                 // This value is substracted from the experimental precursor to match theoretical peptides
