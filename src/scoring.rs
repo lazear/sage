@@ -31,9 +31,6 @@ pub struct Percolator {
     pub peptide_idx: PeptideIx,
     /// Peptide sequence, including modifications e.g.: NC(+57.021)HK
     pub peptide: String,
-    /// Internal peptide decoy index, used to match forward & reversed sequences
-    /// See: Lin et al., DOI: 10.1021/acs.jproteome.2c00282
-    pub peptide_decoy_idx: u16,
     /// Peptide length
     pub peptide_len: usize,
     /// Proteins containing this peptide sequence
@@ -291,7 +288,6 @@ impl<'db> Scorer<'db> {
                 // Identifiers
                 peptide_idx: better.peptide,
                 peptide: peptide.to_string(),
-                peptide_decoy_idx: peptide.idx,
                 proteins,
                 num_proteins,
                 specid: String::default(),

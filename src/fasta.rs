@@ -86,7 +86,6 @@ pub struct Digest {
     pub sequence: String,
     /// Missed cleavages
     pub missed_cleavages: u8,
-    pub idx: u16,
 }
 
 impl Digest {
@@ -103,7 +102,6 @@ impl Digest {
             decoy: true,
             sequence: sequence.into_iter().collect(),
             missed_cleavages: self.missed_cleavages,
-            idx: self.idx,
         }
     }
 }
@@ -147,7 +145,6 @@ impl Trypsin {
     /// Generate a series of tryptic digests for a given `sequence`
     pub fn digest(&self, sequence: &str) -> Vec<Digest> {
         let mut digests = Vec::new();
-        let mut idx = 0;
         let peptides = self.inner(sequence);
         for cleavage in 1..=(1 + self.miss_cleavage) {
             // Generate missed cleavages
@@ -158,10 +155,8 @@ impl Trypsin {
                     digests.push(Digest {
                         sequence: sequence.into(),
                         missed_cleavages: cleavage - 1,
-                        idx,
                         decoy: false,
                     });
-                    idx += 1;
                 }
             }
         }
@@ -306,7 +301,6 @@ mod tests {
         let rev = fwd.iter().map(|d| d.reverse()).collect::<Vec<_>>();
 
         for (f, r) in fwd.iter().zip(rev.iter()) {
-            assert_eq!(f.idx, r.idx);
             let r_ = r.sequence[1..r.sequence.len() - 1]
                 .chars()
                 .rev()
