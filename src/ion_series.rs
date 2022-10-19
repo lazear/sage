@@ -75,7 +75,6 @@ mod test {
         Peptide::try_from(&Digest {
             sequence: s.into(),
             missed_cleavages: 0,
-            idx: 0,
             decoy: false,
         })
         .unwrap()

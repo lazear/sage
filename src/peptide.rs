@@ -12,7 +12,6 @@ pub struct Peptide {
     pub nterm: Option<f32>,
     pub monoisotopic: f32,
     pub missed_cleavages: u8,
-    pub idx: u16,
 }
 
 impl Peptide {
@@ -160,8 +159,6 @@ impl TryFrom<&Digest> for Peptide {
             monoisotopic,
             nterm: None,
             missed_cleavages: value.missed_cleavages,
-            idx: value.idx,
-            // protein: value.protein.into(),
         })
     }
 }
@@ -192,7 +189,6 @@ mod test {
         let peptide = Peptide::try_from(&Digest {
             sequence: "GCMGCMG".into(),
             missed_cleavages: 0,
-            idx: 0,
             decoy: false,
         })
         .unwrap();
@@ -232,7 +228,6 @@ mod test {
             sequence: "GCMGCMG".into(),
             missed_cleavages: 0,
             decoy: false,
-            idx: 0,
         })
         .unwrap();
 
@@ -271,7 +266,6 @@ mod test {
             let mut fwd = Peptide::try_from(&digest).unwrap();
             let mut rev = Peptide::try_from(&digest.reverse()).unwrap();
 
-            assert_eq!(fwd.idx, rev.idx);
             assert_eq!(fwd.decoy, false);
             assert_eq!(rev.decoy, true);
             assert!(
@@ -295,7 +289,6 @@ mod test {
             sequence: "AACAACAA".into(),
             missed_cleavages: 0,
             decoy: false,
-            idx: 0,
         })
         .unwrap();
 
