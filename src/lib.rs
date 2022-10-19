@@ -1,5 +1,6 @@
 pub mod database;
 pub mod fasta;
+pub mod fdr;
 pub mod ion_series;
 pub mod lfq;
 pub mod mass;

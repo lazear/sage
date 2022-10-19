@@ -84,6 +84,19 @@ impl Peptide {
             peptides
         }
     }
+
+    /// If `self` is a decoy peptide, un-reverse it
+    pub fn pseudo_forward(&self) -> Option<Peptide> {
+        if self.decoy {
+            let mut fwd = self.clone();
+            if fwd.sequence.len() > 2 {
+                let n = fwd.sequence.len().saturating_sub(1);
+                fwd.sequence[1..n].reverse();
+            }
+            return Some(fwd);
+        }
+        None
+    }
 }
 
 pub struct VariableMod<'a> {
@@ -246,6 +259,34 @@ mod test {
             .collect();
 
         assert_eq!(peptides, expected);
+    }
+
+    /// Check that picked-peptide approach will match forward and reverse peptides
+    #[test]
+    fn test_psuedo_forward() {
+        let trypsin = crate::fasta::Trypsin::new(0, 2, 50);
+
+        let fwd = "MADEEKLPPGWEKRMSRSSGRVYYFNHITNASQWERPSGN";
+        for digest in trypsin.digest(fwd) {
+            let mut fwd = Peptide::try_from(&digest).unwrap();
+            let mut rev = Peptide::try_from(&digest.reverse()).unwrap();
+
+            assert_eq!(fwd.idx, rev.idx);
+            assert_eq!(fwd.decoy, false);
+            assert_eq!(rev.decoy, true);
+            assert!(
+                fwd.sequence.len() < 4 || fwd.sequence != rev.sequence,
+                "{} {}",
+                fwd,
+                rev
+            );
+            assert_eq!(fwd.pseudo_forward(), None);
+            assert_eq!(rev.pseudo_forward().unwrap().to_string(), fwd.to_string());
+
+            fwd.static_mod('E', 15.0);
+            rev.static_mod('E', 15.0);
+            assert_eq!(rev.pseudo_forward().unwrap().to_string(), fwd.to_string());
+        }
     }
 
     #[test]
