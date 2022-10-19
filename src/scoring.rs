@@ -92,6 +92,8 @@ pub struct Percolator {
     pub posterior_error: f32,
     /// Assigned q_value
     pub q_value: f32,
+    pub peptide_q: f32,
+    pub protein_q: f32,
 
     pub ms2_intensity: f32,
     pub ms1_intensity: f32,
@@ -322,6 +324,8 @@ impl<'db> Scorer<'db> {
                 discriminant_score: 0.0,
                 posterior_error: 1.0,
                 q_value: 1.0,
+                protein_q: 1.0,
+                peptide_q: 1.0,
                 predicted_rt: 0.0,
                 delta_rt: 1.0,
                 ms2_intensity: better.summed_b + better.summed_y,

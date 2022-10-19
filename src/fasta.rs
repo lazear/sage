@@ -90,7 +90,7 @@ pub struct Digest {
 }
 
 impl Digest {
-    fn reverse(&self) -> Self {
+    pub fn reverse(&self) -> Self {
         if self.decoy {
             return self.clone();
         }

@@ -311,9 +311,17 @@ impl Runner {
                 .collect::<SageResults>(),
         };
 
-        let passing = self.spectrum_fdr(&mut outputs.features);
+        let q_spectrum = self.spectrum_fdr(&mut outputs.features);
+        let q_peptide = sage::fdr::picked_peptide(&self.database, &mut outputs.features);
+        let q_protein = sage::fdr::picked_protein(&self.database, &mut outputs.features);
 
-        info!("{} peptide-spectrum matches at 1% FDR", passing);
+        info!(
+            "discovered {} peptide-spectrum matches at 1% FDR",
+            q_spectrum
+        );
+        info!("discovered {} peptides at 1% FDR", q_peptide);
+        info!("discovered {} proteins at 1% FDR", q_protein);
+
         self.parameters
             .pin_paths
             .push(self.write_features(&outputs.features)?);
