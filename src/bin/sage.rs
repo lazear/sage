@@ -24,6 +24,7 @@ struct Search {
     max_fragment_charge: Option<u8>,
     report_psms: usize,
     predict_rt: bool,
+    parallel: bool,
     mzml_paths: Vec<PathBuf>,
     pin_paths: Vec<PathBuf>,
 
@@ -47,6 +48,7 @@ struct Input {
     quant: Option<Quant>,
     predict_rt: Option<bool>,
     output_directory: Option<PathBuf>,
+    parallel: Option<bool>,
     mzml_paths: Option<Vec<PathBuf>>,
 }
 
@@ -56,50 +58,41 @@ struct Quant {
     lfq: Option<bool>,
 }
 
-impl Search {
-    pub fn load<P: AsRef<Path>>(
-        path: P,
-        mzml_paths: Option<Vec<P>>,
-        fasta: Option<P>,
-        output_directory: Option<P>,
-    ) -> anyhow::Result<Self> {
+impl Input {
+    pub fn load<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
         let mut file = std::fs::File::open(path)?;
-        let mut request: Input = serde_json::from_reader(&mut file)?;
-        if let Some(f) = fasta {
-            request.database.update_fasta(f.as_ref().to_path_buf())
-        };
-        let database = request.database.make_parameters();
-        let isotope_errors = request.isotope_errors.unwrap_or((0, 0));
+        serde_json::from_reader(&mut file).map_err(anyhow::Error::from)
+    }
+
+    pub fn build(self) -> anyhow::Result<Search> {
+        let database = self.database.make_parameters();
+        let isotope_errors = self.isotope_errors.unwrap_or((0, 0));
         if isotope_errors.0 > isotope_errors.1 {
             log::warn!("Minimum isotope_error value greater than maximum! Typical usage: `isotope_errors: [-1, 3]`");
         }
-        let mzml_paths = match mzml_paths {
-            Some(p) => p.into_iter().map(|f| f.as_ref().to_path_buf()).collect(),
-            _ => request.mzml_paths.expect("'mzml_paths' must be provided!"),
-        };
 
-        let output_directory = output_directory
-            .map(|p| p.as_ref().to_path_buf())
-            .or(request.output_directory);
-        if let Some(dir) = &output_directory {
+        let mzml_paths = self.mzml_paths.expect("'mzml_paths' must be provided!");
+
+        if let Some(dir) = &self.output_directory {
             std::fs::create_dir_all(&dir)?;
         }
 
         Ok(Search {
             database,
-            quant: request.quant.unwrap_or_default(),
+            quant: self.quant.unwrap_or_default(),
+            parallel: self.parallel.unwrap_or(true),
             mzml_paths,
-            output_directory,
-            precursor_tol: request.precursor_tol,
-            fragment_tol: request.fragment_tol,
-            report_psms: request.report_psms.unwrap_or(1),
-            max_peaks: request.max_peaks.unwrap_or(150),
-            min_peaks: request.min_peaks.unwrap_or(15),
-            max_fragment_charge: request.max_fragment_charge,
-            isotope_errors: request.isotope_errors.unwrap_or((0, 0)),
-            deisotope: request.deisotope.unwrap_or(true),
-            chimera: request.chimera.unwrap_or(false),
-            predict_rt: request.predict_rt.unwrap_or(true),
+            output_directory: self.output_directory,
+            precursor_tol: self.precursor_tol,
+            fragment_tol: self.fragment_tol,
+            report_psms: self.report_psms.unwrap_or(1),
+            max_peaks: self.max_peaks.unwrap_or(150),
+            min_peaks: self.min_peaks.unwrap_or(15),
+            max_fragment_charge: self.max_fragment_charge,
+            isotope_errors: self.isotope_errors.unwrap_or((0, 0)),
+            deisotope: self.deisotope.unwrap_or(true),
+            chimera: self.chimera.unwrap_or(false),
+            predict_rt: self.predict_rt.unwrap_or(true),
             pin_paths: Vec::new(),
         })
     }
@@ -125,6 +118,21 @@ impl FromParallelIterator<SageResults> for SageResults {
         par_iter
             .into_par_iter()
             .reduce(SageResults::default, |mut acc, x| {
+                acc.features.extend(x.features);
+                acc.quant.extend(x.quant);
+                acc
+            })
+    }
+}
+
+impl FromIterator<SageResults> for SageResults {
+    fn from_iter<I>(par_iter: I) -> Self
+    where
+        I: IntoIterator<Item = SageResults>,
+    {
+        par_iter
+            .into_iter()
+            .fold(SageResults::default(), |mut acc, x| {
                 acc.features.extend(x.features);
                 acc.quant.extend(x.quant);
                 acc
@@ -286,13 +294,22 @@ impl Runner {
         );
 
         //Collect all results into a single container
-        let mut outputs = self
-            .parameters
-            .mzml_paths
-            .par_iter()
-            .enumerate()
-            .flat_map(|(file_id, path)| self.process_file(&scorer, path, file_id))
-            .collect::<SageResults>();
+        let mut outputs = match self.parameters.parallel {
+            true => self
+                .parameters
+                .mzml_paths
+                .par_iter()
+                .enumerate()
+                .flat_map(|(file_id, path)| self.process_file(&scorer, path, file_id))
+                .collect::<SageResults>(),
+            false => self
+                .parameters
+                .mzml_paths
+                .iter()
+                .enumerate()
+                .flat_map(|(file_id, path)| self.process_file(&scorer, path, file_id))
+                .collect::<SageResults>(),
+        };
 
         let passing = self.spectrum_fdr(&mut outputs.features);
 
@@ -353,6 +370,15 @@ fn main() -> anyhow::Result<()> {
                      Overrides the directory specified in the parameter file.",
                 ),
         )
+        .arg(
+            Arg::new("no-parallel")
+                .long("no-parallel")
+                .action(clap::ArgAction::SetFalse)
+                .help(
+                    "Turn off parallel file searching. \
+                 Useful for memory constrained systems.",
+                ),
+        )
         .help_template(
             "{usage-heading} {usage}\n\n\
              {about-with-newline}\n\
@@ -364,13 +390,27 @@ fn main() -> anyhow::Result<()> {
     let path = matches
         .get_one::<String>("parameters")
         .expect("required parameters");
-    let output_directory = matches.get_one::<String>("output_directory");
-    let fasta = matches.get_one::<String>("fasta");
-    let mzml_paths = matches
-        .get_many::<String>("mzml_paths")
-        .map(|vals| vals.collect());
+    let mut input = Input::load(path)?;
 
-    let runner = Search::load(path, mzml_paths, fasta, output_directory)
+    // Handle JSON configuration overrides
+    if let Some(output_directory) = matches.get_one::<String>("output_directory") {
+        input.output_directory = Some(output_directory.into());
+    }
+    if let Some(fasta) = matches.get_one::<String>("fasta") {
+        input.database.fasta = Some(fasta.into());
+    }
+    if let Some(mzml_paths) = matches.get_many::<String>("mzml_paths") {
+        input.mzml_paths = Some(mzml_paths.into_iter().map(|p| p.into()).collect());
+    }
+
+    if let Some(no_parallel) = matches.get_one::<bool>("no-parallel").copied() {
+        if !no_parallel {
+            input.parallel = Some(false);
+        }
+    }
+
+    let runner = input
+        .build()
         .and_then(|search| Runner::new(start, search))?;
 
     runner.run()?;

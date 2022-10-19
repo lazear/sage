@@ -22,6 +22,7 @@ Sage has excellent performance characteristics (5x faster than - the closed sour
 - Percolator/Mokapot compatible output
 - Small and simple codebase
 - Configuration by JSON files
+- Built-in support for reading gzipped-mzML files
 
 ### Experimental features
 
@@ -87,6 +88,8 @@ Options:
           The FASTA protein database. Overrides the FASTA file specified in the parameter file.
   -o, --output_directory <output_directory>
           Where the search and quant results will be written. Overrides the directory specified in the parameter file.
+      --no-parallel
+          Turn off parallel file searching. Useful for memory constrained systems or large sets of files.
   -h, --help
           Print help information
   -V, --version
@@ -177,7 +180,8 @@ Two notes:
   "max_peaks": 150,         // Optional[int] {default=150}: take the top N most intense MS2 peaks to search,
   "max_fragment_charge": 1, // Optional[int] {default=null}: maximum fragment ion charge states to consider,
   "report_psms": 1,         // Optional[int] {default=1}: number of PSMs to report for each spectra. Recommend setting to 1, higher values might disrupt LDA
-  "mzml_paths": ["path.mzML"]       // List[str]: representing relative (or full) paths to mzML files for search
+  "parallel": true,         // Optional[bool] {default=true}: search files in parallel. For large numbers of files or low RAM, set this to false
+  "mzml_paths": ["path.mzML"]       // List[str]: representing relative (or full) paths to mzML (or gzipped-mzML) files for search
 }
 ```
 
