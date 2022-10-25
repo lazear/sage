@@ -1,102 +1,141 @@
 name: Build Sage Executables
 
 on:
-  push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
   release:
-    types: [ created ]
+    types: [created]
 
 jobs:
   build_ubuntu:
     name: Build Sage for Linux
     runs-on: ubuntu-latest
     container: ubuntu:14.04 # GLIBC 2.19
+    strategy:
+      matrix:
+        include:
+          - name: Linux 64-bit
+            target: x86_64-unknown-linux-musl
+
     steps:
-    - name: Install dependencies
-      run: |
-        sudo apt-get update && sudo apt-get upgrade -y
-        sudo apt-get install -y curl build-essential
+      - name: Install dependencies
+        run: |
+          sudo apt-get update && sudo apt-get upgrade -y
+          sudo apt-get install -y curl build-essential
 
-    - name: Checkout repository
-      uses: actions/checkout@v2
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-    - name: Get Cargo toolchain
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
+      - name: Get Cargo toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
 
-    - name: Build Sage
-      uses: actions-rs/cargo@v1
-      with:
-        command: build
-        args: --release
+      - name: Build Sage
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release --target ${{ matrix.target }}
 
-    - name: Upload executable to release
-      uses: ./.github/workflows/upload_artifacts
-      with:
-        name: Linux 64-bit
-        token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build archive
+        shell: bash
+        run: |
+          sage_version=${{ github.ref_name }}
+          staging="sage-$sage_version-${{ matrix.target }}"
+          mkdir -p "$staging"
+          cp "target/${{ matrix.target }}/release/sage" "$staging/"
+          tar czf "$staging.tar.gz" "$staging"
+          echo "ASSET=$staging.tar.gz" >> $GITHUB_ENV
 
+      - name: Upload executable to release
+        uses: ./.github/workflows/upload_artifacts
+        with:
+          name: ${{ env.ASSET }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          path: ${{ env.ASSET }}
 
   build_windows:
     name: Build Sage for Windows
     runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - name: Windows 64-bits
+            target: x86_64-pc-windows-msvc
+
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v2
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-    - name: Get Cargo toolchain
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
+      - name: Get Cargo toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
 
-    - name: Build Sage
-      uses: actions-rs/cargo@v1
-      with:
-        command: build
-        args: --release
+      - name: Build Sage
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release --target ${{ matrix.target }}
 
-    - name: Upload executable to release
-      uses: ./.github/workflows/upload_artifacts
-      with:
-        name: Windows 64-bit
-        token: ${{ secrets.GITHUB_TOKEN }}
-        path: target/release/sage.exe
+      - name: Build archive
+        shell: bash
+        run: |
+          sage_version=${{ github.ref_name }} 
+          staging="sage-$sage_version-${{ matrix.target }}"
+          mkdir -p "$staging"
+          cp "target/${{ matrix.target }}/release/sage.exe" "$staging/"
+          7z a "$staging.zip" "$staging"
+          echo "ASSET=$staging.zip" >> $GITHUB_ENV
 
+      - name: Upload executable to release
+        uses: ./.github/workflows/upload_artifacts
+        with:
+          name: ${{ env.ASSET }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          path: ${{ env.ASSET }}
 
   build_macos:
     name: Build Sage for MacOS
     strategy:
       matrix:
         include:
-          - target: x86_64-apple-darwin
-            name: MacOS (Intel)
-          - target: aarch64-apple-darwin
-            name: MacOS (Apple Silicon)
+          - name: MacOS (Intel)
+            target: x86_64-apple-darwin
+          - name: MacOS (Apple Silicon)
+            target: aarch64-apple-darwin
 
     runs-on: macos-latest
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v2
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-    - name: Get Cargo toolchain
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        target: ${{ matrix.target }}
-        override: true
+      - name: Get Cargo toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+          override: true
 
-    - name: Build Sage
-      uses: actions-rs/cargo@v1
-      with:
-        command: build
-        args: --release --target ${{ matrix.target }}
+      - name: Build Sage
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release --target ${{ matrix.target }}
 
-    - name: Upload to Release
-      uses: ./.github/workflows/upload_artifacts
-      with:
-        name: ${{ matrix.name }}
-        token: ${{ secrets.GITHUB_TOKEN }}
-        path: target/${{ matrix.target }}/release/sage
+      - name: Build archive
+        shell: bash
+        run: |
+          sage_version=${{ github.ref_name }} 
+          staging="sage-$sage_version-${{ matrix.target }}"
+          mkdir -p "$staging"
+          cp "target/${{ matrix.target }}/release/sage" "$staging/"
+          tar czf "$staging.tar.gz" "$staging"
+          echo "ASSET=$staging.tar.gz" >> $GITHUB_ENV
+
+      - name: Upload to Release
+        uses: ./.github/workflows/upload_artifacts
+        with:
+          name: $${{ env.ASSET }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          path: ${{ env.ASSET }}
