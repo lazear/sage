@@ -164,7 +164,7 @@ pub fn score_psms(scores: &mut [Percolator]) -> Option<()> {
     let kde = super::kde::Estimator::fit(&discriminants, &decoys);
 
     scores
-        .iter_mut()
+        .par_iter_mut()
         .zip(&discriminants)
         .for_each(|(perc, score)| {
             perc.discriminant_score = *score as f32;

@@ -22,14 +22,16 @@ clap = { version="4.0", features = ["cargo", "unicode"] }
 env_logger = "0.8.4"
 log = "0.4.0"
 http = "0.2"
+num_cpus = "1.13"
 regex = "1.6"
 rayon = "1.5"
 tokio = { version = "1.0", features = ["fs", "io-util", "rt"] }
+tokio-stream = "0.1"
 serde = { version="1.0", features = ["derive"] }
 serde_json = "1.0"
 quick-xml = { version = "0.25", features = ["async-tokio"] }
 
 [profile.release]
-#lto = "fat"
-#codegen-units = 1
-#panic = "abort"
+lto = "fat"
+codegen-units = 1
+panic = "abort"

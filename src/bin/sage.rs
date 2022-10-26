@@ -4,7 +4,7 @@ use rayon::prelude::*;
 use sage::mass::Tolerance;
 use sage::mzml::CloudPath;
 use sage::scoring::Scorer;
-use sage::spectrum::SpectrumProcessor;
+use sage::spectrum::{ProcessedSpectrum, SpectrumProcessor};
 use sage::tmt::Isobaric;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -234,27 +234,11 @@ impl Runner {
         Ok(path.to_string())
     }
 
-    fn process_file<P: AsRef<str>>(
+    fn search_processed_spectra(
         &self,
         scorer: &Scorer,
-        path: P,
-        file_id: usize,
-    ) -> anyhow::Result<SageResults> {
-        let sp = SpectrumProcessor::new(
-            self.parameters.max_peaks,
-            self.parameters.database.fragment_min_mz,
-            self.parameters.database.fragment_max_mz,
-            self.parameters.deisotope,
-            file_id,
-        );
-
-        let spectra = sage::mzml::read_mzml(&path)?
-            .into_par_iter()
-            .map(|spec| sp.process(spec))
-            .collect::<Vec<_>>();
-
-        log::trace!("{}: read {} spectra", path.as_ref(), spectra.len());
-
+        spectra: Vec<ProcessedSpectrum>,
+    ) -> SageResults {
         let mut features: Vec<_> = spectra
             .par_iter()
             .filter(|spec| spec.peaks.len() >= self.parameters.min_peaks && spec.level == 2)
@@ -276,8 +260,85 @@ impl Runner {
             .as_ref()
             .map(|isobaric| sage::tmt::quantify(&spectra, isobaric, Tolerance::Ppm(-20.0, 20.0), 3))
             .unwrap_or_default();
+        SageResults { features, quant }
+    }
 
-        Ok(SageResults { features, quant })
+    fn process_file<P: AsRef<str>>(
+        &self,
+        scorer: &Scorer,
+        path: P,
+        file_id: usize,
+    ) -> anyhow::Result<SageResults> {
+        let sp = SpectrumProcessor::new(
+            self.parameters.max_peaks,
+            self.parameters.database.fragment_min_mz,
+            self.parameters.database.fragment_max_mz,
+            self.parameters.deisotope,
+            file_id,
+        );
+
+        let spectra = sage::mzml::read_mzml(&path)?
+            .into_par_iter()
+            .map(|spec| sp.process(spec))
+            .collect::<Vec<_>>();
+
+        log::trace!("{}: read {} spectra", path.as_ref(), spectra.len());
+
+        Ok(self.search_processed_spectra(scorer, spectra))
+    }
+
+    fn process_chunk(
+        &self,
+        scorer: &Scorer,
+        chunk: &[String],
+        chunk_idx: usize,
+        batch_size: usize,
+    ) -> SageResults {
+        // Read all of the spectra at once - this can help prevent memory over-consumption issues
+        let spectra = chunk
+            .par_iter()
+            .map(|path| sage::mzml::read_mzml(path))
+            .collect::<Vec<_>>();
+
+        spectra
+            .into_par_iter()
+            .enumerate()
+            .filter_map(|(idx, spectra)| match spectra {
+                Ok(spectra) => {
+                    log::info!("{}: read {} spectra", chunk[idx], spectra.len());
+                    Some((idx, spectra))
+                }
+                Err(e) => {
+                    log::error!("error while processing {}: {}", chunk[idx], e);
+                    None
+                }
+            })
+            .map(|(idx, spectra)| {
+                let sp = SpectrumProcessor::new(
+                    self.parameters.max_peaks,
+                    self.parameters.database.fragment_min_mz,
+                    self.parameters.database.fragment_max_mz,
+                    self.parameters.deisotope,
+                    chunk_idx * batch_size + idx,
+                );
+
+                let spectra = spectra
+                    .into_iter()
+                    .map(move |spec| sp.process(spec))
+                    .collect::<Vec<_>>();
+                self.search_processed_spectra(scorer, spectra)
+            })
+            .collect::<SageResults>()
+    }
+
+    pub fn batch_files(&self, scorer: &Scorer) -> SageResults {
+        let batch_size = num_cpus::get() / 2;
+        self.parameters
+            .mzml_paths
+            .chunks(batch_size)
+            .enumerate()
+            .map(|(chunk_idx, chunk)| self.process_chunk(scorer, chunk, chunk_idx, batch_size))
+            .collect::<SageResults>()
     }
 
     pub fn run(mut self) -> anyhow::Result<()> {
@@ -295,13 +356,7 @@ impl Runner {
 
         //Collect all results into a single container
         let mut outputs = match self.parameters.parallel {
-            true => self
-                .parameters
-                .mzml_paths
-                .par_iter()
-                .enumerate()
-                .flat_map(|(file_id, path)| self.process_file(&scorer, path, file_id))
-                .collect::<SageResults>(),
+            true => self.batch_files(&scorer),
             false => self
                 .parameters
                 .mzml_paths
@@ -346,8 +401,11 @@ impl Runner {
 }
 
 fn main() -> anyhow::Result<()> {
-    let env = env_logger::Env::default().filter_or("SAGE_LOG", "info");
-    env_logger::init_from_env(env);
+    // let env = env_logger::Env::default().filter_or("SAGE_LOG", "info");
+    env_logger::builder()
+        .filter(None, log::LevelFilter::Error)
+        .filter_module("sage", log::LevelFilter::Trace)
+        .init();
 
     let start = time::Instant::now();
 
