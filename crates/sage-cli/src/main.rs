@@ -255,7 +255,7 @@ impl Runner {
             "peptide",
             "proteins",
             "num_proteins",
-            "specid",
+            "file",
             "scannr",
             "label",
             "expmass",
@@ -310,11 +310,7 @@ impl Runner {
         let path = self.make_path("quant.csv");
 
         let mut wtr = csv::WriterBuilder::new().from_writer(vec![]);
-        let mut headers = vec![
-            "file_id".into(),
-            "scannr".into(),
-            "ion_injection_time".into(),
-        ];
+        let mut headers = csv::ByteRecord::from(vec!["file", "scannr", "ion_injection_time"]);
         headers.extend(
             self.parameters
                 .quant
@@ -324,15 +320,23 @@ impl Runner {
                 .expect("TMT quant cannot be performed without setting this parameter"),
         );
 
-        wtr.write_record(&headers)?;
+        wtr.write_byte_record(&headers)?;
 
-        for q in quant {
-            let mut record = vec![
-                q.file_id.to_string(),
-                q.scannr.to_string(),
-                q.ion_injection_time.to_string(),
-            ];
-            record.extend(q.peaks.iter().map(|x| x.to_string()));
+        let records = quant
+            .into_par_iter()
+            .map(|q| {
+                let mut record = csv::ByteRecord::new();
+                record.push_field(itoa::Buffer::new().format(q.file_id).as_bytes());
+                record.push_field(itoa::Buffer::new().format(q.scannr).as_bytes());
+                record.push_field(ryu::Buffer::new().format(q.ion_injection_time).as_bytes());
+                for peak in &q.peaks {
+                    record.push_field(ryu::Buffer::new().format(*peak).as_bytes());
+                }
+                record
+            })
+            .collect::<Vec<csv::ByteRecord>>();
+
+        for record in records {
             wtr.write_record(&record)?;
         }
         wtr.flush()?;
