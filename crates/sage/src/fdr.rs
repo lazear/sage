@@ -4,18 +4,10 @@
 //! Lin et al., https://pubmed.ncbi.nlm.nih.gov/36166314/
 //! Savitski et al., https://pubmed.ncbi.nlm.nih.gov/25987413/
 
-use rayon::{
-    prelude::{IntoParallelRefMutIterator, ParallelIterator},
-    slice::ParallelSliceMut,
-};
-
-use crate::{
-    database::{IndexedDatabase, PeptideIx},
-    mass::Residue,
-    peptide::Peptide,
-    scoring::Percolator,
-};
-use std::{collections::HashMap, hash::Hash};
+use crate::database::{IndexedDatabase, PeptideIx};
+use crate::scoring::Percolator;
+use rayon::prelude::*;
+use std::collections::HashMap;
 
 #[derive(Copy, Clone, Debug)]
 struct Competition<Ix: Default> {

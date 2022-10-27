@@ -387,7 +387,7 @@ mod tests {
 
     #[test]
     fn integrate_peak() {
-        let json = include_str!("../tests/lfq_test.json");
+        let json = include_str!("../../../tests/lfq_test.json");
         let pts: Vec<Quant> = serde_json::from_str(&json).unwrap();
         let kernel = gaussian_kernel(0.5, 10);
 

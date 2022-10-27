@@ -1,0 +1,15 @@
+[package]
+name = "sage-cloudpath"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+sage-core = { path = "../sage" }
+async-compression = { version = "0.3", features = ["tokio", "gzip", "zlib"] }
+aws-config = "0.49"
+aws-sdk-s3 = "0.19"
+bytes = "1.0"
+http = "0.2"
+tokio = { version = "1.0", features = ["fs", "io-util", "rt"] }

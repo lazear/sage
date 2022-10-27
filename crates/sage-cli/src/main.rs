@@ -1,19 +1,18 @@
 use clap::{Arg, Command};
 use log::info;
 use rayon::prelude::*;
-use sage::mass::Tolerance;
-use sage::mzml::CloudPath;
-use sage::scoring::Scorer;
-use sage::spectrum::{ProcessedSpectrum, SpectrumProcessor};
-use sage::tmt::Isobaric;
+use sage_cloudpath::CloudPath;
+use sage_core::mass::Tolerance;
+use sage_core::scoring::Scorer;
+use sage_core::spectrum::{ProcessedSpectrum, SpectrumProcessor};
+use sage_core::tmt::Isobaric;
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
 use std::time::{self, Instant};
 
 #[derive(Serialize)]
 /// Actual search parameters - may include overrides or default values not set by user
 struct Search {
-    database: sage::database::Parameters,
+    database: sage_core::database::Parameters,
     quant: Quant,
     precursor_tol: Tolerance,
     fragment_tol: Tolerance,
@@ -36,7 +35,7 @@ struct Search {
 #[derive(Deserialize)]
 /// Input search parameters deserialized from JSON file
 struct Input {
-    database: sage::database::Builder,
+    database: sage_core::database::Builder,
     precursor_tol: Tolerance,
     fragment_tol: Tolerance,
     report_psms: Option<usize>,
@@ -60,8 +59,8 @@ struct Quant {
 }
 
 impl Input {
-    pub fn load<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
-        let mut file = std::fs::File::open(path)?;
+    pub fn load<S: AsRef<str>>(path: S) -> anyhow::Result<Self> {
+        let mut file = std::fs::File::open(path.as_ref())?;
         serde_json::from_reader(&mut file).map_err(anyhow::Error::from)
     }
 
@@ -107,15 +106,15 @@ impl Input {
 }
 
 struct Runner {
-    database: sage::database::IndexedDatabase,
+    database: sage_core::database::IndexedDatabase,
     parameters: Search,
     start: Instant,
 }
 
 #[derive(Default)]
 struct SageResults {
-    features: Vec<sage::scoring::Percolator>,
-    quant: Vec<sage::tmt::TmtQuant>,
+    features: Vec<sage_core::scoring::Percolator>,
+    quant: Vec<sage_core::tmt::TmtQuant>,
 }
 
 impl FromParallelIterator<SageResults> for SageResults {
@@ -163,8 +162,8 @@ impl Runner {
         })
     }
 
-    fn spectrum_fdr(&self, features: &mut [sage::scoring::Percolator]) -> usize {
-        if sage::ml::linear_discriminant::score_psms(features).is_some() {
+    fn spectrum_fdr(&self, features: &mut [sage_core::scoring::Percolator]) -> usize {
+        if sage_core::ml::linear_discriminant::score_psms(features).is_some() {
             features
                 .par_sort_unstable_by(|a, b| b.discriminant_score.total_cmp(&a.discriminant_score));
         } else {
@@ -173,18 +172,18 @@ impl Runner {
             );
             features.par_sort_unstable_by(|a, b| a.poisson.total_cmp(&b.poisson));
         }
-        sage::ml::qvalue::spectrum_q_value(features)
+        sage_core::ml::qvalue::spectrum_q_value(features)
     }
 
     // Create a path for `file_name` in the specified output directory, if it exists,
     // otherwise, write to current directory
-    fn make_path<S: AsRef<str>>(&self, file_name: S) -> sage::mzml::CloudPath {
+    fn make_path<S: AsRef<str>>(&self, file_name: S) -> CloudPath {
         let mut path = self.parameters.output_directory.clone();
         path.push(file_name);
         path
     }
 
-    fn serialize_feature(&self, feature: &sage::scoring::Percolator) -> csv::ByteRecord {
+    fn serialize_feature(&self, feature: &sage_core::scoring::Percolator) -> csv::ByteRecord {
         let mut record = csv::ByteRecord::new();
         record.push_field(feature.peptide.as_str().as_bytes());
         record.push_field(feature.proteins.as_str().as_bytes());
@@ -245,7 +244,10 @@ impl Runner {
         record
     }
 
-    fn write_features(&self, features: Vec<sage::scoring::Percolator>) -> anyhow::Result<String> {
+    fn write_features(
+        &self,
+        features: Vec<sage_core::scoring::Percolator>,
+    ) -> anyhow::Result<String> {
         let path = self.make_path("search.pin");
         let mut wtr = csv::WriterBuilder::new()
             .delimiter(b'\t')
@@ -306,7 +308,7 @@ impl Runner {
         Ok(path.to_string())
     }
 
-    fn write_quant(&self, quant: &[sage::tmt::TmtQuant]) -> anyhow::Result<String> {
+    fn write_quant(&self, quant: &[sage_core::tmt::TmtQuant]) -> anyhow::Result<String> {
         let path = self.make_path("quant.csv");
 
         let mut wtr = csv::WriterBuilder::new().from_writer(vec![]);
@@ -354,11 +356,11 @@ impl Runner {
             .collect();
 
         if self.parameters.predict_rt {
-            let _ = sage::ml::retention_model::predict(&self.database, &mut features);
+            let _ = sage_core::ml::retention_model::predict(&self.database, &mut features);
         }
 
         if self.parameters.quant.lfq.unwrap_or(false) {
-            sage::lfq::quantify(&mut features, &spectra);
+            sage_core::lfq::quantify(&mut features, &spectra);
         }
 
         let quant = self
@@ -366,7 +368,9 @@ impl Runner {
             .quant
             .tmt
             .as_ref()
-            .map(|isobaric| sage::tmt::quantify(&spectra, isobaric, Tolerance::Ppm(-20.0, 20.0), 3))
+            .map(|isobaric| {
+                sage_core::tmt::quantify(&spectra, isobaric, Tolerance::Ppm(-20.0, 20.0), 3)
+            })
             .unwrap_or_default();
         SageResults { features, quant }
     }
@@ -385,7 +389,7 @@ impl Runner {
             file_id,
         );
 
-        let spectra = sage::mzml::read_mzml(&path)?
+        let spectra = sage_cloudpath::read_mzml(&path)?
             .into_par_iter()
             .map(|spec| sp.process(spec))
             .collect::<Vec<_>>();
@@ -405,7 +409,7 @@ impl Runner {
         // Read all of the spectra at once - this can help prevent memory over-consumption issues
         let spectra = chunk
             .par_iter()
-            .map(|path| sage::mzml::read_mzml(path))
+            .map(sage_cloudpath::read_mzml)
             .collect::<Vec<_>>();
 
         spectra
@@ -475,8 +479,8 @@ impl Runner {
         };
 
         let q_spectrum = self.spectrum_fdr(&mut outputs.features);
-        let q_peptide = sage::fdr::picked_peptide(&self.database, &mut outputs.features);
-        let q_protein = sage::fdr::picked_protein(&self.database, &mut outputs.features);
+        let q_peptide = sage_core::fdr::picked_peptide(&self.database, &mut outputs.features);
+        let q_protein = sage_core::fdr::picked_protein(&self.database, &mut outputs.features);
 
         info!(
             "discovered {} peptide-spectrum matches at 1% FDR",

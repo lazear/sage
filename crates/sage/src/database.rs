@@ -134,7 +134,7 @@ impl Parameters {
     }
 
     // pub fn build(self) -> Result<IndexedDatabase, Box<dyn std::error::Error + Send + Sync + 'static>> {
-    pub fn build(self) -> anyhow::Result<IndexedDatabase> {
+    pub fn build(self) -> std::io::Result<IndexedDatabase> {
         let trypsin = Trypsin::new(
             self.missed_cleavages,
             self.peptide_min_len,
