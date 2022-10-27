@@ -184,14 +184,122 @@ impl Runner {
         path
     }
 
-    fn write_features(&self, features: &[sage::scoring::Percolator]) -> anyhow::Result<String> {
+    fn serialize_feature(&self, feature: &sage::scoring::Percolator) -> csv::ByteRecord {
+        let mut record = csv::ByteRecord::new();
+        record.push_field(feature.peptide.as_str().as_bytes());
+        record.push_field(feature.proteins.as_str().as_bytes());
+        record.push_field(itoa::Buffer::new().format(feature.num_proteins).as_bytes());
+        record.push_field(self.parameters.mzml_paths[feature.file_id].as_bytes());
+        record.push_field(itoa::Buffer::new().format(feature.scannr).as_bytes());
+        record.push_field(itoa::Buffer::new().format(feature.label).as_bytes());
+        record.push_field(ryu::Buffer::new().format(feature.expmass).as_bytes());
+        record.push_field(ryu::Buffer::new().format(feature.calcmass).as_bytes());
+        record.push_field(itoa::Buffer::new().format(feature.charge).as_bytes());
+        record.push_field(itoa::Buffer::new().format(feature.peptide_len).as_bytes());
+        record.push_field(
+            itoa::Buffer::new()
+                .format(feature.missed_cleavages)
+                .as_bytes(),
+        );
+        record.push_field(ryu::Buffer::new().format(feature.isotope_error).as_bytes());
+        record.push_field(ryu::Buffer::new().format(feature.delta_mass).as_bytes());
+        record.push_field(ryu::Buffer::new().format(feature.average_ppm).as_bytes());
+        record.push_field(ryu::Buffer::new().format(feature.hyperscore).as_bytes());
+        record.push_field(
+            ryu::Buffer::new()
+                .format(feature.delta_hyperscore)
+                .as_bytes(),
+        );
+        record.push_field(ryu::Buffer::new().format(feature.rt).as_bytes());
+        record.push_field(ryu::Buffer::new().format(feature.predicted_rt).as_bytes());
+        record.push_field(ryu::Buffer::new().format(feature.delta_rt).as_bytes());
+        record.push_field(itoa::Buffer::new().format(feature.matched_peaks).as_bytes());
+        record.push_field(itoa::Buffer::new().format(feature.longest_b).as_bytes());
+        record.push_field(itoa::Buffer::new().format(feature.longest_y).as_bytes());
+        record.push_field(ryu::Buffer::new().format(feature.longest_y_pct).as_bytes());
+        record.push_field(
+            ryu::Buffer::new()
+                .format(feature.matched_intensity_pct)
+                .as_bytes(),
+        );
+        record.push_field(
+            itoa::Buffer::new()
+                .format(feature.scored_candidates)
+                .as_bytes(),
+        );
+        record.push_field(ryu::Buffer::new().format(feature.poisson).as_bytes());
+        record.push_field(
+            ryu::Buffer::new()
+                .format(feature.discriminant_score)
+                .as_bytes(),
+        );
+        record.push_field(
+            ryu::Buffer::new()
+                .format(feature.posterior_error)
+                .as_bytes(),
+        );
+        record.push_field(ryu::Buffer::new().format(feature.q_value).as_bytes());
+        record.push_field(ryu::Buffer::new().format(feature.peptide_q).as_bytes());
+        record.push_field(ryu::Buffer::new().format(feature.protein_q).as_bytes());
+        record.push_field(ryu::Buffer::new().format(feature.ms1_intensity).as_bytes());
+        record
+    }
+
+    fn write_features(&self, features: Vec<sage::scoring::Percolator>) -> anyhow::Result<String> {
         let path = self.make_path("search.pin");
         let mut wtr = csv::WriterBuilder::new()
             .delimiter(b'\t')
             .from_writer(vec![]);
-        for feat in features {
-            wtr.serialize(feat)?;
+
+        let headers = csv::ByteRecord::from(vec![
+            "peptide",
+            "proteins",
+            "num_proteins",
+            "specid",
+            "scannr",
+            "label",
+            "expmass",
+            "calcmass",
+            "charge",
+            "peptide_len",
+            "missed_cleavages",
+            "isotope_error",
+            "precursor_ppm",
+            "fragment_ppm",
+            "hyperscore",
+            "delta_hyperscore",
+            "rt",
+            "predicted_rt",
+            "delta_rt",
+            "matched_peaks",
+            "longest_b",
+            "longest_y",
+            "longest_y_pct",
+            "matched_intensity_pct",
+            "scored_candidates",
+            "poisson",
+            "discriminant_score",
+            "posterior_error",
+            "spectrum_fdr",
+            "peptide_fdr",
+            "protein_fdr",
+            "ms1_intensity",
+        ]);
+
+        // for feat in features {
+        // wtr.serialize(feat)?;
+        // }
+
+        wtr.write_byte_record(&headers)?;
+        for record in features
+            // .par_iter()
+            .into_par_iter()
+            .map(|feat| self.serialize_feature(&feat))
+            .collect::<Vec<_>>()
+        {
+            wtr.write_byte_record(&record)?;
         }
+
         wtr.flush()?;
         let bytes = wtr.into_inner()?;
         path.write_bytes_sync(bytes)?;
@@ -379,7 +487,7 @@ impl Runner {
 
         self.parameters
             .pin_paths
-            .push(self.write_features(&outputs.features)?);
+            .push(self.write_features(outputs.features)?);
         if !outputs.quant.is_empty() {
             self.parameters
                 .pin_paths

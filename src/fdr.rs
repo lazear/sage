@@ -4,7 +4,10 @@
 //! Lin et al., https://pubmed.ncbi.nlm.nih.gov/36166314/
 //! Savitski et al., https://pubmed.ncbi.nlm.nih.gov/25987413/
 
-use rayon::slice::ParallelSliceMut;
+use rayon::{
+    prelude::{IntoParallelRefMutIterator, ParallelIterator},
+    slice::ParallelSliceMut,
+};
 
 use crate::{
     database::{IndexedDatabase, PeptideIx},
@@ -100,9 +103,9 @@ pub fn picked_peptide(db: &IndexedDatabase, features: &mut [Percolator]) -> usiz
             ]
         })
         .collect::<HashMap<_, _>>();
-    for feat in features.iter_mut() {
+    features.par_iter_mut().for_each(|feat| {
         feat.peptide_q = scores[&feat.peptide_idx];
-    }
+    });
 
     passing
 }
@@ -135,9 +138,10 @@ pub fn picked_protein(db: &IndexedDatabase, features: &mut [Percolator]) -> usiz
             ]
         })
         .collect::<HashMap<_, _>>();
-    for feat in features.iter_mut() {
-        feat.peptide_q = scores[&feat.proteins];
-    }
+
+    features.par_iter_mut().for_each(|feat| {
+        feat.protein_q = scores[&feat.proteins];
+    });
 
     passing
 }
