@@ -5,6 +5,10 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[[bin]]
+name = "sage"
+path = "src/main.rs"
+
 [dependencies]
 sage-core = { path = "../sage" }
 sage-cloudpath = { path = "../sage-cloudpath" }

@@ -2,17 +2,18 @@ use clap::{Arg, Command};
 use log::info;
 use rayon::prelude::*;
 use sage_cloudpath::CloudPath;
+use sage_core::database::{Builder, IndexedDatabase, Parameters};
 use sage_core::mass::Tolerance;
-use sage_core::scoring::Scorer;
+use sage_core::scoring::{Feature, Scorer};
 use sage_core::spectrum::{ProcessedSpectrum, SpectrumProcessor};
-use sage_core::tmt::Isobaric;
+use sage_core::tmt::{Isobaric, TmtQuant};
 use serde::{Deserialize, Serialize};
 use std::time::{self, Instant};
 
 #[derive(Serialize)]
 /// Actual search parameters - may include overrides or default values not set by user
 struct Search {
-    database: sage_core::database::Parameters,
+    database: Parameters,
     quant: Quant,
     precursor_tol: Tolerance,
     fragment_tol: Tolerance,
@@ -35,7 +36,7 @@ struct Search {
 #[derive(Deserialize)]
 /// Input search parameters deserialized from JSON file
 struct Input {
-    database: sage_core::database::Builder,
+    database: Builder,
     precursor_tol: Tolerance,
     fragment_tol: Tolerance,
     report_psms: Option<usize>,
@@ -106,15 +107,15 @@ impl Input {
 }
 
 struct Runner {
-    database: sage_core::database::IndexedDatabase,
+    database: IndexedDatabase,
     parameters: Search,
     start: Instant,
 }
 
 #[derive(Default)]
 struct SageResults {
-    features: Vec<sage_core::scoring::Percolator>,
-    quant: Vec<sage_core::tmt::TmtQuant>,
+    features: Vec<Feature>,
+    quant: Vec<TmtQuant>,
 }
 
 impl FromParallelIterator<SageResults> for SageResults {
@@ -162,7 +163,7 @@ impl Runner {
         })
     }
 
-    fn spectrum_fdr(&self, features: &mut [sage_core::scoring::Percolator]) -> usize {
+    fn spectrum_fdr(&self, features: &mut [Feature]) -> usize {
         if sage_core::ml::linear_discriminant::score_psms(features).is_some() {
             features
                 .par_sort_unstable_by(|a, b| b.discriminant_score.total_cmp(&a.discriminant_score));
@@ -183,7 +184,7 @@ impl Runner {
         path
     }
 
-    fn serialize_feature(&self, feature: &sage_core::scoring::Percolator) -> csv::ByteRecord {
+    fn serialize_feature(&self, feature: &Feature) -> csv::ByteRecord {
         let mut record = csv::ByteRecord::new();
         record.push_field(feature.peptide.as_str().as_bytes());
         record.push_field(feature.proteins.as_str().as_bytes());
@@ -244,10 +245,7 @@ impl Runner {
         record
     }
 
-    fn write_features(
-        &self,
-        features: Vec<sage_core::scoring::Percolator>,
-    ) -> anyhow::Result<String> {
+    fn write_features(&self, features: Vec<Feature>) -> anyhow::Result<String> {
         let path = self.make_path("search.pin");
         let mut wtr = csv::WriterBuilder::new()
             .delimiter(b'\t')
@@ -308,7 +306,7 @@ impl Runner {
         Ok(path.to_string())
     }
 
-    fn write_quant(&self, quant: &[sage_core::tmt::TmtQuant]) -> anyhow::Result<String> {
+    fn write_quant(&self, quant: &[TmtQuant]) -> anyhow::Result<String> {
         let path = self.make_path("quant.csv");
 
         let mut wtr = csv::WriterBuilder::new().from_writer(vec![]);

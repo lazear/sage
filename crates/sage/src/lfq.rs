@@ -4,10 +4,10 @@ use std::collections::{HashMap, HashSet};
 
 use crate::database::{binary_search_slice, PeptideIx};
 use crate::mass::{Tolerance, NEUTRON};
-use crate::scoring::Percolator;
+use crate::scoring::Feature;
 use crate::spectrum::ProcessedSpectrum;
 
-pub fn quantify(features: &mut [Percolator], spectra: &[ProcessedSpectrum]) {
+pub fn quantify(features: &mut [Feature], spectra: &[ProcessedSpectrum]) {
     let index = LfqIndex::new(features);
     index.quantify(spectra, features)
 }
@@ -59,7 +59,7 @@ struct Quant {
 }
 
 impl LfqIndex {
-    pub fn new(features: &[Percolator]) -> Self {
+    pub fn new(features: &[Feature]) -> Self {
         let min_charge = 2u8;
         let max_charge = features.iter().map(|feat| feat.charge).max().unwrap_or(4);
 
@@ -127,7 +127,7 @@ impl LfqIndex {
         }
     }
 
-    pub fn quantify(&self, spectra: &[ProcessedSpectrum], features: &mut [Percolator]) {
+    pub fn quantify(&self, spectra: &[ProcessedSpectrum], features: &mut [Feature]) {
         log::trace!("LFQ");
         // In the name of parallelism, we have to do some unecessary allocations!
         let temp = spectra

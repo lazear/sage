@@ -1,11 +1,11 @@
-use crate::scoring::Percolator;
+use crate::scoring::Feature;
 
 /// Assign q_values in place to a set of PSMs, returning the number of PSMs
 /// q <= 0.01
 ///
 /// # Invariants
 /// * `scores` must be sorted in descending order (e.g. best PSM is first)
-pub fn spectrum_q_value(scores: &mut [Percolator]) -> usize {
+pub fn spectrum_q_value(scores: &mut [Feature]) -> usize {
     // FDR Calculation:
     // * Sort by score, descending
     // * Estimate FDR

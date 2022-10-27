@@ -12,7 +12,7 @@ use super::gauss::Gauss;
 use super::matrix::Matrix;
 use rayon::prelude::*;
 
-use crate::scoring::Percolator;
+use crate::scoring::Feature;
 
 pub struct LinearDiscriminantAnalysis {
     eigenvector: Vec<f64>,
@@ -104,7 +104,7 @@ impl LinearDiscriminantAnalysis {
     }
 }
 
-pub fn score_psms(scores: &mut [Percolator]) -> Option<()> {
+pub fn score_psms(scores: &mut [Feature]) -> Option<()> {
     log::trace!("fitting linear discriminant model...");
 
     // Declare, so that we have compile time checking of matrix dimensions

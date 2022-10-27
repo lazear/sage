@@ -5,7 +5,7 @@
 //! Savitski et al., https://pubmed.ncbi.nlm.nih.gov/25987413/
 
 use crate::database::{IndexedDatabase, PeptideIx};
-use crate::scoring::Percolator;
+use crate::scoring::Feature;
 use rayon::prelude::*;
 use std::collections::HashMap;
 
@@ -64,7 +64,7 @@ impl<Ix: Default> Competition<Ix> {
     }
 }
 
-pub fn picked_peptide(db: &IndexedDatabase, features: &mut [Percolator]) -> usize {
+pub fn picked_peptide(db: &IndexedDatabase, features: &mut [Feature]) -> usize {
     let mut map: HashMap<String, Competition<PeptideIx>> = HashMap::new();
     for feat in features.iter() {
         let peptide = &db[feat.peptide_idx];
@@ -102,7 +102,7 @@ pub fn picked_peptide(db: &IndexedDatabase, features: &mut [Percolator]) -> usiz
     passing
 }
 
-pub fn picked_protein(db: &IndexedDatabase, features: &mut [Percolator]) -> usize {
+pub fn picked_protein(db: &IndexedDatabase, features: &mut [Feature]) -> usize {
     let mut map: HashMap<&str, Competition<String>> = HashMap::new();
     for feat in features.iter() {
         let peptide = &db[feat.peptide_idx];

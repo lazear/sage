@@ -4,7 +4,7 @@ use crate::database::binary_search_slice;
 use crate::ion_series::{IonSeries, Kind};
 use crate::mass::{Tolerance, H2O, NH3, PROTON};
 use crate::peptide::Peptide;
-use crate::scoring::{Percolator, Scorer};
+use crate::scoring::{Feature, Scorer};
 use crate::spectrum::{self, Peak, Precursor, ProcessedSpectrum};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -172,9 +172,9 @@ fn mk_theoretical(peptide: &Peptide) -> Vec<Peak> {
 #[derive(Debug)]
 pub struct Quant<'ms3> {
     /// Top hit for this MS3 spectrum
-    pub hit: Percolator,
+    pub hit: Feature,
     /// Top chimeric/co-fragmenting hit for this spectrum
-    pub chimera: Option<Percolator>,
+    pub chimera: Option<Feature>,
     /// SPS precursor purity for the top hit
     pub hit_purity: Purity,
     /// SPS precursor purity for the chimeric hit

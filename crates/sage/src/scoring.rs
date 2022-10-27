@@ -26,7 +26,7 @@ struct PreScore {
 
 #[derive(Serialize, Clone, Debug)]
 /// Features of a candidate peptide spectrum match
-pub struct Percolator {
+pub struct Feature {
     #[serde(skip_serializing)]
     pub peptide_idx: PeptideIx,
     /// Peptide sequence, including modifications e.g.: NC(+57.021)HK
@@ -164,7 +164,7 @@ impl<'db> Scorer<'db> {
         }
     }
 
-    pub fn score(&self, query: &ProcessedSpectrum, report_psms: usize) -> Vec<Percolator> {
+    pub fn score(&self, query: &ProcessedSpectrum, report_psms: usize) -> Vec<Feature> {
         assert_eq!(
             query.level, 2,
             "internal bug, trying to score a non-MS2 scan!"
@@ -220,7 +220,7 @@ impl<'db> Scorer<'db> {
     }
 
     /// Score a single [`ProcessedSpectrum`] against the database
-    pub fn score_standard(&self, query: &ProcessedSpectrum, report_psms: usize) -> Vec<Percolator> {
+    pub fn score_standard(&self, query: &ProcessedSpectrum, report_psms: usize) -> Vec<Feature> {
         let (precursor_mass, precursor_charge) = query
             .extract_ms1_precursor()
             .expect("missing MS1 precursor");
@@ -284,7 +284,7 @@ impl<'db> Scorer<'db> {
 
             let (num_proteins, proteins) = self.db.assign_proteins(peptide);
 
-            reporting.push(Percolator {
+            reporting.push(Feature {
                 // Identifiers
                 peptide_idx: better.peptide,
                 peptide: peptide.to_string(),
@@ -335,7 +335,7 @@ impl<'db> Scorer<'db> {
 
     /// Return 2 PSMs for each spectra - first is the best match, second PSM is the best match
     /// after all theoretical peaks assigned to the best match are removed
-    pub fn score_chimera(&self, query: &ProcessedSpectrum) -> Vec<Percolator> {
+    pub fn score_chimera(&self, query: &ProcessedSpectrum) -> Vec<Feature> {
         let (_, charge) = query
             .extract_ms1_precursor()
             .expect("missing MS1 precursor");

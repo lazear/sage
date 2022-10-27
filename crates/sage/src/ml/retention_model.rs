@@ -7,11 +7,11 @@ use super::{gauss::Gauss, matrix::Matrix};
 use crate::database::IndexedDatabase;
 use crate::mass::VALID_AA;
 use crate::peptide::Peptide;
-use crate::scoring::Percolator;
+use crate::scoring::Feature;
 use rayon::prelude::*;
 
 /// Try to fit a retention time prediction model
-pub fn predict(db: &IndexedDatabase, features: &mut [Percolator]) -> Option<()> {
+pub fn predict(db: &IndexedDatabase, features: &mut [Feature]) -> Option<()> {
     // Poisson probability is usually the best single feature for refining FDR.
     // Take our set of 1% FDR filtered PSMs, and use them to train a linear
     // regression model for predicting retention time
@@ -77,7 +77,7 @@ impl RetentionModel {
     }
 
     /// Attempt to fit a linear regression model: peptide sequence ~ retention time
-    pub fn fit(db: &IndexedDatabase, training_set: &[Percolator]) -> Option<Self> {
+    pub fn fit(db: &IndexedDatabase, training_set: &[Feature]) -> Option<Self> {
         // Create a mapping from amino acid character to vector embedding
         let mut map = [0; 26];
         for (idx, aa) in VALID_AA.iter().enumerate() {
@@ -136,7 +136,7 @@ impl RetentionModel {
     }
 
     /// Predict retention times for a collection of PSMs
-    pub fn predict(&self, db: &IndexedDatabase, psms: &[Percolator]) -> Vec<f64> {
+    pub fn predict(&self, db: &IndexedDatabase, psms: &[Feature]) -> Vec<f64> {
         let features = psms
             .par_iter()
             .flat_map(|psm| Self::embed(&db[psm.peptide_idx], &self.map))
