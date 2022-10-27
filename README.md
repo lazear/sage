@@ -71,6 +71,14 @@ cargo run --release tests/config.json
 2. Download the correct pre-compiled binary for your operating system.
 3. Run: `local/location/of/the/executable/sage config.json`
 
+# Interfacing with AWS S3
+
+Sage is capable of natively reading & writing files to AWS S3:
+
+- S3 paths should be specified as `s3://bucket/prefix/key.mzML.gz` or `s3://bucket/prefix` for output folder
+- See [AWS docs](https://docs.aws.amazon.com/sdk-for-rust/latest/dg/credentials.html) for configuring your credentials
+- Using S3 may incur data transfer charges as well as multi-part upload request charges.
+
 # Usage 
 
 ```shell
@@ -181,7 +189,10 @@ Two notes:
   "max_fragment_charge": 1, // Optional[int] {default=null}: maximum fragment ion charge states to consider,
   "report_psms": 1,         // Optional[int] {default=1}: number of PSMs to report for each spectra. Recommend setting to 1, higher values might disrupt LDA
   "parallel": true,         // Optional[bool] {default=true}: search files in parallel. For large numbers of files or low RAM, set this to false
-  "mzml_paths": ["path.mzML"]       // List[str]: representing relative (or full) paths to mzML (or gzipped-mzML) files for search
+  "mzml_paths": [           // List[str]: representing paths to mzML (or gzipped-mzML) files for search
+    "local/path.mzML",
+    "s3://my-mass-spec-data/PXD0000001/foo.mzML.gz"
+  ]       
 }
 ```
 

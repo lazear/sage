@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use std::path::PathBuf;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 /// Parameters used for generating the fragment database
 pub struct Builder {
     /// This parameter allows tuning of the internal search structure

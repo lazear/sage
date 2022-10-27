@@ -2,7 +2,6 @@ target/
 raw/
 low_analysis/
 tmt_analysis/
-Cargo.lock
 
 *.pin
 *.txt

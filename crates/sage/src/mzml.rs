@@ -1,38 +1,9 @@
-use std::io::{BufRead, Read};
-
 use crate::mass::Tolerance;
 use crate::spectrum::Precursor;
-use flate2::read::ZlibDecoder;
+use async_compression::tokio::bufread::ZlibDecoder;
 use quick_xml::events::Event;
 use quick_xml::Reader;
-// use tokio::io::{AsyncBufRead, AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader};
-
-#[derive(Debug)]
-pub enum IOError {
-    BadCompression,
-    Malformed,
-    InvalidUri,
-    UnsupportedCV(String),
-    XMLError(quick_xml::Error),
-    IOError(std::io::Error),
-    OtherError(Box<dyn std::error::Error + Send + Sync + 'static>),
-}
-
-impl std::fmt::Display for IOError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            IOError::BadCompression => f.write_str("IOError: bad zlib compression!"),
-            IOError::Malformed => f.write_str("IOError: malformed cvParam"),
-            IOError::InvalidUri => f.write_str("IOError: invalid URI"),
-            IOError::UnsupportedCV(s) => write!(f, "IOError: unsupported cvParam {}", s),
-            IOError::IOError(s) => write!(f, "IOError: IO error {}", s),
-            IOError::XMLError(s) => write!(f, "IOError: XML error {}", s),
-            IOError::OtherError(s) => write!(f, "IOError: XML error {}", s),
-        }
-    }
-}
-
-impl std::error::Error for IOError {}
+use tokio::io::{AsyncBufRead, AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader};
 
 #[derive(Default, Debug, Clone)]
 pub struct Spectrum {
@@ -116,11 +87,11 @@ const ISO_WINDOW_LOWER: &str = "MS:1000828";
 const ISO_WINDOW_UPPER: &str = "MS:1000829";
 
 #[derive(Default)]
-pub struct MzMlReader {
+pub struct MzMLReader {
     ms_level: Option<u8>,
 }
 
-impl MzMlReader {
+impl MzMLReader {
     /// Create a new [`MzMlReader`] with a minimum MS level filter
     ///
     /// # Example
@@ -135,7 +106,7 @@ impl MzMlReader {
     /// Here be dragons -
     /// Seriously, this kinda sucks because it's a giant imperative, stateful loop.
     /// But I also don't want to spend any more time working on an mzML parser...
-    pub fn parse<B: BufRead>(&self, b: B) -> Result<Vec<Spectrum>, IOError> {
+    pub async fn parse<B: AsyncBufRead + Unpin>(&self, b: B) -> Result<Vec<Spectrum>, MzMLError> {
         let mut reader = Reader::from_reader(b);
         let mut buf = Vec::new();
 
@@ -155,15 +126,14 @@ impl MzMlReader {
 
         macro_rules! extract {
             ($ev:expr, $key:expr) => {
-                $ev.try_get_attribute($key)
-                    .map_err(IOError::XMLError)?
-                    .ok_or_else(|| IOError::Malformed)?
+                $ev.try_get_attribute($key)?
+                    .ok_or_else(|| MzMLError::Malformed)?
                     .value
             };
         }
 
         loop {
-            match reader.read_event_into(&mut buf) {
+            match reader.read_event_into_async(&mut buf).await {
                 Ok(Event::Start(ref ev)) => {
                     // State transition into child tag
                     state = match (ev.name().into_inner(), state) {
@@ -178,37 +148,28 @@ impl MzMlReader {
                     match ev.name().into_inner() {
                         b"spectrum" => {
                             let id = extract!(ev, b"id");
-                            let id = std::str::from_utf8(&id).map_err(|_| IOError::Malformed)?;
+                            let id = std::str::from_utf8(&id)?;
                             match scan_id_regex.captures(id).and_then(|c| c.get(1)) {
                                 Some(m) => {
-                                    spectrum.scan_id =
-                                        m.as_str().parse().map_err(|_| IOError::Malformed)?;
+                                    spectrum.scan_id = m.as_str().parse()?;
                                 }
                                 None => {
                                     // fallback, try and extract from index
                                     let index = extract!(ev, b"index");
-                                    let index = std::str::from_utf8(&index)
-                                        .map_err(|_| IOError::Malformed)?
-                                        .parse::<usize>()
-                                        .map_err(|_| IOError::Malformed)?;
+                                    let index = std::str::from_utf8(&index)?.parse::<usize>()?;
                                     spectrum.scan_id = index + 1;
                                 }
                             }
                         }
                         b"precursor" => {
                             // Not all precursor fields have a spectrumRef
-                            if let Some(scan) = ev
-                                .try_get_attribute(b"spectrumRef")
-                                .map_err(IOError::XMLError)?
-                            {
-                                let scan = std::str::from_utf8(&scan.value)
-                                    .map_err(|_| IOError::Malformed)?;
+                            if let Some(scan) = ev.try_get_attribute(b"spectrumRef")? {
+                                let scan = std::str::from_utf8(&scan.value)?;
                                 precursor.scan = scan_id_regex
                                     .captures(scan)
                                     .and_then(|c| c.get(1))
                                     .map(|m| m.as_str().parse::<usize>())
-                                    .transpose()
-                                    .map_err(|_| IOError::Malformed)?;
+                                    .transpose()?;
                             }
                         }
                         _ => {}
@@ -217,8 +178,7 @@ impl MzMlReader {
                 Ok(Event::Empty(ref ev)) => match (state, ev.name().into_inner()) {
                     (Some(State::BinaryDataArray), b"cvParam") => {
                         let accession = extract!(ev, b"accession");
-                        let accession =
-                            std::str::from_utf8(&accession).map_err(|_| IOError::Malformed)?;
+                        let accession = std::str::from_utf8(&accession)?;
                         match accession {
                             ZLIB_COMPRESSION => compression = true,
                             NO_COMPRESSION => compression = false,
@@ -227,21 +187,17 @@ impl MzMlReader {
                             INTENSITY_ARRAY => binary_array = BinaryKind::Intensity,
                             MZ_ARRAY => binary_array = BinaryKind::Mz,
                             _ => {
-                                return Err(IOError::UnsupportedCV(accession.to_string()));
+                                return Err(MzMLError::UnsupportedCV(accession.to_string()));
                             }
                         }
                     }
                     (Some(State::Spectrum), b"cvParam") => {
                         let accession = extract!(ev, b"accession");
-                        let accession =
-                            std::str::from_utf8(&accession).map_err(|_| IOError::Malformed)?;
+                        let accession = std::str::from_utf8(&accession)?;
                         match accession {
                             MS_LEVEL => {
                                 let level = extract!(ev, b"value");
-                                let level = std::str::from_utf8(&level)
-                                    .map_err(|_| IOError::Malformed)?
-                                    .parse::<u8>()
-                                    .map_err(|_| IOError::Malformed)?;
+                                let level = std::str::from_utf8(&level)?.parse::<u8>()?;
                                 if let Some(filter) = self.ms_level {
                                     if level != filter {
                                         spectrum = Spectrum::default();
@@ -254,10 +210,7 @@ impl MzMlReader {
                             CENTROID => spectrum.representation = Representation::Centroid,
                             TOTAL_ION_CURRENT => {
                                 let value = extract!(ev, b"value");
-                                let value = std::str::from_utf8(&value)
-                                    .map_err(|_| IOError::Malformed)?
-                                    .parse::<f32>()
-                                    .map_err(|_| IOError::Malformed)?;
+                                let value = std::str::from_utf8(&value)?.parse::<f32>()?;
                                 if value == 0.0 {
                                     // No ion current, break out of current state
                                     spectrum = Spectrum::default();
@@ -271,55 +224,48 @@ impl MzMlReader {
                     }
                     (Some(State::Precursor), b"cvParam") => {
                         let accession = extract!(ev, b"accession");
-                        let accession =
-                            std::str::from_utf8(&accession).map_err(|_| IOError::Malformed)?;
+                        let accession = std::str::from_utf8(&accession)?;
                         let value = extract!(ev, b"value");
-                        let value = std::str::from_utf8(&value).map_err(|_| IOError::Malformed)?;
+                        let value = std::str::from_utf8(&value)?;
                         match accession {
                             ISO_WINDOW_LOWER => {
-                                iso_window_lo = Some(value.parse().map_err(|_| IOError::Malformed)?)
+                                iso_window_lo = Some(value.parse()?);
                             }
                             ISO_WINDOW_UPPER => {
-                                iso_window_hi = Some(value.parse().map_err(|_| IOError::Malformed)?)
+                                iso_window_hi = Some(value.parse()?);
                             }
                             _ => {}
                         }
                     }
                     (Some(State::SelectedIon), b"cvParam") => {
                         let accession = extract!(ev, b"accession");
-                        let accession =
-                            std::str::from_utf8(&accession).map_err(|_| IOError::Malformed)?;
+                        let accession = std::str::from_utf8(&accession)?;
                         let value = extract!(ev, b"value");
-                        let value = std::str::from_utf8(&value).map_err(|_| IOError::Malformed)?;
+                        let value = std::str::from_utf8(&value)?;
                         match accession {
                             SELECTED_ION_CHARGE => {
-                                precursor.charge =
-                                    Some(value.parse().map_err(|_| IOError::Malformed)?)
+                                precursor.charge = Some(value.parse()?);
                             }
                             SELECTED_ION_MZ => {
-                                precursor.mz = value.parse().map_err(|_| IOError::Malformed)?
+                                precursor.mz = value.parse()?;
                             }
                             SELECTED_ION_INT => {
-                                precursor.intensity =
-                                    Some(value.parse().map_err(|_| IOError::Malformed)?)
+                                precursor.intensity = Some(value.parse()?);
                             }
                             _ => {}
                         }
                     }
                     (Some(State::Scan), b"cvParam") => {
                         let accession = extract!(ev, b"accession");
-                        let accession =
-                            std::str::from_utf8(&accession).map_err(|_| IOError::Malformed)?;
+                        let accession = std::str::from_utf8(&accession)?;
                         let value = extract!(ev, b"value");
-                        let value = std::str::from_utf8(&value).map_err(|_| IOError::Malformed)?;
+                        let value = std::str::from_utf8(&value)?;
                         match accession {
                             SCAN_START_TIME => {
-                                spectrum.scan_start_time =
-                                    value.parse().map_err(|_| IOError::Malformed)?
+                                spectrum.scan_start_time = value.parse()?;
                             }
                             ION_INJECTION_TIME => {
-                                spectrum.ion_injection_time =
-                                    value.parse().map_err(|_| IOError::Malformed)?
+                                spectrum.ion_injection_time = value.parse()?;
                             }
                             _ => {}
                         }
@@ -334,20 +280,17 @@ impl MzMlReader {
                                 continue;
                             }
                         }
-                        let raw = text.unescape().map_err(IOError::XMLError)?;
+                        let raw = text.unescape()?;
                         // There are occasionally empty binary data arrays...
                         if raw.is_empty() {
                             continue;
                         }
-                        let decoded =
-                            base64::decode(raw.as_bytes()).map_err(|_| IOError::Malformed)?;
+                        let decoded = base64::decode(raw.as_bytes())?;
                         let bytes = match compression {
                             false => &decoded,
                             true => {
                                 let mut r = ZlibDecoder::new(decoded.as_slice());
-                                let n = r
-                                    .read_to_end(&mut output_buffer)
-                                    .map_err(IOError::IOError)?;
+                                let n = r.read_to_end(&mut output_buffer).await?;
                                 &output_buffer[..n]
                             }
                         };
@@ -422,11 +365,68 @@ impl MzMlReader {
                 Ok(Event::Eof) => break,
                 Ok(_) => {}
                 Err(err) => {
-                    dbg!(err);
+                    log::error!("unhandled XML error while parsing mzML: {}", err)
                 }
             }
             buf.clear();
         }
         Ok(spectra)
+    }
+}
+
+#[derive(Debug)]
+pub enum MzMLError {
+    Malformed,
+    UnsupportedCV(String),
+    XMLError(quick_xml::Error),
+    IOError(std::io::Error),
+}
+
+impl std::fmt::Display for MzMLError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MzMLError::Malformed => f.write_str("MzMLError: malformed cvParam"),
+            MzMLError::UnsupportedCV(s) => write!(f, "MzMLError: unsupported cvParam {}", s),
+            MzMLError::IOError(s) => write!(f, "MzMLError: IO error {}", s),
+            MzMLError::XMLError(s) => write!(f, "MzMLError: XML error {}", s),
+        }
+    }
+}
+
+impl std::error::Error for MzMLError {}
+
+impl From<std::io::Error> for MzMLError {
+    fn from(residual: std::io::Error) -> Self {
+        Self::IOError(residual)
+    }
+}
+
+impl From<quick_xml::Error> for MzMLError {
+    fn from(residual: quick_xml::Error) -> Self {
+        Self::XMLError(residual)
+    }
+}
+
+impl From<std::str::Utf8Error> for MzMLError {
+    fn from(_: std::str::Utf8Error) -> Self {
+        Self::Malformed
+    }
+}
+
+impl From<std::num::ParseFloatError> for MzMLError {
+    fn from(_: std::num::ParseFloatError) -> Self {
+        Self::Malformed
+    }
+}
+
+impl From<std::num::ParseIntError> for MzMLError {
+    fn from(_: std::num::ParseIntError) -> Self {
+        Self::Malformed
+    }
+}
+
+impl From<base64::DecodeError> for MzMLError {
+    fn from(_: base64::DecodeError) -> Self {
+        Self::Malformed
     }
 }

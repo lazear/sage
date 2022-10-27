@@ -11,13 +11,14 @@ license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+async-compression = { version = "0.3", features = ["tokio", "gzip", "zlib"] }
 base64 = "0.13"
 log = "0.4.0"
-flate2 = "1.0"
 regex = "1.6"
+tokio = { version = "1.0", features = ["io-util"] }
 rayon = "1.5"
 serde = { version="1.0", features = ["derive"] }
-quick-xml = "0.25"
+quick-xml = { version = "0.25", features = ["async-tokio"] }
 
 [dev-dependencies]
 serde_json = "1.0"
