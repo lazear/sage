@@ -17,12 +17,13 @@ Sage has excellent performance characteristics (5x faster than - the closed sour
 - Fragment indexing strategy allows for blazing fast narrow and open searches
 - MS3-TMT quantification (R-squared of 0.999 with Proteome Discoverer)
 - Capable of searching for chimeric/co-fragmenting spectra
-- FDR calculation using target-decoy competition, with built-in linear discriminant anlysis
+- PSM rescoring using built-in linear discriminant analysis 
 - PEP calculation using a non-parametric model (KDE)
+- FDR calculation using target-decoy competition and picked-peptide & picked-protein approaches
 - Percolator/Mokapot compatible output
-- Small and simple codebase
-- Configuration by JSON files
+- Configuration by JSON file
 - Built-in support for reading gzipped-mzML files
+- Support for reading/writing directly from AWS S3
 
 ### Experimental features
 
@@ -47,9 +48,8 @@ Sage has excellent performance characteristics (5x faster than - the closed sour
 
 # Installation
 
-There is no need to install sage, it is distributed as a standalone executable file.
-This file can be either built directly from the github repository or downloaded
-from a pre-compiled release
+Sage is distributed as source code, and as a standalone executable file.
+
 ## Compiling the development version
 
 1. Install the [Rust programming language compiler](https://rustup.rs/)
@@ -115,24 +115,27 @@ interface. These are:
 2. The path to the database (fasta file)
 3. The output directory
 
-like so ...
+For example: 
 
 ```
-# specify fasta and output dir:
+# Specify fasta and output dir:
 sage -f proteins.fasta -o output_directory config.json
 
-# And specify mzML files:
+# Specify mzML files:
 sage -f proteins.fasta config.json *.mzML
+
+# Specify mzML file located in an S3 bucket
+sage config.json s3://my-bucket/YYYY-MM-DD_expt_A_fraction_1.mzML.gz
 ```
 
-Running Sage will produce several output files:
+Running Sage will produce several output files (located in either the current directory, or `output_directory` if that option is specified):
 - Record of search parameters (`results.json`) will be created that details input/output paths and all search parameters used for the search
-- MS2 search results will be stored as a Percolator-compatible (`<mzML path>.sage.pin`) file - this is just a tab-separated file, which can be opened in Excel/Pandas/etc
-- MS3 search results will be stored as a CSV (`<mzML path>.quant.csv`) if "quant" option is used in the parameter file
+- MS2 search results will be stored as a Percolator-compatible (`search.pin`) file - this is a tab-separated file, which can be opened in Excel/Pandas/etc
+- MS3 search results will be stored as a CSV (`quant.csv`) if `quant.tmt` option is used in the parameter file
 
-Sage search settings files have the following parameters:
+## Configuration file schema
 
-Two notes:
+Notes:
 - The majority of parameters are optional - only "database.fasta", "precursor_tol", and "fragment_tol" are required. Sage will try and use reasonable defaults for any parameters not supplied
 - Tolerances are specified on the *experimental* m/z values. To perform a -100 to +500 Da open search (mass window applied to *precursor*), you would use `"da": [-500, 100]`
 
