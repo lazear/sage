@@ -1,7 +1,12 @@
 [package]
 name = "sage-cloudpath"
-version = "0.1.0"
+version = "0.5.0"
+authors = ["Michael Lazear <michaellazear92@gmail.com"]
 edition = "2021"
+rust-version = "1.62"
+description = "A very fast proteomics database search tool"
+readme = "README.md"
+license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
