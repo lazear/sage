@@ -12,8 +12,10 @@ jobs:
     strategy:
       matrix:
         include:
-          - name: Linux 64-bit
-            target: x86_64-unknown-linux-musl
+          - name: Linux x86_64
+            target: x86_64-unknown-linux-gnu
+          - name: Linux aarch64
+            target: aarch64-unknown-linux-gnu
 
     steps:
       - name: Install dependencies
