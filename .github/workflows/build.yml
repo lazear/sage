@@ -8,21 +8,12 @@ jobs:
   build_ubuntu:
     name: Build Sage for Linux
     runs-on: ubuntu-latest
-    container: ubuntu:14.04 # GLIBC 2.19
     strategy:
+      fail-fast: false
       matrix:
-        include:
-          - name: Linux x86_64
-            target: x86_64-unknown-linux-gnu
-          - name: Linux aarch64
-            target: aarch64-unknown-linux-gnu
+        target: [x86_64-unknown-linux-gnu, x86_64-unknown-linux-musl, aarch64-unknown-linux-gnu, aarch64-unknown-linux-musl]
 
     steps:
-      - name: Install dependencies
-        run: |
-          sudo apt-get update && sudo apt-get upgrade -y
-          sudo apt-get install -y curl build-essential
-
       - name: Checkout repository
         uses: actions/checkout@v3
 
@@ -31,12 +22,13 @@ jobs:
         with:
           toolchain: stable
           target: ${{ matrix.target }}
-
+      
       - name: Build Sage
         uses: actions-rs/cargo@v1
         with:
           command: build
           args: --release --target ${{ matrix.target }}
+          use-cross: true
 
       - name: Build archive
         shell: bash
