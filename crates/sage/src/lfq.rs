@@ -32,7 +32,7 @@ struct LfqEntry {
     mz_tol_hi: f32,
 
     // index of Feature vector scan
-    scannr: u32,
+    feat_idx: usize,
     peptide: PeptideIx,
 }
 
@@ -46,9 +46,8 @@ struct Query<'a> {
     max_rt: f32,
 }
 
-#[derive(Copy, Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 struct Quant {
-    scannr: u32,
     charge: u8,
     mass: f32,
     intensity: f32,
@@ -65,7 +64,8 @@ impl LfqIndex {
 
         let mut entries = features
             .par_iter()
-            .flat_map(|feat| {
+            .enumerate()
+            .flat_map(|(feat_idx, feat)| {
                 (min_charge..=max_charge)
                     .par_bridge()
                     .flat_map_iter(move |charge| {
@@ -78,7 +78,7 @@ impl LfqIndex {
 
                             LfqEntry {
                                 rt: feat.rt,
-                                scannr: feat.scannr,
+                                feat_idx,
                                 peptide: feat.peptide_idx,
                                 isotope: isotopomer,
                                 charge,
@@ -147,7 +147,6 @@ impl LfqIndex {
                             if seen.insert(entry.peptide) {
                                 Some(Quant {
                                     rt: spectrum.scan_start_time,
-                                    scannr: entry.scannr,
                                     charge: entry.charge,
                                     mass: peak.mass,
                                     intensity: peak.intensity,

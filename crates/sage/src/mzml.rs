@@ -8,7 +8,8 @@ use tokio::io::{AsyncBufRead, AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader}
 #[derive(Default, Debug, Clone)]
 pub struct Spectrum {
     pub ms_level: u8,
-    pub scan_id: usize,
+    pub id: String,
+    // pub scan_id: Option<usize>,
     pub precursors: Vec<Precursor>,
     /// Profile or Centroided data
     pub representation: Representation,
@@ -149,27 +150,30 @@ impl MzMLReader {
                         b"spectrum" => {
                             let id = extract!(ev, b"id");
                             let id = std::str::from_utf8(&id)?;
-                            match scan_id_regex.captures(id).and_then(|c| c.get(1)) {
-                                Some(m) => {
-                                    spectrum.scan_id = m.as_str().parse()?;
-                                }
-                                None => {
-                                    // fallback, try and extract from index
-                                    let index = extract!(ev, b"index");
-                                    let index = std::str::from_utf8(&index)?.parse::<usize>()?;
-                                    spectrum.scan_id = index + 1;
-                                }
-                            }
+                            spectrum.id = id.to_string();
+                            // spectrum.scan_id = scan_id_regex.captures(id)
+                            // match scan_id_regex.captures(id).and_then(|c| c.get(1)) {
+                            //     Some(m) => {
+                            //         spectrum.scan_id = m.as_str().parse()?;
+                            //     }
+                            //     None => {
+                            //         // fallback, try and extract from index
+                            //         let index = extract!(ev, b"index");
+                            //         let index = std::str::from_utf8(&index)?.parse::<usize>()?;
+                            //         spectrum.scan_id = index + 1;
+                            //     }
+                            // }
                         }
                         b"precursor" => {
                             // Not all precursor fields have a spectrumRef
                             if let Some(scan) = ev.try_get_attribute(b"spectrumRef")? {
                                 let scan = std::str::from_utf8(&scan.value)?;
-                                precursor.scan = scan_id_regex
-                                    .captures(scan)
-                                    .and_then(|c| c.get(1))
-                                    .map(|m| m.as_str().parse::<usize>())
-                                    .transpose()?;
+                                precursor.spectrum_ref = Some(scan.to_string())
+                                // precursor.scan = scan_id_regex
+                                //     .captures(scan)
+                                //     .and_then(|c| c.get(1))
+                                //     .map(|m| m.as_str().parse::<usize>())
+                                //     .transpose()?;
                             }
                         }
                         _ => {}

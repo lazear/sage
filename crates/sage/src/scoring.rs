@@ -37,12 +37,15 @@ pub struct Feature {
     pub proteins: String,
     /// Number of proteins assigned to this peptide sequence
     pub num_proteins: usize,
-    /// Spectrum id - empty until search is done
-    pub specid: String,
+    /// Spectrum id
+    pub spec_id: String,
     /// File identifier
     pub file_id: usize,
+
+    /// PSM rank
+    pub rank: u32,
     /// MS2 scan number
-    pub scannr: u32,
+    // pub scannr: u32,
     /// Target/Decoy label, -1 is decoy, 1 is target
     pub label: i32,
     /// Experimental mass
@@ -70,9 +73,9 @@ pub struct Feature {
     /// Number of matched theoretical fragment ions
     pub matched_peaks: u32,
     /// Longest b-ion series
-    pub longest_b: usize,
+    pub longest_b: u32,
     /// Longest y-ion series
-    pub longest_y: usize,
+    pub longest_y: u32,
     /// Longest y-ion series, divided by peptide length
     pub longest_y_pct: f32,
     /// Number of missed cleavages
@@ -80,7 +83,7 @@ pub struct Feature {
     /// Fraction of matched MS2 intensity
     pub matched_intensity_pct: f32,
     /// Number of scored candidates for this spectrum
-    pub scored_candidates: usize,
+    pub scored_candidates: u32,
     /// Probability of matching exactly N peaks across all candidates Pr(x=k)
     pub poisson: f64,
     /// Combined score from linear discriminant analysis, used for FDR calc
@@ -290,9 +293,10 @@ impl<'db> Scorer<'db> {
                 peptide: peptide.to_string(),
                 proteins,
                 num_proteins,
-                specid: String::default(),
-                scannr: query.scan as u32,
+                spec_id: query.id.clone(),
+                // scannr: query.scan as u32,
                 file_id: query.file_id,
+                rank: idx as u32 + 1,
                 label: peptide.label(),
                 expmass: precursor_mass,
                 calcmass: peptide.monoisotopic,
@@ -313,7 +317,7 @@ impl<'db> Scorer<'db> {
                 longest_y: y,
                 longest_y_pct: y as f32 / (peptide.sequence.len() as f32),
                 peptide_len: peptide.sequence.len(),
-                scored_candidates: preliminary.len(),
+                scored_candidates: preliminary.len() as u32,
                 missed_cleavages: peptide.missed_cleavages,
 
                 // Outputs
@@ -353,9 +357,11 @@ impl<'db> Scorer<'db> {
                 .iter()
                 .map(|prec| Precursor {
                     mz: prec.mz + 0.005,
+                    spectrum_ref: prec.spectrum_ref.clone(),
                     ..*prec
                 })
                 .collect(),
+            id: query.id.clone(),
             ..*query
         };
 
@@ -455,7 +461,7 @@ impl<'db> Scorer<'db> {
     }
 
     /// Calculate the longest continous chain of B or Y fragment ions
-    fn longest_series(&self, peaks: &[Peak], charge: u8, kind: Kind, peptide: &Peptide) -> usize {
+    fn longest_series(&self, peaks: &[Peak], charge: u8, kind: Kind, peptide: &Peptide) -> u32 {
         let mut current_start = peaks.len();
         let mut run = 0;
         let mut longest_run = 0;
@@ -477,7 +483,7 @@ impl<'db> Scorer<'db> {
                 {
                     run += 1;
                     if current_start + run == idx {
-                        longest_run = longest_run.max(run);
+                        longest_run = longest_run.max(run as u32);
                         continue 'outer;
                     }
                 }
@@ -491,12 +497,7 @@ impl<'db> Scorer<'db> {
 
     /// Rescore a candidate peptide selected for final reporting:
     /// calculate the longest (b, y) continous fragment ion series
-    fn rescore(
-        &self,
-        query: &ProcessedSpectrum,
-        charge: u8,
-        candidate: &Peptide,
-    ) -> (usize, usize) {
+    fn rescore(&self, query: &ProcessedSpectrum, charge: u8, candidate: &Peptide) -> (u32, u32) {
         let b = self.longest_series(&query.peaks, charge, Kind::B, candidate);
         let y = self.longest_series(&query.peaks, charge, Kind::Y, candidate);
         (b, y)

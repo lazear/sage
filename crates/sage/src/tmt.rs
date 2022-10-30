@@ -70,104 +70,104 @@ pub struct Purity {
 /// Calculate SPS purity stats - which SPS precursor ions actually correspond
 /// to theoretical b/y ions, and percentage of total SPS precursor MS2 intensity
 /// that is explained by theoretical b/y ions
-fn purity_of_match(
-    precursors: &[Precursor],
-    ms2: &ProcessedSpectrum,
-    theoretical_peaks: &[Peak],
-    max_charge: u8,
-    fragment_tolerance: Tolerance,
-) -> Purity {
-    let mut explained_intensity = 0.0;
-    let mut interference = 0.0;
-    let mut correct_precursors = 0;
-    let mut incorrect_precursors = 0;
+// fn purity_of_match(
+//     precursors: &[Precursor],
+//     ms2: &ProcessedSpectrum,
+//     theoretical_peaks: &[Peak],
+//     max_charge: u8,
+//     fragment_tolerance: Tolerance,
+// ) -> Purity {
+//     let mut explained_intensity = 0.0;
+//     let mut interference = 0.0;
+//     let mut correct_precursors = 0;
+//     let mut incorrect_precursors = 0;
 
-    for precursor in precursors {
-        // Spurious SPS precursor introduced by MSConvert
-        // https://github.com/ProteoWizard/pwiz/issues/2202
-        if precursor.scan.unwrap_or(0) != ms2.scan {
-            continue;
-        }
+//     for precursor in precursors {
+//         // Spurious SPS precursor introduced by MSConvert
+//         // https://github.com/ProteoWizard/pwiz/issues/2202
+//         if precursor.scan.unwrap_or(0) != ms2.scan {
+//             continue;
+//         }
 
-        // This is really a m/z window, we haven't performed charge state deconvolution!
-        // Select a window of MS2 peaks that have been sampled for MS3
-        let isolation_tolerance = precursor
-            .isolation_window
-            .unwrap_or_else(|| Tolerance::Da(-0.5, 0.5));
-        let isolation_window = isolation_tolerance.bounds(precursor.mz - PROTON);
+//         // This is really a m/z window, we haven't performed charge state deconvolution!
+//         // Select a window of MS2 peaks that have been sampled for MS3
+//         let isolation_tolerance = precursor
+//             .isolation_window
+//             .unwrap_or_else(|| Tolerance::Da(-0.5, 0.5));
+//         let isolation_window = isolation_tolerance.bounds(precursor.mz - PROTON);
 
-        let (idx_lo, idx_hi) = binary_search_slice(
-            &ms2.peaks,
-            |peak, key| peak.mass.total_cmp(key),
-            isolation_window.0,
-            isolation_window.1,
-        );
+//         let (idx_lo, idx_hi) = binary_search_slice(
+//             &ms2.peaks,
+//             |peak, key| peak.mass.total_cmp(key),
+//             isolation_window.0,
+//             isolation_window.1,
+//         );
 
-        // Create slice surrounding SPS peaks selected
-        let window = &ms2.peaks[idx_lo..idx_hi];
-        interference += window
-            .iter()
-            .filter(|peak| peak.mass >= isolation_window.0 && peak.mass <= isolation_window.1)
-            .map(|peak| peak.intensity)
-            .sum::<f32>();
+//         // Create slice surrounding SPS peaks selected
+//         let window = &ms2.peaks[idx_lo..idx_hi];
+//         interference += window
+//             .iter()
+//             .filter(|peak| peak.mass >= isolation_window.0 && peak.mass <= isolation_window.1)
+//             .map(|peak| peak.intensity)
+//             .sum::<f32>();
 
-        // Pick the most intense peak within the isolation window, and decide whether it is
-        // assignable to the best candidate peptide
-        let assigned_to_candidate = if let Some(best_peak) =
-            spectrum::select_closest_peak(window, precursor.mz - PROTON, isolation_tolerance)
-        {
-            let mut correct = false;
-            'outer: for charge in 1..max_charge {
-                for loss in [0.0, NH3, H2O] {
-                    let mass = best_peak.mass * charge as f32 + loss;
-                    if spectrum::select_closest_peak(theoretical_peaks, mass, fragment_tolerance)
-                        .is_some()
-                    {
-                        correct = true;
-                        interference -= best_peak.intensity;
-                        explained_intensity += best_peak.intensity;
+//         // Pick the most intense peak within the isolation window, and decide whether it is
+//         // assignable to the best candidate peptide
+//         let assigned_to_candidate = if let Some(best_peak) =
+//             spectrum::select_closest_peak(window, precursor.mz - PROTON, isolation_tolerance)
+//         {
+//             let mut correct = false;
+//             'outer: for charge in 1..max_charge {
+//                 for loss in [0.0, NH3, H2O] {
+//                     let mass = best_peak.mass * charge as f32 + loss;
+//                     if spectrum::select_closest_peak(theoretical_peaks, mass, fragment_tolerance)
+//                         .is_some()
+//                     {
+//                         correct = true;
+//                         interference -= best_peak.intensity;
+//                         explained_intensity += best_peak.intensity;
 
-                        break 'outer;
-                    }
-                }
-            }
-            correct
-        } else {
-            false
-        };
+//                         break 'outer;
+//                     }
+//                 }
+//             }
+//             correct
+//         } else {
+//             false
+//         };
 
-        if assigned_to_candidate {
-            correct_precursors += 1;
-        } else {
-            incorrect_precursors += 1;
-        }
-    }
+//         if assigned_to_candidate {
+//             correct_precursors += 1;
+//         } else {
+//             incorrect_precursors += 1;
+//         }
+//     }
 
-    Purity {
-        ratio: explained_intensity / (explained_intensity + interference),
-        correct_precursors,
-        incorrect_precursors,
-    }
-}
+//     Purity {
+//         ratio: explained_intensity / (explained_intensity + interference),
+//         correct_precursors,
+//         incorrect_precursors,
+//     }
+// }
 
-fn mk_theoretical(peptide: &Peptide) -> Vec<Peak> {
-    let mut theoretical_peaks = IonSeries::new(peptide, Kind::B)
-        .map(|ion| Peak {
-            mass: ion.monoisotopic_mass,
-            intensity: 0.0,
-        })
-        .collect::<Vec<_>>();
+// fn mk_theoretical(peptide: &Peptide) -> Vec<Peak> {
+//     let mut theoretical_peaks = IonSeries::new(peptide, Kind::B)
+//         .map(|ion| Peak {
+//             mass: ion.monoisotopic_mass,
+//             intensity: 0.0,
+//         })
+//         .collect::<Vec<_>>();
 
-    if let Some(crate::mass::Residue::Mod('K', _)) = peptide.sequence.last() {
-        theoretical_peaks.extend(IonSeries::new(peptide, Kind::Y).map(|ion| Peak {
-            mass: ion.monoisotopic_mass,
-            intensity: 0.0,
-        }));
-    }
+//     if let Some(crate::mass::Residue::Mod('K', _)) = peptide.sequence.last() {
+//         theoretical_peaks.extend(IonSeries::new(peptide, Kind::Y).map(|ion| Peak {
+//             mass: ion.monoisotopic_mass,
+//             intensity: 0.0,
+//         }));
+//     }
 
-    theoretical_peaks.sort_unstable_by(|a, b| a.mass.total_cmp(&b.mass));
-    theoretical_peaks
-}
+//     theoretical_peaks.sort_unstable_by(|a, b| a.mass.total_cmp(&b.mass));
+//     theoretical_peaks
+// }
 
 #[derive(Debug)]
 pub struct Quant<'ms3> {
@@ -223,71 +223,71 @@ const TMT18PLEX: [f32; 18] = [
 /// * `ms3`: The MS3 spectrum to search and quantify
 /// * `isobaric_labels`: specify label m/zs to be used
 /// * `isobaric_tolerance`: specify label tolerance
-pub fn quantify_sps<'a, 'b>(
-    scorer: &'a Scorer<'a>,
-    spectra: &[ProcessedSpectrum],
-    ms3: &'b ProcessedSpectrum,
-    isobaric_labels: &Isobaric,
-    isobaric_tolerance: Tolerance,
-) -> Option<Quant<'b>> {
-    let first_precursor = ms3
-        .precursors
-        .first()
-        .expect("MS3 scan without at least one precursor!");
+// pub fn quantify_sps<'a, 'b>(
+//     scorer: &'a Scorer<'a>,
+//     spectra: &[ProcessedSpectrum],
+//     ms3: &'b ProcessedSpectrum,
+//     isobaric_labels: &Isobaric,
+//     isobaric_tolerance: Tolerance,
+// ) -> Option<Quant<'b>> {
+//     let first_precursor = ms3
+//         .precursors
+//         .first()
+//         .expect("MS3 scan without at least one precursor!");
 
-    let ms2 = spectrum::find_spectrum_by_id(
-        spectra,
-        first_precursor
-            .scan
-            .expect("MS3 scan without a MS2 precursor scan ID"),
-    )
-    .expect("Couldn't locate parent MS2 scan!");
+//     let ms2 = spectrum::find_spectrum_by_id(
+//         spectra,
+//         first_precursor
+//             .scan
+//             .expect("MS3 scan without a MS2 precursor scan ID"),
+//     )
+//     .expect("Couldn't locate parent MS2 scan!");
 
-    let ms1_charge = ms2
-        .precursors
-        .get(0)
-        .and_then(|p| p.charge)
-        .unwrap_or(2)
-        .saturating_sub(1);
+//     let ms1_charge = ms2
+//         .precursors
+//         .get(0)
+//         .and_then(|p| p.charge)
+//         .unwrap_or(2)
+//         .saturating_sub(1);
 
-    let scores = scorer.score_chimera(ms2);
-    let hit = scores.first()?.clone();
-    let peptide = &scorer.db[hit.peptide_idx];
-    let hit_purity = purity_of_match(
-        &ms3.precursors,
-        ms2,
-        &mk_theoretical(peptide),
-        ms1_charge,
-        scorer.fragment_tol,
-    );
+//     let scores = scorer.score_chimera(ms2);
+//     let hit = scores.first()?.clone();
+//     let peptide = &scorer.db[hit.peptide_idx];
+//     let hit_purity = purity_of_match(
+//         &ms3.precursors,
+//         ms2,
+//         &mk_theoretical(peptide),
+//         ms1_charge,
+//         scorer.fragment_tol,
+//     );
 
-    let chimera = scores.get(1).cloned();
-    let chimera_purity = chimera.as_ref().map(|score| {
-        purity_of_match(
-            &ms3.precursors,
-            ms2,
-            &mk_theoretical(&scorer.db[score.peptide_idx]),
-            ms1_charge,
-            scorer.fragment_tol,
-        )
-    });
+//     let chimera = scores.get(1).cloned();
+//     let chimera_purity = chimera.as_ref().map(|score| {
+//         purity_of_match(
+//             &ms3.precursors,
+//             ms2,
+//             &mk_theoretical(&scorer.db[score.peptide_idx]),
+//             ms1_charge,
+//             scorer.fragment_tol,
+//         )
+//     });
 
-    Some(Quant {
-        hit,
-        hit_purity,
-        chimera,
-        chimera_purity,
-        intensities: find_reporter_ions(
-            &ms3.peaks,
-            isobaric_labels.reporter_masses(),
-            isobaric_tolerance,
-        ),
-        spectrum: ms3,
-    })
-}
+//     Some(Quant {
+//         hit,
+//         hit_purity,
+//         chimera,
+//         chimera_purity,
+//         intensities: find_reporter_ions(
+//             &ms3.peaks,
+//             isobaric_labels.reporter_masses(),
+//             isobaric_tolerance,
+//         ),
+//         spectrum: ms3,
+//     })
+// }
 
 pub struct TmtQuant {
-    pub scannr: usize,
+    pub spec_id: String,
     pub file_id: usize,
     pub ion_injection_time: f32,
     pub peaks: Vec<f32>,
@@ -310,14 +310,14 @@ pub fn quantify(
         .par_iter()
         .filter(|spectrum| spectrum.level == level)
         .filter_map(|spectrum| {
-            let scannr = match level {
+            let spec_id = match level {
                 1 => return None,
-                2 => spectrum.scan,
+                2 => spectrum.id.clone(),
                 _ => spectrum
                     .precursors
                     .first()
-                    .and_then(|precursor| precursor.scan)
-                    .unwrap_or(0),
+                    .and_then(|precursor| precursor.spectrum_ref.clone())
+                    .unwrap_or_default(),
             };
 
             let peaks = find_reporter_ions(
@@ -330,7 +330,7 @@ pub fn quantify(
             .collect();
 
             Some(TmtQuant {
-                scannr,
+                spec_id,
                 file_id: spectrum.file_id,
                 ion_injection_time: spectrum.ion_injection_time,
                 peaks,

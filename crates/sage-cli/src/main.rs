@@ -190,7 +190,7 @@ impl Runner {
         record.push_field(feature.proteins.as_str().as_bytes());
         record.push_field(itoa::Buffer::new().format(feature.num_proteins).as_bytes());
         record.push_field(self.parameters.mzml_paths[feature.file_id].as_bytes());
-        record.push_field(itoa::Buffer::new().format(feature.scannr).as_bytes());
+        record.push_field(feature.spec_id.as_bytes());
         record.push_field(itoa::Buffer::new().format(feature.label).as_bytes());
         record.push_field(ryu::Buffer::new().format(feature.expmass).as_bytes());
         record.push_field(ryu::Buffer::new().format(feature.calcmass).as_bytes());
@@ -326,8 +326,8 @@ impl Runner {
             .into_par_iter()
             .map(|q| {
                 let mut record = csv::ByteRecord::new();
-                record.push_field(itoa::Buffer::new().format(q.file_id).as_bytes());
-                record.push_field(itoa::Buffer::new().format(q.scannr).as_bytes());
+                record.push_field(self.parameters.mzml_paths[q.file_id].as_bytes());
+                record.push_field(q.spec_id.as_bytes());
                 record.push_field(ryu::Buffer::new().format(q.ion_injection_time).as_bytes());
                 for peak in &q.peaks {
                     record.push_field(ryu::Buffer::new().format(*peak).as_bytes());

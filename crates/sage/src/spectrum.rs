@@ -31,12 +31,13 @@ pub struct SpectrumProcessor {
     pub file_id: usize,
 }
 
-#[derive(Default, Debug, Copy, Clone, Serialize)]
+#[derive(Default, Debug, Clone, Serialize)]
 pub struct Precursor {
     pub mz: f32,
     pub intensity: Option<f32>,
     pub charge: Option<u8>,
-    pub scan: Option<usize>,
+    // pub scan: Option<usize>,
+    pub spectrum_ref: Option<String>,
     pub isolation_window: Option<Tolerance>,
 }
 
@@ -45,7 +46,8 @@ pub struct ProcessedSpectrum {
     /// MSn level
     pub level: u8,
     /// Scan ID
-    pub scan: usize,
+    pub id: String,
+    // pub scan: usize,
     /// File ID
     pub file_id: usize,
     /// Retention time
@@ -97,22 +99,22 @@ pub fn select_closest_peak(peaks: &[Peak], mz: f32, tolerance: Tolerance) -> Opt
     best_peak
 }
 
-pub fn find_spectrum_by_id(
-    spectra: &[ProcessedSpectrum],
-    scan_id: usize,
-) -> Option<&ProcessedSpectrum> {
-    // First try indexing by scan
-    if let Some(first) = spectra.get(scan_id.saturating_sub(1)) {
-        if first.scan == scan_id {
-            return Some(first);
-        }
-    }
-    // Fall back to binary search
-    let idx = spectra
-        .binary_search_by(|spec| spec.scan.cmp(&scan_id))
-        .ok()?;
-    spectra.get(idx)
-}
+// pub fn find_spectrum_by_id(
+//     spectra: &[ProcessedSpectrum],
+//     scan_id: usize,
+// ) -> Option<&ProcessedSpectrum> {
+//     // First try indexing by scan
+//     if let Some(first) = spectra.get(scan_id.saturating_sub(1)) {
+//         if first.scan == scan_id {
+//             return Some(first);
+//         }
+//     }
+//     // Fall back to binary search
+//     let idx = spectra
+//         .binary_search_by(|spec| spec.scan.cmp(&scan_id))
+//         .ok()?;
+//     spectra.get(idx)
+// }
 
 /// Deisotope a set of peaks by attempting to find C13 peaks under a given `ppm` tolerance
 pub fn deisotope(mz: &[f32], int: &[f32], max_charge: u8, ppm: f32) -> Vec<Deisotoped> {
@@ -209,7 +211,7 @@ impl SpectrumProcessor {
             // Panic, because there's really nothing we can do with profile data
             panic!(
                 "Scan {} contains profile data! Please convert to centroid",
-                spectrum.scan_id
+                spectrum.id
             );
         }
 
@@ -281,7 +283,8 @@ impl SpectrumProcessor {
 
         ProcessedSpectrum {
             level: spectrum.ms_level,
-            scan: spectrum.scan_id,
+            id: spectrum.id,
+            // scan: spectrum.scan_id,
             file_id: self.file_id,
             scan_start_time: spectrum.scan_start_time,
             ion_injection_time: spectrum.ion_injection_time,
