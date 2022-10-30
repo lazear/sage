@@ -86,6 +86,8 @@ pub struct Digest {
     pub sequence: String,
     /// Missed cleavages
     pub missed_cleavages: u8,
+    pub start: usize,
+    pub end: usize,
 }
 
 impl Digest {
@@ -102,6 +104,8 @@ impl Digest {
             decoy: true,
             sequence: sequence.into_iter().collect(),
             missed_cleavages: self.missed_cleavages,
+            start: self.start,
+            end: self.end,
         }
     }
 }
@@ -149,13 +153,17 @@ impl Trypsin {
         for cleavage in 1..=(1 + self.miss_cleavage) {
             // Generate missed cleavages
             for win in peptides.windows(cleavage as usize) {
-                let sequence = &sequence[win[0].start..win[cleavage as usize - 1].end];
+                let start = win[0].start;
+                let end = win[cleavage as usize - 1].end;
+                let sequence = &sequence[start..end];
                 let len = sequence.len();
                 if len >= self.min_len && len <= self.max_len {
                     digests.push(Digest {
                         sequence: sequence.into(),
                         missed_cleavages: cleavage - 1,
                         decoy: false,
+                        start,
+                        end,
                     });
                 }
             }

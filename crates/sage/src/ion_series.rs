@@ -76,6 +76,8 @@ mod test {
             sequence: s.into(),
             missed_cleavages: 0,
             decoy: false,
+            start: 0,
+            end: 0,
         })
         .unwrap()
     }

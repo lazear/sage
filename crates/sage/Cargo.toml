@@ -18,7 +18,7 @@ regex = "1.6"
 tokio = { version = "1.0", features = ["io-util"] }
 rayon = "1.5"
 serde = { version="1.0", features = ["derive"] }
-quick-xml = { version = "0.25", features = ["async-tokio"] }
+quick-xml = { version = "0.26", features = ["async-tokio"] }
 
 [dev-dependencies]
 serde_json = "1.0"

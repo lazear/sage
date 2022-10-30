@@ -12,6 +12,8 @@ pub struct Peptide {
     pub nterm: Option<f32>,
     pub monoisotopic: f32,
     pub missed_cleavages: u8,
+    pub start: u32,
+    pub end: u32,
 }
 
 impl Peptide {
@@ -159,6 +161,8 @@ impl TryFrom<&Digest> for Peptide {
             monoisotopic,
             nterm: None,
             missed_cleavages: value.missed_cleavages,
+            start: value.start as u32,
+            end: value.end as u32,
         })
     }
 }
@@ -190,18 +194,20 @@ mod test {
             sequence: "GCMGCMG".into(),
             missed_cleavages: 0,
             decoy: false,
+            start: 0,
+            end: 0,
         })
         .unwrap();
 
         let expected = vec![
-            "GC(57)M(16)GCMG",
-            "GCM(16)GC(57)MG",
-            "GCM(16)GCMG",
-            "GC(57)MGCM(16)G",
-            "GCMGC(57)M(16)G",
-            "GCMGCM(16)G",
-            "GC(57)MGCMG",
-            "GCMGC(57)MG",
+            "GC[+57]M[+16]GCMG",
+            "GCM[+16]GC[+57]MG",
+            "GCM[+16]GCMG",
+            "GC[+57]MGCM[+16]G",
+            "GCMGC[+57]M[+16]G",
+            "GCMGCM[+16]G",
+            "GC[+57]MGCMG",
+            "GCMGC[+57]MG",
             "GCMGCMG",
         ];
 
@@ -228,15 +234,17 @@ mod test {
             sequence: "GCMGCMG".into(),
             missed_cleavages: 0,
             decoy: false,
+            start: 0,
+            end: 0,
         })
         .unwrap();
 
         let expected = vec![
-            "[42]GCM(16)GCMG",
-            "[42]GCMGCM(16)G",
+            "[42]GCM[+16]GCMG",
+            "[42]GCMGCM[+16]G",
             "[42]GCMGCMG",
-            "GCM(16)GCMG",
-            "GCMGCM(16)G",
+            "GCM[+16]GCMG",
+            "GCMGCM[+16]G",
             "GCMGCMG",
         ];
 
@@ -289,10 +297,16 @@ mod test {
             sequence: "AACAACAA".into(),
             missed_cleavages: 0,
             decoy: false,
+            start: 0,
+            end: 0,
         })
         .unwrap();
 
-        let expected = vec!["AAC(30)AAC(57)AA", "AAC(57)AAC(30)AA", "AAC(57)AAC(57)AA"];
+        let expected = vec![
+            "AAC[+30]AAC[+57]AA",
+            "AAC[+57]AAC[+30]AA",
+            "AAC[+57]AAC[+57]AA",
+        ];
 
         let mut static_mods = HashMap::new();
         static_mods.insert('C', 57.0);

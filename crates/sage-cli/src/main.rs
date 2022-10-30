@@ -491,6 +491,15 @@ impl Runner {
         info!("discovered {} peptides at 1% FDR", q_peptide);
         info!("discovered {} proteins at 1% FDR", q_protein);
 
+        mzidentml::doit(
+            &self.parameters.mzml_paths,
+            &outputs.features,
+            &self.database,
+            self.parameters.fragment_tol,
+            self.parameters.precursor_tol,
+            Instant::now() - self.start,
+        );
+
         self.parameters
             .pin_paths
             .push(self.write_features(outputs.features)?);

@@ -17,6 +17,7 @@ path = "src/main.rs"
 [dependencies]
 sage-core = { path = "../sage" }
 sage-cloudpath = { path = "../sage-cloudpath" }
+mzidentml = {path = "../mzidentml" }
 
 anyhow = "1.0"
 csv = "1"

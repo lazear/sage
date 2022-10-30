@@ -91,7 +91,13 @@ impl std::fmt::Display for Residue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Residue::Just(c) => f.write_char(*c),
-            Residue::Mod(c, m) => write!(f, "{}({})", c, m),
+            Residue::Mod(c, m) => {
+                if *m >= 0.0 {
+                    write!(f, "{}[+{}]", c, m)
+                } else {
+                    write!(f, "{}[{}]", c, m)
+                }
+            }
         }
     }
 }
