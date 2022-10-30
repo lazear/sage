@@ -123,8 +123,6 @@ impl MzMLReader {
         let mut iso_window_hi: Option<f32> = None;
         let mut spectra = Vec::new();
 
-        let scan_id_regex = regex::Regex::new(r#"scan=(\d+)"#).expect("this is a valid regex");
-
         macro_rules! extract {
             ($ev:expr, $key:expr) => {
                 $ev.try_get_attribute($key)?

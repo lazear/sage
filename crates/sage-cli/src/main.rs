@@ -191,6 +191,7 @@ impl Runner {
         record.push_field(itoa::Buffer::new().format(feature.num_proteins).as_bytes());
         record.push_field(self.parameters.mzml_paths[feature.file_id].as_bytes());
         record.push_field(feature.spec_id.as_bytes());
+        record.push_field(itoa::Buffer::new().format(feature.rank).as_bytes());
         record.push_field(itoa::Buffer::new().format(feature.label).as_bytes());
         record.push_field(ryu::Buffer::new().format(feature.expmass).as_bytes());
         record.push_field(ryu::Buffer::new().format(feature.calcmass).as_bytes());
@@ -255,8 +256,9 @@ impl Runner {
             "peptide",
             "proteins",
             "num_proteins",
-            "file",
+            "filename",
             "scannr",
+            "rank",
             "label",
             "expmass",
             "calcmass",
@@ -286,13 +288,8 @@ impl Runner {
             "ms1_intensity",
         ]);
 
-        // for feat in features {
-        // wtr.serialize(feat)?;
-        // }
-
         wtr.write_byte_record(&headers)?;
         for record in features
-            // .par_iter()
             .into_par_iter()
             .map(|feat| self.serialize_feature(&feat))
             .collect::<Vec<_>>()
