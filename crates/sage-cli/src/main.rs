@@ -280,7 +280,7 @@ impl Runner {
             "matched_intensity_pct",
             "scored_candidates",
             "poisson",
-            "discriminant_score",
+            "sage_discriminant_score",
             "posterior_error",
             "spectrum_fdr",
             "peptide_fdr",
