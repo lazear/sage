@@ -31,8 +31,6 @@ struct LfqEntry {
     mz_tol_lo: f32,
     mz_tol_hi: f32,
 
-    // index of Feature vector scan
-    feat_idx: usize,
     peptide: PeptideIx,
 }
 
@@ -64,8 +62,7 @@ impl LfqIndex {
 
         let mut entries = features
             .par_iter()
-            .enumerate()
-            .flat_map(|(feat_idx, feat)| {
+            .flat_map(|feat| {
                 (min_charge..=max_charge)
                     .par_bridge()
                     .flat_map_iter(move |charge| {
@@ -78,7 +75,6 @@ impl LfqIndex {
 
                             LfqEntry {
                                 rt: feat.rt,
-                                feat_idx,
                                 peptide: feat.peptide_idx,
                                 isotope: isotopomer,
                                 charge,

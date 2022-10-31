@@ -4,7 +4,7 @@ use http::Uri;
 use sage_core::mzml::{MzMLError, MzMLReader, Spectrum};
 use std::path::PathBuf;
 use std::str::FromStr;
-use tokio::io::{AsyncBufRead, AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufRead, AsyncRead, AsyncWriteExt, BufReader};
 
 static S3_CLIENT: once_cell::sync::OnceCell<aws_sdk_s3::Client> = once_cell::sync::OnceCell::new();
 

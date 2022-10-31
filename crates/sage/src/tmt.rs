@@ -1,5 +1,6 @@
 //! TMT quantification
 #![allow(clippy::excessive_precision)]
+#![allow(unused_imports)]
 use crate::database::binary_search_slice;
 use crate::ion_series::{IonSeries, Kind};
 use crate::mass::{Tolerance, H2O, NH3, PROTON};
