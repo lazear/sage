@@ -54,9 +54,9 @@ impl Mass for Residue {
     }
 }
 
-pub const VALID_AA: [char; 20] = [
+pub const VALID_AA: [char; 22] = [
     'A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W',
-    'Y',
+    'Y', 'U', 'O',
 ];
 
 impl Mass for char {
@@ -82,7 +82,9 @@ impl Mass for char {
             'W' => 186.079_32,
             'Y' => 163.063_32,
             'V' => 99.068_41,
-            _ => unreachable!("BUG: invalid amino acid"),
+            'U' => 150.95363,
+            'O' => 237.14773,
+            _ => unreachable!("BUG: invalid amino acid {}", self),
         }
     }
 }

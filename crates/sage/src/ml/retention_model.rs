@@ -43,9 +43,9 @@ pub struct RetentionModel {
     pub rt_max: f64,
 }
 
-const FEATURES: usize = 63;
-const N_TERMINAL: usize = 20;
-const C_TERMINAL: usize = 40;
+const FEATURES: usize = VALID_AA.len() * 3 + 3;
+const N_TERMINAL: usize = VALID_AA.len() * 1;
+const C_TERMINAL: usize = VALID_AA.len() * 2;
 const PEPTIDE_LEN: usize = FEATURES - 3;
 const PEPTIDE_MASS: usize = FEATURES - 2;
 const INTERCEPT: usize = FEATURES - 1;
