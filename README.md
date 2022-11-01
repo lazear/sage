@@ -130,8 +130,8 @@ sage config.json s3://my-bucket/YYYY-MM-DD_expt_A_fraction_1.mzML.gz
 
 Running Sage will produce several output files (located in either the current directory, or `output_directory` if that option is specified):
 - Record of search parameters (`results.json`) will be created that details input/output paths and all search parameters used for the search
-- MS2 search results will be stored as a Percolator-compatible (`search.pin`) file - this is a tab-separated file, which can be opened in Excel/Pandas/etc
-- MS3 search results will be stored as a CSV (`quant.csv`) if `quant.tmt` option is used in the parameter file
+- MS2 search results will be stored as a tab-separated file (`results.sage.tsv`) file - this is a tab-separated file, which can be opened in Excel/Pandas/etc
+- MS3 search results will be stored as a tab-separated file (`quant.tsv`) if `quant.tmt` option is used in the parameter file
 
 ## Configuration file schema
 
@@ -145,6 +145,8 @@ Running Sage will produce several output files (located in either the current di
 Using decoy sequences is critical to controlling the false discovery rate in proteomics experiments. Sage can use decoy sequences in the supplied FASTA file, or it can generate internal sequences. Sage reverses tryptic peptides (not proteins), so that the [picked-peptide](https://pubmed.ncbi.nlm.nih.gov/36166314/) approach to FDR can be used.
 
 If `database.generate_decoys` is set to true (or unspecified), then decoy sequences in the FASTA database matching `database.decoy_tag` will be *ignored*, and Sage will internally generate decoys. It is __critical__ that you ensure you use the proper `decoy_tag` if you are using a FASTA database containing decoys and have internal decoy generation turned on - otherwise Sage will treat the supplied decoys as hits!
+
+Internally generated decoys will have protein accessions matching "{decoy_tag}{accession}", e.g. if `decoy_tag` is "rev_" then a protein accession like "rev_sp|P01234|HUMAN" will be listed in the output file.
 
 ```jsonc
 // Note that json does not allow comments, they are here just as explanation

@@ -27,7 +27,7 @@ struct Search {
     predict_rt: bool,
     parallel: bool,
     mzml_paths: Vec<String>,
-    pin_paths: Vec<String>,
+    output_paths: Vec<String>,
 
     #[serde(skip_serializing)]
     output_directory: CloudPath,
@@ -101,7 +101,7 @@ impl Input {
             deisotope: self.deisotope.unwrap_or(true),
             chimera: self.chimera.unwrap_or(false),
             predict_rt: self.predict_rt.unwrap_or(true),
-            pin_paths: Vec::new(),
+            output_paths: Vec::new(),
         })
     }
 }
@@ -251,7 +251,7 @@ impl Runner {
         features: Vec<Feature>,
         filenames: &[String],
     ) -> anyhow::Result<String> {
-        let path = self.make_path("search.pin");
+        let path = self.make_path("results.sage.tsv");
 
         let mut wtr = csv::WriterBuilder::new()
             .delimiter(b'\t')
@@ -309,9 +309,11 @@ impl Runner {
     }
 
     fn write_quant(&self, quant: &[TmtQuant], filenames: &[String]) -> anyhow::Result<String> {
-        let path = self.make_path("quant.csv");
+        let path = self.make_path("quant.tsv");
 
-        let mut wtr = csv::WriterBuilder::new().from_writer(vec![]);
+        let mut wtr = csv::WriterBuilder::new()
+            .delimiter(b'\t')
+            .from_writer(vec![]);
         let mut headers = csv::ByteRecord::from(vec!["file", "scannr", "ion_injection_time"]);
         headers.extend(
             self.parameters
@@ -506,11 +508,11 @@ impl Runner {
             .collect::<Vec<_>>();
 
         self.parameters
-            .pin_paths
+            .output_paths
             .push(self.write_features(outputs.features, &filenames)?);
         if !outputs.quant.is_empty() {
             self.parameters
-                .pin_paths
+                .output_paths
                 .push(self.write_quant(&outputs.quant, &filenames)?);
         }
 
@@ -518,7 +520,7 @@ impl Runner {
         info!("finished in {}s", run_time);
 
         let path = self.make_path("results.json");
-        self.parameters.pin_paths.push(path.to_string());
+        self.parameters.output_paths.push(path.to_string());
         println!("{}", serde_json::to_string_pretty(&self.parameters)?);
 
         let bytes = serde_json::to_vec_pretty(&self.parameters)?;
