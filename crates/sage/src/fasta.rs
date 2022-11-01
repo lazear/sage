@@ -2,8 +2,6 @@ use std::collections::HashMap;
 use std::io;
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
-
 pub struct Fasta {
     pub targets: Vec<(String, String)>,
     decoy_tag: String,
@@ -46,7 +44,7 @@ impl Fasta {
 
         if !s.is_empty() {
             let acc: String = last_id.split_ascii_whitespace().next().unwrap().into();
-            if acc.contains(&decoy_tag) || !generate_decoys {
+            if !acc.contains(&decoy_tag) || !generate_decoys {
                 targets.push((acc, s));
             }
         }
@@ -68,13 +66,19 @@ impl Fasta {
                         .entry(digest.reverse())
                         .or_default()
                         .push(format!("{}{}", self.decoy_tag, acc));
+                    targets.entry(digest).or_default().push(acc.clone());
                 } else {
-                    digest.decoy = acc.contains(&self.decoy_tag);
+                    if acc.contains(&self.decoy_tag) {
+                        digest.decoy = true;
+                        decoys.entry(digest).or_default().push(acc.clone());
+                    } else {
+                        targets.entry(digest).or_default().push(acc.clone());
+                    }
                 }
-                targets.entry(digest).or_default().push(acc.clone());
             }
         }
 
+        // Overwrite any decoys that have the same sequence as a target
         for (k, v) in targets {
             decoys.insert(k, v);
         }

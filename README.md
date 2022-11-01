@@ -135,9 +135,16 @@ Running Sage will produce several output files (located in either the current di
 
 ## Configuration file schema
 
-Notes:
+### Notes
+
 - The majority of parameters are optional - only "database.fasta", "precursor_tol", and "fragment_tol" are required. Sage will try and use reasonable defaults for any parameters not supplied
 - Tolerances are specified on the *experimental* m/z values. To perform a -100 to +500 Da open search (mass window applied to *precursor*), you would use `"da": [-500, 100]`
+
+### Decoys
+
+Using decoy sequences is critical to controlling the false discovery rate in proteomics experiments. Sage can use decoy sequences in the supplied FASTA file, or it can generate internal sequences. Sage reverses tryptic peptides (not proteins), so that the [picked-peptide](https://pubmed.ncbi.nlm.nih.gov/36166314/) approach to FDR can be used.
+
+If `database.generate_decoys` is set to true (or unspecified), then decoy sequences in the FASTA database matching `database.decoy_tag` will be *ignored*, and Sage will internally generate decoys. It is __critical__ that you ensure you use the proper `decoy_tag` if you are using a FASTA database containing decoys and have internal decoy generation turned on - otherwise Sage will treat the supplied decoys as hits!
 
 ```jsonc
 // Note that json does not allow comments, they are here just as explanation
@@ -161,8 +168,9 @@ Notes:
     "variable_mods": {      // Optional[Dict[char, float]] {default={}}, variable modifications
       "M": 15.9949          // Variable mods are applied *before* static mods
     },
-    "decoy_prefix": "rev_", // Optional[str] {default="rev_"}: Prefix appended to decoy proteins
-    "fasta": "dual.fasta"   // str: mandatory path to fasta file
+    "decoy_tag": "rev_",    // Optional[str] {default="rev_"}: See notes above
+    "generate_decoys": false  // Optional[bool] {default="true"}: Ignore decoys in FASTA database matching `decoy_tag`
+    "fasta": "dual.fasta"   // str: mandatory path to FASTA file
   },
   "quant": {                // Optional - specify only if TMT or LFQ
     "tmt": "Tmt16",         // Optional[str] {default=null}, one of "Tmt6", "Tmt10", "Tmt11", "Tmt16", or "Tmt18"
