@@ -82,6 +82,13 @@ impl CloudPath {
         }
     }
 
+    pub fn filename(&self) -> Option<&str> {
+        match self {
+            CloudPath::S3 { key, .. } => key.split('/').last(),
+            CloudPath::Local(path) => path.file_name().and_then(|s| s.to_str()),
+        }
+    }
+
     /// Does the path end in "gz" or "gzip"?
     fn gzip_heuristic(&self) -> bool {
         match &self {

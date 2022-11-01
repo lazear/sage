@@ -184,12 +184,12 @@ impl Runner {
         path
     }
 
-    fn serialize_feature(&self, feature: &Feature) -> csv::ByteRecord {
+    fn serialize_feature(&self, feature: &Feature, filenames: &[String]) -> csv::ByteRecord {
         let mut record = csv::ByteRecord::new();
         record.push_field(feature.peptide.as_str().as_bytes());
         record.push_field(feature.proteins.as_str().as_bytes());
         record.push_field(itoa::Buffer::new().format(feature.num_proteins).as_bytes());
-        record.push_field(self.parameters.mzml_paths[feature.file_id].as_bytes());
+        record.push_field(filenames[feature.file_id].as_bytes());
         record.push_field(feature.spec_id.as_bytes());
         record.push_field(itoa::Buffer::new().format(feature.rank).as_bytes());
         record.push_field(itoa::Buffer::new().format(feature.label).as_bytes());
@@ -246,8 +246,13 @@ impl Runner {
         record
     }
 
-    fn write_features(&self, features: Vec<Feature>) -> anyhow::Result<String> {
+    fn write_features(
+        &self,
+        features: Vec<Feature>,
+        filenames: &[String],
+    ) -> anyhow::Result<String> {
         let path = self.make_path("search.pin");
+
         let mut wtr = csv::WriterBuilder::new()
             .delimiter(b'\t')
             .from_writer(vec![]);
@@ -291,7 +296,7 @@ impl Runner {
         wtr.write_byte_record(&headers)?;
         for record in features
             .into_par_iter()
-            .map(|feat| self.serialize_feature(&feat))
+            .map(|feat| self.serialize_feature(&feat, filenames))
             .collect::<Vec<_>>()
         {
             wtr.write_byte_record(&record)?;
@@ -303,7 +308,7 @@ impl Runner {
         Ok(path.to_string())
     }
 
-    fn write_quant(&self, quant: &[TmtQuant]) -> anyhow::Result<String> {
+    fn write_quant(&self, quant: &[TmtQuant], filenames: &[String]) -> anyhow::Result<String> {
         let path = self.make_path("quant.csv");
 
         let mut wtr = csv::WriterBuilder::new().from_writer(vec![]);
@@ -323,7 +328,7 @@ impl Runner {
             .into_par_iter()
             .map(|q| {
                 let mut record = csv::ByteRecord::new();
-                record.push_field(self.parameters.mzml_paths[q.file_id].as_bytes());
+                record.push_field(filenames[q.file_id].as_bytes());
                 record.push_field(q.spec_id.as_bytes());
                 record.push_field(ryu::Buffer::new().format(q.ion_injection_time).as_bytes());
                 for peak in &q.peaks {
@@ -488,13 +493,25 @@ impl Runner {
         info!("discovered {} peptides at 1% FDR", q_peptide);
         info!("discovered {} proteins at 1% FDR", q_protein);
 
+        let filenames = self
+            .parameters
+            .mzml_paths
+            .iter()
+            .map(|s| {
+                s.parse::<CloudPath>()
+                    .ok()
+                    .and_then(|c| c.filename().map(|s| s.to_string()))
+                    .unwrap_or_else(|| s.clone())
+            })
+            .collect::<Vec<_>>();
+
         self.parameters
             .pin_paths
-            .push(self.write_features(outputs.features)?);
+            .push(self.write_features(outputs.features, &filenames)?);
         if !outputs.quant.is_empty() {
             self.parameters
                 .pin_paths
-                .push(self.write_quant(&outputs.quant)?);
+                .push(self.write_quant(&outputs.quant, &filenames)?);
         }
 
         let run_time = (Instant::now() - self.start).as_secs();

@@ -2,15 +2,24 @@ use std::collections::HashMap;
 use std::io;
 use std::path::Path;
 
+use serde::{Deserialize, Serialize};
+
 pub struct Fasta {
     pub targets: Vec<(String, String)>,
-    decoy_prefix: String,
+    decoy_tag: String,
+    // Should we ignore decoys in the fasta database
+    // and generate them internally?
+    generate_decoys: bool,
 }
 
 impl Fasta {
     /// Open and parse a fasta file
-    pub fn open<P: AsRef<Path>, S: Into<String>>(path: P, decoy_prefix: S) -> io::Result<Fasta> {
-        let decoy_prefix = decoy_prefix.into();
+    pub fn open<P: AsRef<Path>, S: Into<String>>(
+        path: P,
+        decoy_tag: S,
+        generate_decoys: bool,
+    ) -> io::Result<Fasta> {
+        let decoy_tag = decoy_tag.into();
         let buf = std::fs::read_to_string(path)?;
 
         let mut targets = Vec::new();
@@ -25,7 +34,7 @@ impl Fasta {
                 if !s.is_empty() {
                     let acc: String = last_id.split_ascii_whitespace().next().unwrap().into();
                     let seq = std::mem::take(&mut s);
-                    if !acc.starts_with(&decoy_prefix) {
+                    if !acc.contains(&decoy_tag) || !generate_decoys {
                         targets.push((acc, seq));
                     }
                 }
@@ -37,14 +46,15 @@ impl Fasta {
 
         if !s.is_empty() {
             let acc: String = last_id.split_ascii_whitespace().next().unwrap().into();
-            if !acc.starts_with(&decoy_prefix) {
+            if acc.contains(&decoy_tag) || !generate_decoys {
                 targets.push((acc, s));
             }
         }
 
         Ok(Fasta {
             targets,
-            decoy_prefix,
+            decoy_tag,
+            generate_decoys,
         })
     }
 
@@ -52,11 +62,15 @@ impl Fasta {
         let mut targets: HashMap<Digest, Vec<String>> = HashMap::new();
         let mut decoys: HashMap<Digest, Vec<String>> = HashMap::new();
         for (acc, seq) in &self.targets {
-            for digest in trypsin.digest(seq) {
-                decoys
-                    .entry(digest.reverse())
-                    .or_default()
-                    .push(format!("{}{}", self.decoy_prefix, acc));
+            for mut digest in trypsin.digest(seq) {
+                if self.generate_decoys {
+                    decoys
+                        .entry(digest.reverse())
+                        .or_default()
+                        .push(format!("{}{}", self.decoy_tag, acc));
+                } else {
+                    digest.decoy = acc.contains(&self.decoy_tag);
+                }
                 targets.entry(digest).or_default().push(acc.clone());
             }
         }

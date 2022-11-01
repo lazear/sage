@@ -37,7 +37,9 @@ pub struct Builder {
     /// Variable modifications to add to matching amino acids
     pub variable_mods: Option<HashMap<char, f32>>,
     /// Use this prefix for decoy proteins
-    pub decoy_prefix: Option<String>,
+    pub decoy_tag: Option<String>,
+
+    pub generate_decoys: Option<bool>,
     /// Path to fasta database
     pub fasta: Option<PathBuf>,
 }
@@ -71,10 +73,11 @@ impl Builder {
             peptide_min_mass: self.peptide_min_mass.unwrap_or(500.0),
             peptide_max_mass: self.peptide_max_mass.unwrap_or(5000.0),
             min_ion_index: self.min_ion_index.unwrap_or(2),
-            decoy_prefix: self.decoy_prefix.unwrap_or_else(|| "rev_".into()),
+            decoy_tag: self.decoy_tag.unwrap_or_else(|| "rev_".into()),
             missed_cleavages: self.missed_cleavages.unwrap_or(0),
             static_mods: Self::validate_mods(self.static_mods),
             variable_mods: Self::validate_mods(self.variable_mods),
+            generate_decoys: self.generate_decoys.unwrap_or(true),
             fasta: self.fasta.expect("A fasta file must be provided!"),
         }
     }
@@ -97,7 +100,8 @@ pub struct Parameters {
     missed_cleavages: u8,
     static_mods: HashMap<char, f32>,
     variable_mods: HashMap<char, f32>,
-    decoy_prefix: String,
+    decoy_tag: String,
+    generate_decoys: bool,
     pub fasta: PathBuf,
 }
 
@@ -140,7 +144,7 @@ impl Parameters {
             self.peptide_min_len,
             self.peptide_max_len,
         );
-        let fasta = Fasta::open(&self.fasta, &self.decoy_prefix)?;
+        let fasta = Fasta::open(&self.fasta, self.decoy_tag.clone(), self.generate_decoys)?;
 
         let (target_decoys, peptide_graph) = self.digest(&fasta, &trypsin);
 

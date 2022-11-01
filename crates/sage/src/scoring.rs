@@ -243,6 +243,7 @@ impl<'db> Scorer<'db> {
             .iter()
             .take(n_calculate)
             .map(|pre| self.score_candidate(query, charge, pre.peptide))
+            .filter(|s| (s.matched_b + s.matched_y) >= 2)
             .collect::<Vec<_>>();
 
         score_vector.sort_unstable_by(|a, b| b.hyperscore.total_cmp(&a.hyperscore));
