@@ -1,4 +1,5 @@
 pub mod database;
+pub mod enzyme;
 pub mod fasta;
 pub mod fdr;
 pub mod ion_series;

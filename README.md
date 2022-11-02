@@ -154,14 +154,18 @@ Internally generated decoys will have protein accessions matching "{decoy_tag}{a
 {
   "database": {
     "bucket_size": 32768,           // How many fragments are in each internal mass bucket
+    "enzyme": {               // Optional. Default is trypsin, using the parameters below
+      "missed_cleavages": 2,  // Optional[int], Number of missed cleavages for tryptic digest
+      "min_len": 5,           // Optional[int]{efault=5}, Minimum AA length of peptides to search
+      "max_len": 50,          // Optional[int] {default=50}, Maximum AA length of peptides to search
+      "cleave_at": "KR",      // Optional[str] {default='KR'}. Amino acids to cleave at
+      "restrict": "P",        // Optional[char/single AA] {default='P'}. Do not cleave if this AA follows the cleavage site
+    }
     "fragment_min_mz": 200.0,       // Optional[float] {default=150.0}, Minimum mass of fragments to search
     "fragment_max_mz": 2000.0,      // Optional[float] {default=2000.0}, Maximum mass of fragments to search 
-    "peptide_min_len": 5,           // Optional[int]{efault=5}, Minimum AA length of peptides to search
-    "peptide_max_len": 50,          // Optional[int] {default=50}, Maximum AA length of peptides to search
     "peptide_min_mass": 500.0,      // Optional[float] {default=500.0}, Minimum monoisotopic mass of peptides to fragment
     "peptide_max_mass": 5000.0,     // Optional[float] {default=5000.0}, Maximum monoisotopic mass of peptides to fragment
     "min_ion_index": 2,     // Optional[int] {default=2}, Do not generate b1/b2/y1/y2 ions for preliminary searching. Does not affect full scoring of PSMs
-    "missed_cleavages": 2,  // Optional[int], Number of missed cleavages for tryptic digest
     "static_mods": {        // Optional[Dict[char, float]] {default={}}, static modifications
       "^": 304.207,         // Apply static modification to N-terminus
       "K": 304.207,         // Apply static modification to lysine

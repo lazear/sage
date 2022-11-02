@@ -69,7 +69,7 @@ impl<'p> Iterator for IonSeries<'p> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{fasta::Digest, mass::PROTON, peptide::Peptide};
+    use crate::{enzyme::Digest, mass::PROTON, peptide::Peptide};
 
     fn peptide(s: &str) -> Peptide {
         Peptide::try_from(&Digest {

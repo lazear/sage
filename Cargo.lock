@@ -1216,6 +1216,7 @@ dependencies = [
  "log",
  "quick-xml",
  "rayon",
+ "regex",
  "serde",
  "serde_json",
  "tokio",

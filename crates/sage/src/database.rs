@@ -1,4 +1,5 @@
-use crate::fasta::{Fasta, Trypsin};
+use crate::enzyme::{Enzyme, EnzymeParameters};
+use crate::fasta::Fasta;
 use crate::ion_series::{IonSeries, Kind};
 use crate::mass::{Tolerance, NEUTRON};
 use crate::peptide::Peptide;
@@ -10,19 +11,55 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use std::path::PathBuf;
 
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct EnzymeBuilder {
+    /// How many missed cleavages to use
+    pub missed_cleavages: Option<u8>,
+    /// Minimum peptide length that will be fragmented
+    pub min_len: Option<usize>,
+    /// Maximum peptide length that will be fragmented
+    pub max_len: Option<usize>,
+    pub cleave_at: Option<String>,
+    pub restrict: Option<char>,
+}
+
+impl Default for EnzymeBuilder {
+    fn default() -> Self {
+        Self {
+            missed_cleavages: Some(0),
+            min_len: Some(5),
+            max_len: Some(50),
+            cleave_at: Some("KR".into()),
+            restrict: Some('P'),
+        }
+    }
+}
+
+impl Into<EnzymeParameters> for EnzymeBuilder {
+    fn into(self) -> EnzymeParameters {
+        EnzymeParameters {
+            missed_cleavages: self.missed_cleavages.unwrap_or(0),
+            min_len: self.min_len.unwrap_or(5),
+            max_len: self.max_len.unwrap_or(50),
+            enyzme: Enzyme::new(
+                &self.cleave_at.unwrap_or("KR".into()),
+                self.restrict.or(Some('P')),
+            ),
+        }
+    }
+}
+
 #[derive(Deserialize, Default)]
 /// Parameters used for generating the fragment database
 pub struct Builder {
     /// This parameter allows tuning of the internal search structure
     pub bucket_size: Option<usize>,
+
+    pub enzyme: Option<EnzymeBuilder>,
     /// Minimum fragment m/z that will be stored in the database
     pub fragment_min_mz: Option<f32>,
     /// Maximum fragment m/z that will be stored in the database
     pub fragment_max_mz: Option<f32>,
-    /// Minimum peptide length that will be fragmented
-    pub peptide_min_len: Option<usize>,
-    /// Maximum peptide length that will be fragmented
-    pub peptide_max_len: Option<usize>,
     /// Minimum peptide monoisotopic mass that will be fragmented
     pub peptide_min_mass: Option<f32>,
     /// Maximum peptide monoisotopic mass that will be fragmented
@@ -30,8 +67,6 @@ pub struct Builder {
     /// Minimum ion index to be generated: 1 will remove b1/y1 ions
     /// 2 will remove b1/b2/y1/y2 ions, etc
     pub min_ion_index: Option<usize>,
-    /// How many missed cleavages to use
-    pub missed_cleavages: Option<u8>,
     /// Static modifications to add to matching amino acids
     pub static_mods: Option<HashMap<char, f32>>,
     /// Variable modifications to add to matching amino acids
@@ -68,13 +103,11 @@ impl Builder {
             bucket_size,
             fragment_min_mz: self.fragment_min_mz.unwrap_or(150.0),
             fragment_max_mz: self.fragment_max_mz.unwrap_or(2000.0),
-            peptide_min_len: self.peptide_min_len.unwrap_or(5),
-            peptide_max_len: self.peptide_max_len.unwrap_or(50),
             peptide_min_mass: self.peptide_min_mass.unwrap_or(500.0),
             peptide_max_mass: self.peptide_max_mass.unwrap_or(5000.0),
             min_ion_index: self.min_ion_index.unwrap_or(2),
             decoy_tag: self.decoy_tag.unwrap_or_else(|| "rev_".into()),
-            missed_cleavages: self.missed_cleavages.unwrap_or(0),
+            enzyme: self.enzyme.unwrap_or_default(),
             static_mods: Self::validate_mods(self.static_mods),
             variable_mods: Self::validate_mods(self.variable_mods),
             generate_decoys: self.generate_decoys.unwrap_or(true),
@@ -90,14 +123,12 @@ impl Builder {
 #[derive(Serialize, Clone, Debug)]
 pub struct Parameters {
     bucket_size: usize,
+    pub enzyme: EnzymeBuilder,
     pub fragment_min_mz: f32,
     pub fragment_max_mz: f32,
-    peptide_min_len: usize,
-    peptide_max_len: usize,
     peptide_min_mass: f32,
     peptide_max_mass: f32,
     min_ion_index: usize,
-    missed_cleavages: u8,
     static_mods: HashMap<char, f32>,
     variable_mods: HashMap<char, f32>,
     decoy_tag: String,
@@ -109,11 +140,11 @@ impl Parameters {
     fn digest(
         &self,
         fasta: &Fasta,
-        trypsin: &Trypsin,
+        enzyme: &EnzymeParameters,
     ) -> (Vec<Peptide>, HashMap<String, Vec<String>>) {
         // Generate all tryptic peptide sequences, including reversed (decoy)
         // and missed cleavages, if applicable.
-        let digests = fasta.digest(trypsin);
+        let digests = fasta.digest(enzyme);
 
         // From our set of unique peptide sequence, apply any modifications
         // and convert to [`TargetDecoy`] enum
@@ -139,14 +170,10 @@ impl Parameters {
 
     // pub fn build(self) -> Result<IndexedDatabase, Box<dyn std::error::Error + Send + Sync + 'static>> {
     pub fn build(self) -> std::io::Result<IndexedDatabase> {
-        let trypsin = Trypsin::new(
-            self.missed_cleavages,
-            self.peptide_min_len,
-            self.peptide_max_len,
-        );
+        let enzyme = self.enzyme.clone().into();
         let fasta = Fasta::open(&self.fasta, self.decoy_tag.clone(), self.generate_decoys)?;
 
-        let (target_decoys, peptide_graph) = self.digest(&fasta, &trypsin);
+        let (target_decoys, peptide_graph) = self.digest(&fasta, &enzyme);
 
         // Finally, perform in silico digest for our target sequences
         // Note that multiple charge states are actually handled by

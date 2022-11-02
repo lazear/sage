@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    fasta::Digest,
+    enzyme::Digest,
     mass::{Mass, Residue, H2O, VALID_AA},
 };
 
@@ -185,6 +185,8 @@ impl std::fmt::Display for Peptide {
 
 #[cfg(test)]
 mod test {
+    use crate::enzyme::Enzyme;
+
     use super::*;
 
     #[test]
@@ -263,7 +265,12 @@ mod test {
     /// Check that picked-peptide approach will match forward and reverse peptides
     #[test]
     fn test_psuedo_forward() {
-        let trypsin = crate::fasta::Trypsin::new(0, 2, 50);
+        let trypsin = crate::enzyme::EnzymeParameters {
+            missed_cleavages: 0,
+            min_len: 3,
+            max_len: 30,
+            enyzme: Enzyme::new("KR", Some('P')),
+        };
 
         let fwd = "MADEEKLPPGWEKRMSRSSGRVYYFNHITNASQWERPSGN";
         for digest in trypsin.digest(fwd) {
