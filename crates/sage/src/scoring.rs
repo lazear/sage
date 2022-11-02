@@ -41,11 +41,8 @@ pub struct Feature {
     pub spec_id: String,
     /// File identifier
     pub file_id: usize,
-
     /// PSM rank
     pub rank: u32,
-    /// MS2 scan number
-    // pub scannr: u32,
     /// Target/Decoy label, -1 is decoy, 1 is target
     pub label: i32,
     /// Experimental mass
@@ -91,7 +88,7 @@ pub struct Feature {
     /// Posterior error probability for this PSM / local FDR
     pub posterior_error: f32,
     /// Assigned q_value
-    pub q_value: f32,
+    pub spectrum_q: f32,
     pub peptide_q: f32,
     pub protein_q: f32,
 
@@ -184,7 +181,7 @@ impl<'db> Scorer<'db> {
         query: &ProcessedSpectrum,
         precursor_mass: f32,
         charge: u8,
-    ) -> (usize, Vec<PreScore>) {
+    ) -> (usize, usize, Vec<PreScore>) {
         let candidates = self.db.query(
             precursor_mass,
             self.precursor_tol,
@@ -215,11 +212,11 @@ impl<'db> Scorer<'db> {
             }
         }
         if matches == 0 {
-            return (matches, Vec::new());
+            return (matches, 0, Vec::new());
         }
         score_vector.sort_unstable_by(|a, b| b.matched.cmp(&a.matched));
-        score_vector.truncate(scored_candidates);
-        (matches, score_vector)
+        // score_vector.truncate(scored_candidates);
+        (matches, scored_candidates, score_vector)
     }
 
     /// Score a single [`ProcessedSpectrum`] against the database
@@ -236,22 +233,24 @@ impl<'db> Scorer<'db> {
                 .unwrap_or(precursor_charge),
         );
 
-        let (matches, preliminary) = self.matched_peaks(query, precursor_mass, charge);
+        let (matches, scored_candidates, preliminary) =
+            self.matched_peaks(query, precursor_mass, charge);
 
         let n_calculate = 50.max(report_psms * 2).min(preliminary.len());
         let mut score_vector = preliminary
             .iter()
+            .filter(|score| score.peptide != PeptideIx::default())
             .take(n_calculate)
             .map(|pre| self.score_candidate(query, charge, pre.peptide))
             .filter(|s| (s.matched_b + s.matched_y) >= 2)
             .collect::<Vec<_>>();
 
-        score_vector.sort_unstable_by(|a, b| b.hyperscore.total_cmp(&a.hyperscore));
+        score_vector.sort_by(|a, b| b.hyperscore.total_cmp(&a.hyperscore));
 
         let mut reporting = Vec::new();
 
         // Expected value for poisson distribution
-        let lambda = matches as f64 / preliminary.len() as f64;
+        let lambda = matches as f64 / scored_candidates as f64;
 
         for idx in 0..report_psms.min(score_vector.len()) {
             let better = score_vector[idx];
@@ -301,7 +300,6 @@ impl<'db> Scorer<'db> {
                 label: peptide.label(),
                 expmass: precursor_mass,
                 calcmass: peptide.monoisotopic,
-
                 // Features
                 charge: precursor_charge,
                 rt: query.scan_start_time,
@@ -318,13 +316,13 @@ impl<'db> Scorer<'db> {
                 longest_y: y,
                 longest_y_pct: y as f32 / (peptide.sequence.len() as f32),
                 peptide_len: peptide.sequence.len(),
-                scored_candidates: preliminary.len() as u32,
+                scored_candidates: scored_candidates as u32,
                 missed_cleavages: peptide.missed_cleavages,
 
                 // Outputs
                 discriminant_score: 0.0,
                 posterior_error: 1.0,
-                q_value: 1.0,
+                spectrum_q: 1.0,
                 protein_q: 1.0,
                 peptide_q: 1.0,
                 predicted_rt: 0.0,

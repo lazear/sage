@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use fnv::FnvHashMap;
 use std::io;
 use std::path::Path;
 
@@ -58,9 +58,9 @@ impl Fasta {
         })
     }
 
-    pub fn digest(&self, enzyme: &EnzymeParameters) -> HashMap<Digest, Vec<String>> {
-        let mut targets: HashMap<Digest, Vec<String>> = HashMap::new();
-        let mut decoys: HashMap<Digest, Vec<String>> = HashMap::new();
+    pub fn digest(&self, enzyme: &EnzymeParameters) -> FnvHashMap<Digest, Vec<String>> {
+        let mut targets: FnvHashMap<Digest, Vec<String>> = FnvHashMap::default();
+        let mut decoys: FnvHashMap<Digest, Vec<String>> = FnvHashMap::default();
         for (acc, seq) in &self.targets {
             for mut digest in enzyme.digest(seq) {
                 if self.generate_decoys {
@@ -69,13 +69,11 @@ impl Fasta {
                         .or_default()
                         .push(format!("{}{}", self.decoy_tag, acc));
                     targets.entry(digest).or_default().push(acc.clone());
+                } else if acc.contains(&self.decoy_tag) {
+                    digest.decoy = true;
+                    decoys.entry(digest).or_default().push(acc.clone());
                 } else {
-                    if acc.contains(&self.decoy_tag) {
-                        digest.decoy = true;
-                        decoys.entry(digest).or_default().push(acc.clone());
-                    } else {
-                        targets.entry(digest).or_default().push(acc.clone());
-                    }
+                    targets.entry(digest).or_default().push(acc.clone());
                 }
             }
         }

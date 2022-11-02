@@ -6,11 +6,11 @@
 
 use crate::database::{IndexedDatabase, PeptideIx};
 use crate::scoring::Feature;
+use fnv::FnvHashMap;
 use rayon::prelude::*;
-use std::collections::HashMap;
 
 #[derive(Copy, Clone, Debug)]
-struct Competition<Ix: Default> {
+struct Competition<Ix: Default + Send> {
     forward: f32,
     foward_ix: Ix,
     reverse: f32,
@@ -18,7 +18,7 @@ struct Competition<Ix: Default> {
     q_value: f32,
 }
 
-impl<Ix: Default> Default for Competition<Ix> {
+impl<Ix: Default + Send> Default for Competition<Ix> {
     fn default() -> Self {
         Self {
             forward: f32::MIN,
@@ -30,7 +30,7 @@ impl<Ix: Default> Default for Competition<Ix> {
     }
 }
 
-impl<Ix: Default> Competition<Ix> {
+impl<Ix: Default + Send> Competition<Ix> {
     fn score(&self) -> f32 {
         self.forward.max(self.reverse)
     }
@@ -40,7 +40,7 @@ impl<Ix: Default> Competition<Ix> {
     }
 
     fn assign_q_value(scores: &mut [Competition<Ix>]) -> usize {
-        scores.sort_unstable_by(|a, b| b.score().total_cmp(&a.score()));
+        scores.par_sort_unstable_by(|a, b| b.score().total_cmp(&a.score()));
 
         let mut decoy = 1;
         let mut target = 0;
@@ -65,7 +65,7 @@ impl<Ix: Default> Competition<Ix> {
 }
 
 pub fn picked_peptide(db: &IndexedDatabase, features: &mut [Feature]) -> usize {
-    let mut map: HashMap<String, Competition<PeptideIx>> = HashMap::new();
+    let mut map: FnvHashMap<String, Competition<PeptideIx>> = FnvHashMap::default();
     for feat in features.iter() {
         let peptide = &db[feat.peptide_idx];
         let fwd = peptide.pseudo_forward();
@@ -87,14 +87,14 @@ pub fn picked_peptide(db: &IndexedDatabase, features: &mut [Feature]) -> usize {
     let passing = Competition::assign_q_value(&mut scores);
 
     let scores = scores
-        .into_iter()
+        .into_par_iter()
         .flat_map(|score| {
             [
                 (score.foward_ix, score.q_value),
                 (score.reverse_ix, score.q_value),
             ]
         })
-        .collect::<HashMap<_, _>>();
+        .collect::<FnvHashMap<_, _>>();
     features.par_iter_mut().for_each(|feat| {
         feat.peptide_q = scores[&feat.peptide_idx];
     });
@@ -103,7 +103,7 @@ pub fn picked_peptide(db: &IndexedDatabase, features: &mut [Feature]) -> usize {
 }
 
 pub fn picked_protein(db: &IndexedDatabase, features: &mut [Feature]) -> usize {
-    let mut map: HashMap<&str, Competition<String>> = HashMap::new();
+    let mut map: FnvHashMap<&str, Competition<String>> = FnvHashMap::default();
     for feat in features.iter() {
         let peptide = &db[feat.peptide_idx];
         let entry = map.entry(&feat.proteins).or_default();
@@ -122,14 +122,14 @@ pub fn picked_protein(db: &IndexedDatabase, features: &mut [Feature]) -> usize {
     let passing = Competition::assign_q_value(&mut scores);
 
     let scores = scores
-        .into_iter()
+        .into_par_iter()
         .flat_map(|score| {
             [
                 (score.foward_ix, score.q_value),
                 (score.reverse_ix, score.q_value),
             ]
         })
-        .collect::<HashMap<_, _>>();
+        .collect::<FnvHashMap<_, _>>();
 
     features.par_iter_mut().for_each(|feat| {
         feat.protein_q = scores[&feat.proteins];

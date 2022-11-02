@@ -35,15 +35,15 @@ impl Default for EnzymeBuilder {
     }
 }
 
-impl Into<EnzymeParameters> for EnzymeBuilder {
-    fn into(self) -> EnzymeParameters {
+impl From<EnzymeBuilder> for EnzymeParameters {
+    fn from(en: EnzymeBuilder) -> EnzymeParameters {
         EnzymeParameters {
-            missed_cleavages: self.missed_cleavages.unwrap_or(0),
-            min_len: self.min_len.unwrap_or(5),
-            max_len: self.max_len.unwrap_or(50),
+            missed_cleavages: en.missed_cleavages.unwrap_or(0),
+            min_len: en.min_len.unwrap_or(5),
+            max_len: en.max_len.unwrap_or(50),
             enyzme: Enzyme::new(
-                &self.cleave_at.unwrap_or("KR".into()),
-                self.restrict.or(Some('P')),
+                &en.cleave_at.unwrap_or_else(|| "KR".into()),
+                en.restrict.or(Some('P')),
             ),
         }
     }
@@ -158,7 +158,10 @@ impl Parameters {
             })
             .collect::<Vec<Peptide>>();
 
-        (&mut target_decoys).par_sort_unstable_by(|a, b| a.monoisotopic.total_cmp(&b.monoisotopic));
+        // NB: Stable sorting here (and only here?) is critical to achieving determinism...
+        // not totally sure why... Probably has to do with using PeptideIxs
+        // as keys for scoring vectors
+        (&mut target_decoys).par_sort_by(|a, b| a.monoisotopic.total_cmp(&b.monoisotopic));
 
         let peptide_graph = digests
             .into_par_iter()
@@ -304,7 +307,7 @@ pub struct IndexedDatabase {
     pub(crate) min_value: Vec<f32>,
     /// Keep a list of potential (AA, mass) modifications for RT prediction
     pub potential_mods: Vec<(char, f32)>,
-    bucket_size: usize,
+    pub bucket_size: usize,
     peptide_graph: HashMap<String, Vec<String>>,
 }
 

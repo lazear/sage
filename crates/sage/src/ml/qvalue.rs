@@ -19,15 +19,15 @@ pub fn spectrum_q_value(scores: &mut [Feature]) -> usize {
             true => decoy += 1,
             false => target += 1,
         }
-        score.q_value = decoy as f32 / target as f32;
+        score.spectrum_q = decoy as f32 / target as f32;
     }
 
     // Reverse slice, and calculate the cumulative minimum
     let mut q_min = 1.0f32;
     let mut passing = 0;
     for score in scores.iter_mut().rev() {
-        q_min = q_min.min(score.q_value);
-        score.q_value = q_min;
+        q_min = q_min.min(score.spectrum_q);
+        score.spectrum_q = q_min;
         if q_min <= 0.01 {
             passing += 1;
         }

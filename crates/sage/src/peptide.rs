@@ -96,6 +96,16 @@ impl Peptide {
         }
         None
     }
+
+    pub fn ambiguous(&self, other: &Peptide) -> bool {
+        self.sequence.len() == other.sequence.len()
+            && self.monoisotopic == other.monoisotopic
+            && self
+                .sequence
+                .iter()
+                .zip(other.sequence.iter())
+                .all(|(l, r)| l.monoisotopic() == r.monoisotopic())
+    }
 }
 
 pub struct VariableMod<'a> {
