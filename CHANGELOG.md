@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rename `pin_paths` to `output_paths` in results.json file
 
 
-## [0.5.0] - 2022-10-28
+## [0.5.1] - 2022-10-31
 ### Added
 - Support for selenocysteine and pyrrolysine amino acids
 
