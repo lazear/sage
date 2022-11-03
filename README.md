@@ -1,23 +1,30 @@
-# Proteomics Search Engine with Magical Performance
+<img src="figures/logo.svg" width="300">
+
+# Sage: proteomics searching so fast it seems like magic
 
 [![Rust](https://github.com/lazear/sage/actions/workflows/rust.yml/badge.svg)](https://github.com/lazear/sage/actions/workflows/rust.yml)
 
-Check out the [blog post](https://lazear.github.io/sage/) for more information and full benchmarks!
+Sage is a proteomics search engine - a tool that transforms raw mass spectra from proteomics experiments into peptide identificatons via database searching & spectral matching. 
+But, it's also more than just a search engine - Sage includes a variety of advanced features that make it a one-stop shop: retention time prediction, quantification (both isobaric & LFQ), peptide-spectrum match rescoring, and FDR control.
+
+Sage was designed with cloud computing in mind - massively parallel processing and the ability to directly stream compressed mass spectrometry data to/from AWS S3 enables unprecedented search speeds with minimal cost. 
+(Sage also runs just as well reading local files from your Mac/PC/Linux device)
+
+Let's not forget to mention that it is incredibly fast, sensitive, 100% free, and open source!
 
 <img src="figures/TMT_Panel.png" width="800">
 
-I was inspired by the elegant data structure discussed in the [MSFragger paper](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5409104/), and decided to implement an (open source) version of it in Rust - with great results.
-
-Sage has excellent performance characteristics (5x faster than - the closed source - MSFragger), but does not sacrifice code quality or size to do so!
+Check out the [blog post introducing Sage](https://lazear.github.io/sage/) for more information and full benchmarks!
  
 ## Features
 
 - Incredible performance out of the box
 - Effortlessly cross-platform (Linux/MacOS/Windows), effortlessly parallel (uses all of your CPU cores)
-- Fragment indexing strategy allows for blazing fast narrow and open searches
+- Fragment indexing strategy allows for blazing fast narrow and open searches (> 500 Da precursor tolerance)
 - MS3-TMT quantification (R-squared of 0.999 with Proteome Discoverer)
 - Capable of searching for chimeric/co-fragmenting spectra
-- PSM rescoring using built-in linear discriminant analysis 
+- Retention time prediction models fit to each LC/MS run
+- PSM rescoring using built-in linear discriminant analysis (LDA)
 - PEP calculation using a non-parametric model (KDE)
 - FDR calculation using target-decoy competition and picked-peptide & picked-protein approaches
 - Percolator/Mokapot compatible output
@@ -34,17 +41,14 @@ Sage has excellent performance characteristics (5x faster than - the closed sour
 <img src="figures/chimera_27525.png" width="800">
 
 
-### Sage includes built-in models for FDR refinement and posterior error probability calculation
+### Sage trains machine learning models for FDR refinement and posterior error probability calculation
 
+- Boosts PSM identifications using prediction of retention times with a [linear regression](https://doi.org/10.1021/ac070262k) model fit to each LC/MS run
 - Hand-rolled, 100% pure Rust implementations of Linear Discriminant Analysis and KDE-mixture models for refinement of false discovery rates
-- Both models demonstrate 1:1 results with scikit-learn, but have increased performance
+- Models demonstrate 1:1 results with scikit-learn, but have increased performance
 - No need for a second post-search pipeline step
 
 <img src="figures/SageLDA.png" width="600px">
-
-- Further boost PSM identification (by 1-3%) using prediction of retention times by a [linear regression model](https://doi.org/10.1021/ac070262k)
-
-<img src="figures/rt_model.png" width="600px">
 
 # Installation
 
