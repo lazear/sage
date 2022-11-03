@@ -19,7 +19,7 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
-          target: x86_64-unknown-linux-musl
+          target: x86_64-unknown-linux-gnu
           override: true
 
       - name: Build Sage
@@ -27,7 +27,7 @@ jobs:
         with:
           use-cross: true
           command: build
-          args: --release --target x86_64-unknown-linux-musl
+          args: --release --target x86_64-unknown-linux-gnu
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
