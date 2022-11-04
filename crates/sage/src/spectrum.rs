@@ -215,11 +215,13 @@ impl SpectrumProcessor {
             );
         }
 
+        // If there is no precursor charge from the mzML file, then deisotope fragments up to z=3
         let charge = spectrum
             .precursors
             .get(0)
             .and_then(|p| p.charge)
-            .expect("missing precursor information for MS2 scan, please check input files!");
+            .unwrap_or(3);
+
         if should_deisotope {
             let mut peaks = deisotope(&spectrum.mz, &spectrum.intensity, charge, 5.0);
             peaks.sort_unstable_by(|a, b| b.intensity.total_cmp(&a.intensity));
@@ -273,13 +275,7 @@ impl SpectrumProcessor {
         };
 
         peaks.sort_unstable_by(|a, b| a.mass.total_cmp(&b.mass));
-        let total_intensity = if spectrum.total_ion_current > 0.0 {
-            // Use total ion current from mzML file
-            spectrum.total_ion_current
-        } else {
-            // Calculate total ion current
-            peaks.iter().map(|peak| peak.intensity).sum::<f32>()
-        };
+        let total_intensity = peaks.iter().map(|peak| peak.intensity).sum::<f32>();
 
         ProcessedSpectrum {
             level: spectrum.ms_level,

@@ -413,17 +413,30 @@ impl Runner {
         batch_size: usize,
     ) -> SageResults {
         // Read all of the spectra at once - this can help prevent memory over-consumption issues
+        info!(
+            "processing files {} .. {} ",
+            batch_size * chunk_idx,
+            batch_size * chunk_idx + chunk.len()
+        );
+        let start = Instant::now();
         let spectra = chunk
             .par_iter()
             .map(sage_cloudpath::read_mzml)
             .collect::<Vec<_>>();
+        let io_time = Instant::now() - start;
 
-        spectra
+        let count: usize = spectra
+            .iter()
+            .filter_map(|x| x.as_ref().map(|x| x.len()).ok())
+            .sum();
+
+        let start = Instant::now();
+        let results = spectra
             .into_par_iter()
             .enumerate()
             .filter_map(|(idx, spectra)| match spectra {
                 Ok(spectra) => {
-                    log::info!("{}: read {} spectra", chunk[idx], spectra.len());
+                    log::trace!(" - {}: read {} spectra", chunk[idx], spectra.len());
                     Some((idx, spectra))
                 }
                 Err(e) => {
@@ -446,7 +459,15 @@ impl Runner {
                     .collect::<Vec<_>>();
                 self.search_processed_spectra(scorer, spectra)
             })
-            .collect::<SageResults>()
+            .collect::<SageResults>();
+        let search_time = Instant::now() - start;
+        info!(" - file IO: {:8} ms", io_time.as_millis());
+        info!(
+            " - search:  {:8} ms ({} spectra)",
+            search_time.as_millis(),
+            count
+        );
+        results
     }
 
     pub fn batch_files(&self, scorer: &Scorer) -> SageResults {
@@ -531,10 +552,9 @@ impl Runner {
 }
 
 fn main() -> anyhow::Result<()> {
-    // let env = env_logger::Env::default().filter_or("SAGE_LOG", "info");
-    env_logger::builder()
-        .filter(None, log::LevelFilter::Error)
-        .filter_module("sage", log::LevelFilter::Trace)
+    env_logger::Builder::default()
+        .filter_level(log::LevelFilter::Error)
+        .parse_env(env_logger::Env::default().filter_or("SAGE_LOG", "error,sage=info"))
         .init();
 
     let start = time::Instant::now();

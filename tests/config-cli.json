@@ -4,7 +4,9 @@
         "fragment_min_mz": 150.0,
         "fragment_max_mz": 1500.0,
         "peptide_max_mass": 5000.0,
-        "missed_cleavages": 1,
+        "enzyme": {
+            "missed_cleavages": 1
+        },
         "static_mods": {
             "C": 57.0216
         },

@@ -3,12 +3,16 @@
         "bucket_size": 16384,
         "fragment_min_mz": 150.0,
         "fragment_max_mz": 1500.0,
-        "peptide_max_mass": 5000.0,
-        "missed_cleavages": 1,
+        "enzyme": {
+            "missed_cleavages": 1,
+            "cleave_at": "KR",
+            "restrict": "P"
+        },
         "static_mods": {
             "C": 57.0216
         },
-        "decoy_prefix": "rev_",
+        "decoy_tag": "rev_",
+        "generate_decoys": true,
         "fasta": "tests/Q99536.fasta"
     },
     "deisotope": true,
