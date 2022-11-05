@@ -7,7 +7,7 @@ use crate::mass::VALID_AA;
 ///
 /// # Important invariant about [`Digest`]:
 /// * two digests are equal if and only if their sequences are equal
-///   i.e., protein ID is ignored for equality and hashing
+///   i.e., decoy status is ignored for equality and hashing
 pub struct Digest {
     /// Is this a decoy peptide?
     pub decoy: bool,

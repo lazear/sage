@@ -80,6 +80,13 @@ impl Fasta {
 
         // Overwrite any decoys that have the same sequence as a target
         for (k, v) in targets {
+            // If we don't remove existing decoy entries, we will end up with
+            // target PSMs having `decoy=true` and `label=1`, because HashMap::insert
+            // does not modify the existing entry (and we define digests to be equal
+            // ignoring decoy status)
+            if decoys.contains_key(&k) {
+                decoys.remove(&k);
+            }
             decoys.insert(k, v);
         }
         decoys
