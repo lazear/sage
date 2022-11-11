@@ -280,7 +280,6 @@ impl SpectrumProcessor {
         ProcessedSpectrum {
             level: spectrum.ms_level,
             id: spectrum.id,
-            // scan: spectrum.scan_id,
             file_id: self.file_id,
             scan_start_time: spectrum.scan_start_time,
             ion_injection_time: spectrum.ion_injection_time,

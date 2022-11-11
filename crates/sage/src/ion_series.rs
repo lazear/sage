@@ -74,8 +74,7 @@ mod test {
     fn peptide(s: &str) -> Peptide {
         Peptide::try_from(&Digest {
             sequence: s.into(),
-            missed_cleavages: 0,
-            decoy: false,
+            ..Default::default()
         })
         .unwrap()
     }

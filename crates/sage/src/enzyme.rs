@@ -2,7 +2,7 @@ use regex::Regex;
 
 use crate::mass::VALID_AA;
 
-#[derive(Clone, PartialOrd, Ord)]
+#[derive(Clone, PartialOrd, Ord, Debug, Default)]
 /// An enzymatic digest
 ///
 /// # Important invariant about [`Digest`]:
@@ -15,6 +15,8 @@ pub struct Digest {
     pub sequence: String,
     /// Missed cleavages
     pub missed_cleavages: u8,
+    /// Is this an N-terminal peptide of the protein?
+    pub n_terminal: bool,
 }
 
 impl Digest {
@@ -33,6 +35,7 @@ impl Digest {
             decoy: true,
             sequence: sequence.into_iter().collect(),
             missed_cleavages: self.missed_cleavages,
+            n_terminal: self.n_terminal,
         }
     }
 }
@@ -122,6 +125,7 @@ impl EnzymeParameters {
                         sequence: sequence.into(),
                         missed_cleavages: cleavage - 1,
                         decoy: false,
+                        n_terminal: win[0].start == 0,
                     });
                 }
             }
