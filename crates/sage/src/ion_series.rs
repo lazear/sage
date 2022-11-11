@@ -234,4 +234,27 @@ mod test {
         check_within(ions!(&peptide, Kind::B, 1.0), &expected_b);
         check_within(ions!(&peptide, Kind::Y, 1.0), &expected_y);
     }
+
+    #[test]
+    fn cterm_mod() {
+        let mut peptide = peptide("PEPTIDE");
+        peptide.static_mod('$', 229.01);
+        assert!((peptide.monoisotopic - 1028.3699).abs() < 0.001);
+
+        // b-ions should not be tagged
+        let expected_b = [
+            98.06004, 227.10263, 324.155_4, 425.203_06, 538.287_2, 653.314_1,
+        ];
+
+        // y-ions should be tagged
+        let expected_y = vec![
+            703.31447, 574.27188, 477.21912, 376.17144, 263.08737, 148.06043,
+        ]
+        .into_iter()
+        .map(|x| x + 229.01)
+        .collect::<Vec<_>>();
+
+        check_within(ions!(&peptide, Kind::B, 1.0), &expected_b);
+        check_within(ions!(&peptide, Kind::Y, 1.0), &expected_y);
+    }
 }
