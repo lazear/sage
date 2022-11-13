@@ -163,8 +163,8 @@ Internally generated decoys will have protein accessions matching "{decoy_tag}{a
       "min_len": 5,           // Optional[int]{efault=5}, Minimum AA length of peptides to search
       "max_len": 50,          // Optional[int] {default=50}, Maximum AA length of peptides to search
       "cleave_at": "KR",      // Optional[str] {default='KR'}. Amino acids to cleave at
-      "restrict": "P",        // Optional[char/single AA] {default='P'}. Do not cleave if this AA follows the cleavage site
-    }
+      "restrict": "P"         // Optional[char/single AA] {default='P'}. Do not cleave if this AA follows the cleavage site
+    },
     "fragment_min_mz": 200.0,       // Optional[float] {default=150.0}, Minimum mass of fragments to search
     "fragment_max_mz": 2000.0,      // Optional[float] {default=2000.0}, Maximum mass of fragments to search 
     "peptide_min_mass": 500.0,      // Optional[float] {default=500.0}, Minimum monoisotopic mass of peptides to fragment
