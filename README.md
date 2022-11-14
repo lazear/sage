@@ -178,6 +178,8 @@ Internally generated decoys will have protein accessions matching "{decoy_tag}{a
     "variable_mods": {      // Optional[Dict[char, float]] {default={}}, variable modifications
       "M": 15.9949          // Variable mods are applied *before* static mods
       "$": 49.2022          // Apply variable modification to C-terminus of peptide
+      "[": 42.0             // Apply variable modification to N-terminus of protein
+      "]": 111.0            // Apply variable modification to C-terminus of protein
     },
     "max_variable_mods": 2, // Optional[int] {default=2} Limit k-combinations of variable modifications
     "decoy_tag": "rev_",    // Optional[str] {default="rev_"}: See notes above

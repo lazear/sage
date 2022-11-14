@@ -16,7 +16,21 @@ pub struct Digest {
     /// Missed cleavages
     pub missed_cleavages: u8,
     /// Is this an N-terminal peptide of the protein?
-    pub n_terminal: bool,
+    pub position: Position,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub enum Position {
+    Nterm,
+    Cterm,
+    Full,
+    Internal,
+}
+
+impl Default for Position {
+    fn default() -> Self {
+        Self::Internal
+    }
 }
 
 impl Digest {
@@ -35,7 +49,7 @@ impl Digest {
             decoy: true,
             sequence: sequence.into_iter().collect(),
             missed_cleavages: self.missed_cleavages,
-            n_terminal: self.n_terminal,
+            position: self.position,
         }
     }
 }
@@ -113,6 +127,7 @@ impl EnzymeParameters {
     }
 
     pub fn digest(&self, sequence: &str) -> Vec<Digest> {
+        let n = sequence.len();
         let mut digests = Vec::new();
         let sites = self.cleavage_sites(sequence);
         for cleavage in 1..=(1 + self.missed_cleavages) {
@@ -120,12 +135,20 @@ impl EnzymeParameters {
             for win in sites.windows(cleavage as usize) {
                 let sequence = &sequence[win[0].start..win[cleavage as usize - 1].end];
                 let len = sequence.len();
+
+                let position = match (win[0].start == 0, win[cleavage as usize - 1].end == n) {
+                    (true, true) => Position::Full,
+                    (true, false) => Position::Nterm,
+                    (false, true) => Position::Cterm,
+                    (false, false) => Position::Internal,
+                };
+
                 if len >= self.min_len && len <= self.max_len {
                     digests.push(Digest {
                         sequence: sequence.into(),
                         missed_cleavages: cleavage - 1,
                         decoy: false,
-                        n_terminal: win[0].start == 0,
+                        position,
                     });
                 }
             }

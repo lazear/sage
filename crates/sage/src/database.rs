@@ -86,7 +86,7 @@ impl Builder {
         let mut output = HashMap::new();
         if let Some(input) = input {
             for (ch, mass) in input {
-                if crate::mass::VALID_AA.contains(&ch) || ch == '^' {
+                if crate::mass::VALID_AA.contains(&ch) || "^$[]".contains(ch) {
                     output.insert(ch, mass);
                 } else {
                     error!(
