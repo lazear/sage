@@ -2,7 +2,8 @@
 
 # Sage: proteomics searching so fast it seems like magic
 
-[![Rust](https://github.com/lazear/sage/actions/workflows/rust.yml/badge.svg)](https://github.com/lazear/sage/actions/workflows/rust.yml)
+[![Rust](https://github.com/lazear/sage/actions/workflows/rust.yml/badge.svg)](https://github.com/lazear/sage/actions/workflows/rust.yml) [![Anaconda-Server Badge](https://anaconda.org/bioconda/sage-proteomics/badges/version.svg)](https://anaconda.org/bioconda/sage-proteomics)
+
 
 Sage is a proteomics search engine - a tool that transforms raw mass spectra from proteomics experiments into peptide identificatons via database searching & spectral matching. 
 But, it's also more than just a search engine - Sage includes a variety of advanced features that make it a one-stop shop: retention time prediction, quantification (both isobaric & LFQ), peptide-spectrum match rescoring, and FDR control.
@@ -54,6 +55,15 @@ Check out the [blog post introducing Sage](https://lazear.github.io/sage/) for m
 
 Sage is distributed as source code, and as a standalone executable file.
 
+## Installing via conda
+
+Sage can be installed from [bioconda](https://anaconda.org/bioconda/sage-proteomics):
+
+```
+$ conda install -c bioconda -c conda-forge sage-proteomics
+$ sage --help
+```
+
 ## Compiling the development version
 
 1. Install the [Rust programming language compiler](https://rustup.rs/)
@@ -73,7 +83,7 @@ cargo run --release tests/config.json
 
 1. Visit the [Releases](https://github.com/lazear/sage/releases/latest) website.
 2. Download the correct pre-compiled binary for your operating system.
-3. Run: `local/location/of/the/executable/sage config.json`
+3. Run: `sage <path/to/config.json>`
 
 # Interfacing with AWS S3
 
@@ -171,7 +181,7 @@ Internally generated decoys will have protein accessions matching "{decoy_tag}{a
     "peptide_max_mass": 5000.0,     // Optional[float] {default=5000.0}, Maximum monoisotopic mass of peptides to fragment
     "min_ion_index": 2,     // Optional[int] {default=2}, Do not generate b1/b2/y1/y2 ions for preliminary searching. Does not affect full scoring of PSMs
     "static_mods": {        // Optional[Dict[char, float]] {default={}}, static modifications
-      "^": 304.207,         // Apply static modification to N-terminus
+      "^": 304.207,         // Apply static modification to N-terminus of peptide
       "K": 304.207,         // Apply static modification to lysine
       "C": 57.0215          // Apply static modification to cysteine
     },
