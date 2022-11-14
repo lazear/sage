@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+### Added
+- Support for protein N-terminal ('['), C-terminal (']') as well as peptide C-terminal ('$') modifications
+- Support for k-combinations of variable modifications. This can be specified with the `database.max_variable_mods` parameter
+
+## [0.7.1] - 2022-11-04
+### Changed
+- Fix bug with in silico digest: Logic around overwriting decoys with target sequences was incorrect peptides shared between targets/decoys were being annotated as decoy peptides but assigned to non-decoy proteins. We now make sure that they are assigned to non-decoy proteins and also annotated as target sequences.
+
 ## [0.7.0] - 2022-11-03
 ### Added
 - Add support for user-specified enzymes to JSON file.  `database.enzyme.sites` and `database.enzyme.restrict` are limited to valid amino acids
