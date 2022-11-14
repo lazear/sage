@@ -1,7 +1,5 @@
 target/
-raw/
-low_analysis/
-tmt_analysis/
+data/
 
 *.pin
 *.txt
@@ -12,3 +10,4 @@ tmt_analysis/
 *.ms2
 *.fasta
 *.fas
+**/*.DS_Store

@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use itertools::Itertools;
+
 use crate::{
     enzyme::Digest,
     mass::{Mass, Residue, H2O, VALID_AA},
@@ -61,10 +63,24 @@ impl Peptide {
         }
     }
 
-    /// Create an iterator that will produce all singly-modified peptides with
-    /// the given variable modification
-    pub fn variable_mod(&self, residue: char, mass: f32) -> VariableMod<'_> {
-        VariableMod {
+    /// Apply all variable mods in `sites` to self
+    fn apply_variable_mods(&mut self, sites: &[&(Site, f32)]) {
+        for (site, mass) in sites {
+            match site {
+                Site::N => self.set_nterm_mod(*mass),
+                Site::C => self.set_cterm_mod(*mass),
+                Site::Sequence(index) => {
+                    if let Residue::Just(c) = self.sequence[*index as usize] {
+                        self.sequence[*index as usize] = Residue::Mod(c, *mass);
+                        self.monoisotopic += mass;
+                    }
+                }
+            }
+        }
+    }
+
+    fn modification_sites(&self, residue: char, mass: f32) -> ModificationSites {
+        ModificationSites {
             peptide: self,
             index: 0,
             residue,
@@ -75,8 +91,9 @@ impl Peptide {
     /// Apply variable modifications, then static modifications to a peptide
     pub fn apply(
         mut self,
-        variable_mods: &HashMap<char, f32>,
+        variable_mods: &[(char, f32)],
         static_mods: &HashMap<char, f32>,
+        combinations: usize,
     ) -> Vec<Peptide> {
         if variable_mods.is_empty() {
             for (resi, mass) in static_mods {
@@ -84,17 +101,33 @@ impl Peptide {
             }
             vec![self]
         } else {
-            let mut peptides = variable_mods.iter().fold(vec![self], |acc, (resi, mass)| {
-                acc.iter()
-                    .flat_map(|peptide| peptide.variable_mod(*resi, *mass))
-                    .collect()
-            });
-            peptides.iter_mut().for_each(|p| {
-                for (resi, mass) in static_mods {
-                    p.static_mod(*resi, *mass);
+            // Create list of all possible variable modifications
+            let mods = variable_mods
+                .iter()
+                .fold(vec![], |mut acc, (residue, mass)| {
+                    acc.extend(self.modification_sites(*residue, *mass));
+                    acc
+                });
+
+            let mut modified = Vec::new();
+            modified.push(self.clone());
+
+            for n in 1..=combinations {
+                for combination in mods.iter().combinations(n) {
+                    let mut peptide = self.clone();
+                    peptide.apply_variable_mods(&combination);
+                    modified.push(peptide);
                 }
-            });
-            peptides
+            }
+
+            // Apply static mods to all peptides
+            for peptide in modified.iter_mut() {
+                for (&residue, &mass) in static_mods {
+                    peptide.static_mod(residue, mass);
+                }
+            }
+
+            modified
         }
     }
 
@@ -122,64 +155,46 @@ impl Peptide {
     }
 }
 
-pub struct VariableMod<'a> {
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Site {
+    N,
+    C,
+    Sequence(u32),
+}
+
+struct ModificationSites<'a> {
     peptide: &'a Peptide,
     index: usize,
     residue: char,
     mass: f32,
 }
 
-impl<'a> Iterator for VariableMod<'a> {
-    type Item = Peptide;
+impl<'a> Iterator for ModificationSites<'a> {
+    type Item = (Site, f32);
 
     fn next(&mut self) -> Option<Self::Item> {
         match (self.residue, self.index) {
             ('^', 0) => {
-                self.index += 1;
-                if self.peptide.nterm.is_none() {
-                    let mut modified = self.peptide.clone();
-                    modified.set_nterm_mod(self.mass);
-                    Some(modified)
-                } else {
-                    None
-                }
+                self.index = self.peptide.sequence.len();
+                return Some((Site::N, self.mass));
             }
             ('$', 0) => {
-                self.index += 1;
-                if self.peptide.cterm.is_none() {
-                    let mut modified = self.peptide.clone();
-                    modified.set_cterm_mod(self.mass);
-                    return Some(modified);
-                } else {
-                    None
-                }
+                self.index = self.peptide.sequence.len();
+                return Some((Site::C, self.mass));
             }
-            ('$', 1) | ('^', 1) => {
-                self.index += 1;
-                Some(self.peptide.clone())
-            }
-            ('$', _) | ('^', _) => None,
-            _ => {
-                while self.index < self.peptide.sequence.len() {
-                    let index = self.index;
-                    self.index += 1;
-                    match self.peptide.sequence[index] {
-                        Residue::Just(r) if r == self.residue => {
-                            let mut modified = self.peptide.clone();
-                            modified.sequence[index] = Residue::Mod(r, self.mass);
-                            modified.monoisotopic += self.mass;
-                            return Some(modified);
-                        }
-                        _ => {}
-                    }
+            _ => {}
+        };
+        while self.index < self.peptide.sequence.len() {
+            let idx = self.index;
+            self.index += 1;
+            match self.peptide.sequence[idx] {
+                Residue::Just(r) if r == self.residue => {
+                    return Some((Site::Sequence(idx as u32), self.mass))
                 }
-                if self.index == self.peptide.sequence.len() {
-                    self.index += 1;
-                    return Some(self.peptide.clone());
-                }
-                None
+                _ => continue,
             }
         }
+        None
     }
 }
 
@@ -243,24 +258,9 @@ mod test {
 
     use super::*;
 
-    /// Fold variable mods over initial peptide, producing permutations in order
-    /// e.g., the first peptides yielded should contain Met mods at the first Met
-    fn fold(peptide: Peptide, variable_mods: &[(char, f32)]) -> Vec<String> {
-        variable_mods
-            .iter()
-            .fold(vec![peptide], |acc, (resi, mass)| {
-                acc.iter()
-                    .flat_map(|peptide| peptide.variable_mod(*resi, *mass))
-                    .collect()
-            })
-            .into_iter()
-            .map(|peptide| peptide.to_string())
-            .collect()
-    }
-
     #[test]
     fn test_variable_mods() {
-        let variable_mods = [('M', 16.), ('C', 57.)];
+        let variable_mods = [('M', 16.0f32), ('C', 57.)];
         let peptide = Peptide::try_from(&Digest {
             sequence: "GCMGCMG".into(),
             ..Default::default()
@@ -268,18 +268,43 @@ mod test {
         .unwrap();
 
         let expected = vec![
-            "GC[+57]M[+16]GCMG",
-            "GCM[+16]GC[+57]MG",
+            "GCMGCMG",
             "GCM[+16]GCMG",
-            "GC[+57]MGCM[+16]G",
-            "GCMGC[+57]M[+16]G",
             "GCMGCM[+16]G",
             "GC[+57]MGCMG",
             "GCMGC[+57]MG",
-            "GCMGCMG",
+            "GCM[+16]GCM[+16]G",
+            "GC[+57]M[+16]GCMG",
+            "GCM[+16]GC[+57]MG",
+            "GC[+57]MGCM[+16]G",
+            "GCMGC[+57]M[+16]G",
+            "GC[+57]MGC[+57]MG",
         ];
 
-        let peptides = fold(peptide, &variable_mods);
+        let peptides = peptide
+            .apply(&variable_mods, &HashMap::default(), 2)
+            .into_iter()
+            .map(|peptide| peptide.to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(peptides, expected);
+    }
+
+    #[test]
+    fn test_variable_mods_no_effeect() {
+        let variable_mods = [('M', 16.0f32), ('C', 57.)];
+        let peptide = Peptide::try_from(&Digest {
+            sequence: "AAAAAAAA".into(),
+            ..Default::default()
+        })
+        .unwrap();
+
+        let expected = vec!["AAAAAAAA"];
+
+        let peptides = peptide
+            .apply(&variable_mods, &HashMap::default(), 2)
+            .into_iter()
+            .map(|peptide| peptide.to_string())
+            .collect::<Vec<_>>();
         assert_eq!(peptides, expected);
     }
 
@@ -293,15 +318,21 @@ mod test {
         .unwrap();
 
         let expected = vec![
-            "[+42]-GCM[+16]GCMG",
-            "[+42]-GCMGCM[+16]G",
+            "GCMGCMG",
             "[+42]-GCMGCMG",
             "GCM[+16]GCMG",
             "GCMGCM[+16]G",
-            "GCMGCMG",
+            "[+42]-GCM[+16]GCMG",
+            "[+42]-GCMGCM[+16]G",
+            "GCM[+16]GCM[+16]G",
+            "[+42]-GCM[+16]GCM[+16]G",
         ];
 
-        let peptides = fold(peptide, &variable_mods);
+        let peptides = peptide
+            .apply(&variable_mods, &HashMap::default(), 3)
+            .into_iter()
+            .map(|peptide| peptide.to_string())
+            .collect::<Vec<_>>();
         assert_eq!(peptides, expected);
     }
 
@@ -315,15 +346,21 @@ mod test {
         .unwrap();
 
         let expected = vec![
-            "GCM[+16]GCMG-[+42]",
-            "GCMGCM[+16]G-[+42]",
+            "GCMGCMG",
             "GCMGCMG-[+42]",
             "GCM[+16]GCMG",
             "GCMGCM[+16]G",
-            "GCMGCMG",
+            "GCM[+16]GCMG-[+42]",
+            "GCMGCM[+16]G-[+42]",
+            "GCM[+16]GCM[+16]G",
+            "GCM[+16]GCM[+16]G-[+42]",
         ];
 
-        let peptides = fold(peptide, &variable_mods);
+        let peptides = peptide
+            .apply(&variable_mods, &HashMap::default(), 3)
+            .into_iter()
+            .map(|peptide| peptide.to_string())
+            .collect::<Vec<_>>();
         assert_eq!(peptides, expected);
     }
 
@@ -368,22 +405,75 @@ mod test {
         .unwrap();
 
         let expected = vec![
+            "AAC[+57]AAC[+57]AA",
             "AAC[+30]AAC[+57]AA",
             "AAC[+57]AAC[+30]AA",
-            "AAC[+57]AAC[+57]AA",
+            "AAC[+30]AAC[+30]AA",
         ];
 
         let mut static_mods = HashMap::new();
         static_mods.insert('C', 57.0);
 
-        let mut variable_mods = HashMap::new();
-        variable_mods.insert('C', 30.0);
+        let variable_mods = [('C', 30.0)];
 
         let actual = peptide
-            .apply(&variable_mods, &static_mods)
+            .apply(&variable_mods, &static_mods, 2)
             .into_iter()
             .map(|p| p.to_string())
             .collect::<Vec<_>>();
         assert_eq!(actual, expected);
+    }
+
+    fn mod_sites(peptide: &Peptide, residue: char, mass: f32) -> ModificationSites {
+        ModificationSites {
+            peptide,
+            index: 0,
+            residue,
+            mass,
+        }
+    }
+
+    #[test]
+    fn modification_sites() {
+        use Site::*;
+        let peptide = Peptide::try_from(&Digest {
+            sequence: "AACAACAA".into(),
+            ..Default::default()
+        })
+        .unwrap();
+
+        let mods = mod_sites(&peptide, 'C', 16.0);
+        assert_eq!(
+            mods.collect::<Vec<_>>(),
+            vec![(Sequence(2), 16.0), (Sequence(5), 16.0)]
+        );
+
+        let mods = mod_sites(&peptide, '$', 16.0);
+        assert_eq!(mods.collect::<Vec<_>>(), vec![(C, 16.0)]);
+
+        let mods = mod_sites(&peptide, '^', 16.0);
+        assert_eq!(mods.collect::<Vec<_>>(), vec![(N, 16.0)]);
+
+        let mods = [('^', 12.0), ('$', 200.0), ('C', 57.0), ('A', 43.0)];
+        let mods = mods.iter().fold(vec![], |mut acc, m| {
+            acc.extend(mod_sites(&peptide, m.0, m.1));
+            acc
+        });
+
+        assert_eq!(
+            mods,
+            vec![
+                (N, 12.0),
+                (C, 200.0),
+                (Sequence(2), 57.0),
+                (Sequence(5), 57.0),
+                (Sequence(0), 43.0),
+                (Sequence(1), 43.0),
+                (Sequence(3), 43.0),
+                (Sequence(4), 43.0),
+                (Sequence(6), 43.0),
+                (Sequence(7), 43.0),
+            ]
+        );
     }
 }

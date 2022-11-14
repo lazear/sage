@@ -71,6 +71,8 @@ pub struct Builder {
     pub static_mods: Option<HashMap<char, f32>>,
     /// Variable modifications to add to matching amino acids
     pub variable_mods: Option<HashMap<char, f32>>,
+    /// Limit number of variable modifications on a peptide
+    pub max_variable_mods: Option<usize>,
     /// Use this prefix for decoy proteins
     pub decoy_tag: Option<String>,
 
@@ -110,6 +112,7 @@ impl Builder {
             enzyme: self.enzyme.unwrap_or_default(),
             static_mods: Self::validate_mods(self.static_mods),
             variable_mods: Self::validate_mods(self.variable_mods),
+            max_variable_mods: self.max_variable_mods.map(|x| x.max(1)).unwrap_or(2),
             generate_decoys: self.generate_decoys.unwrap_or(true),
             fasta: self.fasta.expect("A fasta file must be provided!"),
         }
@@ -131,6 +134,7 @@ pub struct Parameters {
     min_ion_index: usize,
     static_mods: HashMap<char, f32>,
     variable_mods: HashMap<char, f32>,
+    max_variable_mods: usize,
     decoy_tag: String,
     generate_decoys: bool,
     pub fasta: PathBuf,
@@ -146,12 +150,18 @@ impl Parameters {
         // and missed cleavages, if applicable.
         let digests = fasta.digest(enzyme);
 
+        let mods = self
+            .variable_mods
+            .iter()
+            .map(|(a, b)| (*a, *b))
+            .collect::<Vec<_>>();
+
         // From our set of unique peptide sequence, apply any modifications
         // and convert to [`TargetDecoy`] enum
         let mut target_decoys = digests
             .par_iter()
             .filter_map(|(digest, _)| Peptide::try_from(digest).ok())
-            .flat_map(|peptide| peptide.apply(&self.variable_mods, &self.static_mods))
+            .flat_map(|peptide| peptide.apply(&mods, &self.static_mods, self.max_variable_mods))
             .filter(|peptide| {
                 peptide.monoisotopic >= self.peptide_min_mass
                     && peptide.monoisotopic <= self.peptide_max_mass
