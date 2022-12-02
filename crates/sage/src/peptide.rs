@@ -320,7 +320,7 @@ mod test {
             min_len: 0,
             max_len: 50,
             missed_cleavages: 0,
-            enyzme: Enzyme::new("KR", Some('P')),
+            enyzme: Enzyme::new("KR", Some('P'), true),
         };
 
         let peptides = tryp
@@ -475,7 +475,7 @@ mod test {
             missed_cleavages: 0,
             min_len: 3,
             max_len: 30,
-            enyzme: Enzyme::new("KR", Some('P')),
+            enyzme: Enzyme::new("KR", Some('P'), true),
         };
 
         let fwd = "MADEEKLPPGWEKRMSRSSGRVYYFNHITNASQWERPSGN";

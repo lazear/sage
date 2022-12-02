@@ -1,6 +1,8 @@
+use dashmap::DashMap;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::hash::BuildHasherDefault;
 
 use crate::database::{binary_search_slice, PeptideIx};
 use crate::mass::{Tolerance, NEUTRON};
@@ -125,43 +127,31 @@ impl LfqIndex {
 
     pub fn quantify(&self, spectra: &[ProcessedSpectrum], features: &mut [Feature]) {
         log::trace!("LFQ");
-        // In the name of parallelism, we have to do some unecessary allocations!
-        let temp = spectra
+
+        let scores: DashMap<PeptideIx, Vec<_>, BuildHasherDefault<fnv::FnvHasher>> =
+            DashMap::default();
+        spectra
             .par_iter()
             .filter(|s| s.level == 1)
-            .flat_map_iter(|spectrum| {
+            .for_each(|spectrum| {
                 let query = self.rt_slice(spectrum.scan_start_time, 1.0);
-                spectrum.peaks.iter().flat_map(move |peak| {
+                for peak in &spectrum.peaks {
                     let mut seen = HashSet::new();
-                    // This might return multiple LfqEntries for the same peptide,
-                    // since multiple MS2 scans can occur in the same RT window -
-                    // we need to deduplicate so that proper quantitation can be done
-                    // for entry in query.mass_lookup(peak.mass) {
-                    query
-                        .mass_lookup(peak.mass)
-                        .filter_map(move |entry| {
-                            if seen.insert(entry.peptide) {
-                                Some(Quant {
-                                    rt: spectrum.scan_start_time,
-                                    charge: entry.charge,
-                                    mass: peak.mass,
-                                    intensity: peak.intensity,
-                                    isotope: entry.isotope,
-                                    peptide_ix: entry.peptide,
-                                })
-                            } else {
-                                None
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                })
-            })
-            .collect::<Vec<_>>();
-
-        let mut scores: HashMap<PeptideIx, Vec<_>> = HashMap::new();
-        for quant in temp {
-            scores.entry(quant.peptide_ix).or_default().push(quant);
-        }
+                    for entry in query.mass_lookup(peak.mass) {
+                        if seen.insert(entry.peptide) {
+                            let quant = Quant {
+                                rt: spectrum.scan_start_time,
+                                charge: entry.charge,
+                                mass: peak.mass,
+                                intensity: peak.intensity,
+                                isotope: entry.isotope,
+                                peptide_ix: entry.peptide,
+                            };
+                            scores.entry(quant.peptide_ix).or_default().push(quant);
+                        }
+                    }
+                }
+            });
 
         // Perform gaussian smoothing on MS1 intensities
         let kernel = gaussian_kernel(0.5, 10);
@@ -170,8 +160,9 @@ impl LfqIndex {
         // all MS1 XICs for a given peptide (e.g. aggregating across PSMs)
         let map: HashMap<PeptideIx, Area> = scores
             .par_iter_mut()
-            .filter(|(_, scores)| scores.len() > 2)
-            .map(|(peptide, scores)| {
+            .filter(|entry| entry.value().len() > 2)
+            .map(|mut entry| {
+                let (peptide, scores) = entry.pair_mut();
                 scores.par_sort_unstable_by(|a, b| a.rt.total_cmp(&b.rt));
                 let rt_max = scores.last().unwrap().rt;
                 let rt_min = scores.first().unwrap().rt;
@@ -180,13 +171,13 @@ impl LfqIndex {
             })
             .collect();
 
-        for feature in features.iter_mut() {
+        features.par_iter_mut().for_each(|feature| {
             if let Some(area) = map.get(&feature.peptide_idx) {
                 feature.ms1_intensity = area.integrated_area;
                 feature.ms1_apex = area.apex;
                 feature.ms1_apex_rt = area.rt;
             }
-        }
+        })
     }
 }
 

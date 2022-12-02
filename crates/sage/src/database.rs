@@ -21,6 +21,7 @@ pub struct EnzymeBuilder {
     pub max_len: Option<usize>,
     pub cleave_at: Option<String>,
     pub restrict: Option<char>,
+    pub c_terminal: Option<bool>,
 }
 
 impl Default for EnzymeBuilder {
@@ -31,6 +32,7 @@ impl Default for EnzymeBuilder {
             max_len: Some(50),
             cleave_at: Some("KR".into()),
             restrict: Some('P'),
+            c_terminal: Some(true),
         }
     }
 }
@@ -44,6 +46,7 @@ impl From<EnzymeBuilder> for EnzymeParameters {
             enyzme: Enzyme::new(
                 &en.cleave_at.unwrap_or_else(|| "KR".into()),
                 en.restrict.or(Some('P')),
+                en.c_terminal.unwrap_or(true),
             ),
         }
     }
@@ -160,7 +163,7 @@ impl Parameters {
         // and convert to [`TargetDecoy`] enum
         let mut target_decoys = digests
             .par_iter()
-            .filter_map(|(digest, _)| Peptide::try_from(digest).ok())
+            .filter_map(|entry| Peptide::try_from(entry.key()).ok())
             .flat_map(|peptide| peptide.apply(&mods, &self.static_mods, self.max_variable_mods))
             .filter(|peptide| {
                 peptide.monoisotopic >= self.peptide_min_mass
