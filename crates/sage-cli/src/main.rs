@@ -56,6 +56,7 @@ struct Input {
 #[derive(Serialize, Deserialize, Default)]
 struct Quant {
     tmt: Option<Isobaric>,
+    tmt_level: Option<u8>,
     lfq: Option<bool>,
 }
 
@@ -375,7 +376,11 @@ impl Runner {
             .tmt
             .as_ref()
             .map(|isobaric| {
-                sage_core::tmt::quantify(&spectra, isobaric, Tolerance::Ppm(-20.0, 20.0), 3)
+                let level = self.parameters.quant.tmt_level.unwrap_or(3);
+                if level != 2 && level != 3 {
+                    log::warn!("TMT quant level set at {}, is this correct?", level);
+                }
+                sage_core::tmt::quantify(&spectra, isobaric, Tolerance::Ppm(-20.0, 20.0), level)
             })
             .unwrap_or_default();
         SageResults { features, quant }
