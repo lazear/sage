@@ -198,6 +198,7 @@ Internally generated decoys will have protein accessions matching "{decoy_tag}{a
   },
   "quant": {                // Optional - specify only if TMT or LFQ
     "tmt": "Tmt16",         // Optional[str] {default=null}, one of "Tmt6", "Tmt10", "Tmt11", "Tmt16", or "Tmt18"
+    "tmt_level": 2,         // Optional[int] {default=3}, MS-level to perform TMT quantification on
     "lfq": true             // Optional[bool] {default=null}, perform label-free quantification
   },
   "precursor_tol": {        // Tolerance can be either "ppm" or "da"
