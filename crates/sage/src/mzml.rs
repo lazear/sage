@@ -115,7 +115,7 @@ impl MzMLReader {
         let mut compression = false;
         let mut output_buffer = Vec::with_capacity(4096);
         let mut binary_dtype = Dtype::F64;
-        let mut binary_array = BinaryKind::Intensity;
+        let mut binary_array = None;
 
         let mut spectrum = Spectrum::default();
         let mut precursor = Precursor::default();
@@ -169,10 +169,11 @@ impl MzMLReader {
                             NO_COMPRESSION => compression = false,
                             FLOAT_64 => binary_dtype = Dtype::F64,
                             FLOAT_32 => binary_dtype = Dtype::F32,
-                            INTENSITY_ARRAY => binary_array = BinaryKind::Intensity,
-                            MZ_ARRAY => binary_array = BinaryKind::Mz,
+                            INTENSITY_ARRAY => binary_array = Some(BinaryKind::Intensity),
+                            MZ_ARRAY => binary_array = Some(BinaryKind::Mz),
                             _ => {
-                                return Err(MzMLError::UnsupportedCV(accession.to_string()));
+                                // Unknown CV - perhaps noise
+                                binary_array = None;
                             }
                         }
                     }
@@ -266,8 +267,8 @@ impl MzMLReader {
                             }
                         }
                         let raw = text.unescape()?;
-                        // There are occasionally empty binary data arrays...
-                        if raw.is_empty() {
+                        // There are occasionally empty binary data arrays, or unknown CVs
+                        if raw.is_empty() || binary_array.is_none() {
                             continue;
                         }
                         let decoded = base64::decode(raw.as_bytes())?;
@@ -306,13 +307,16 @@ impl MzMLReader {
                         output_buffer.clear();
 
                         match binary_array {
-                            BinaryKind::Intensity => {
+                            Some(BinaryKind::Intensity) => {
                                 spectrum.intensity = array;
                             }
-                            BinaryKind::Mz => {
+                            Some(BinaryKind::Mz) => {
                                 spectrum.mz = array;
                             }
+                            None => {}
                         }
+
+                        binary_array = None;
                     }
                 }
                 Ok(Event::End(ev)) => {
