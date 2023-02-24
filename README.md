@@ -145,7 +145,7 @@ sage config.json s3://my-bucket/YYYY-MM-DD_expt_A_fraction_1.mzML.gz
 Running Sage will produce several output files (located in either the current directory, or `output_directory` if that option is specified):
 - Record of search parameters (`results.json`) will be created that details input/output paths and all search parameters used for the search
 - MS2 search results will be stored as a tab-separated file (`results.sage.tsv`) file - this is a tab-separated file, which can be opened in Excel/Pandas/etc
-- MS3 search results will be stored as a tab-separated file (`quant.tsv`) if `quant.tmt` option is used in the parameter file
+- MS2 and MS3 quantitation results will be stored as a tab-separated file (`quant.tsv`) if `quant.tmt` option is used in the parameter file
 
 ## Configuration file schema
 
