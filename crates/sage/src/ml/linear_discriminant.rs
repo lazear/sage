@@ -14,6 +14,26 @@ use rayon::prelude::*;
 
 use crate::scoring::Feature;
 
+// Declare, so that we have compile time checking of matrix dimensions
+const FEATURES: usize = 15;
+const FEATURE_NAMES: [&str; FEATURES] = [
+    "ln1p(hyperscore)",
+    "ln1p(delta_hyperscore)",
+    "ln1p(delta_mass)",
+    "isotope_error",
+    "average_ppm",
+    "ln1p(-poisson)",
+    "ln1p(matched_intensity_pct)",
+    "ln1p(match_peaks)",
+    "ln1p(longest_b)",
+    "ln1p(longest_y)",
+    "longest_y_pct",
+    "ln1p(peptide_len)",
+    "missed_cleavages",
+    "rt",
+    "ln1p(delta_rt)",
+];
+
 pub struct LinearDiscriminantAnalysis {
     eigenvector: Vec<f64>,
 }
@@ -45,15 +65,15 @@ impl LinearDiscriminantAnalysis {
             // Any zeroes in the covariance matrix will cause LDA to fail:
             // Attempt to rectify by making the matrices contain 1 instead
             let ln2 = (2.0f64).ln();
-            for col in class_mean.iter_mut() {
+            for (idx, col) in class_mean.iter_mut().enumerate() {
                 if *col == 0.0 {
                     log::trace!(
-                        "- attempting to apply correction to LDA model, where class mean = 0.0"
+                        "- attempting to apply correction to LDA feature `{}`, where class mean = 0.0", FEATURE_NAMES[idx]
                     );
                     *col = -1.0;
                 } else if (*col - ln2).abs() <= 1E-8 {
                     log::trace!(
-                        "- attempting to apply correction to LDA model, where class mean = ln(2)"
+                        "- attempting to apply correction to LDA feature `{}`, where class mean = ln(2)", FEATURE_NAMES[idx]
                     );
                     *col = -1.0;
                 }
@@ -107,8 +127,6 @@ impl LinearDiscriminantAnalysis {
 pub fn score_psms(scores: &mut [Feature]) -> Option<()> {
     log::trace!("fitting linear discriminant model...");
 
-    // Declare, so that we have compile time checking of matrix dimensions
-    const FEATURES: usize = 15;
     let features = scores
         .into_par_iter()
         .flat_map(|perc| {

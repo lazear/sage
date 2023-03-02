@@ -154,6 +154,7 @@ pub struct Scorer<'db> {
 }
 
 impl<'db> Scorer<'db> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         db: &'db IndexedDatabase,
         precursor_tol: Tolerance,
@@ -296,7 +297,10 @@ impl<'db> Scorer<'db> {
         // Given that hyperscore is dominated by the number of matched peaks, it seems
         // reasonable to assume that the highest hyperscore will belong to one of the
         // top 50 candidates sorted by # of matched peaks.
-        let n_calculate = 50.max(report_psms * 2).min(hits.preliminary.len());
+        let n_calculate = 50.clamp(
+            (report_psms * 2).min(hits.preliminary.len()),
+            hits.preliminary.len(),
+        );
         let mut score_vector = hits
             .preliminary
             .iter()

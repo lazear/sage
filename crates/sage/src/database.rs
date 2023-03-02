@@ -174,7 +174,7 @@ impl Parameters {
         // NB: Stable sorting here (and only here?) is critical to achieving determinism...
         // not totally sure why... Probably has to do with using PeptideIxs
         // as keys for scoring vectors
-        (&mut target_decoys).par_sort_by(|a, b| a.monoisotopic.total_cmp(&b.monoisotopic));
+        target_decoys.par_sort_by(|a, b| a.monoisotopic.total_cmp(&b.monoisotopic));
 
         let peptide_graph = digests
             .into_par_iter()
@@ -225,7 +225,7 @@ impl Parameters {
             .collect::<Vec<_>>();
 
         // Sort all of our theoretical fragments by m/z, from low to high
-        (&mut fragments).par_sort_unstable_by(|a, b| a.fragment_mz.total_cmp(&b.fragment_mz));
+        fragments.par_sort_unstable_by(|a, b| a.fragment_mz.total_cmp(&b.fragment_mz));
 
         // Now, we bucket all of our theoretical fragments, and within each bucket
         // sort by precursor m/z - and save the minimum *fragment* m/z in a separate

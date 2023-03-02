@@ -27,7 +27,7 @@ pub fn predict(db: &IndexedDatabase, features: &mut [Feature]) -> Option<()> {
         .zip(&predicted_rts)
         .for_each(|(score, &rt)| {
             // LR can sometimes predict crazy values - clamp predicted RT
-            let bounded = rt.max(lr.rt_min - 10.0).min(lr.rt_max + 10.0) as f32;
+            let bounded = rt.clamp(lr.rt_min - 10.0, lr.rt_max + 10.0) as f32;
             score.predicted_rt = bounded;
             score.delta_rt = (score.rt - bounded).powi(2) / score.rt;
         });

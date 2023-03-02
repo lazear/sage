@@ -159,15 +159,14 @@ impl LfqIndex {
         // Iterate through list of quantification points, considering
         // all MS1 XICs for a given peptide (e.g. aggregating across PSMs)
         let map: HashMap<PeptideIx, Area> = scores
-            .par_iter_mut()
-            .filter(|entry| entry.value().len() > 2)
-            .map(|mut entry| {
-                let (peptide, scores) = entry.pair_mut();
+            .into_par_iter()
+            .filter(|(_, scores)| scores.len() > 2)
+            .map(|(peptide, mut scores)| {
                 scores.par_sort_unstable_by(|a, b| a.rt.total_cmp(&b.rt));
                 let rt_max = scores.last().unwrap().rt;
                 let rt_min = scores.first().unwrap().rt;
-                let area = integrate(scores, &kernel, rt_min - 0.25, rt_max + 0.25);
-                (*peptide, area)
+                let area = integrate(&scores, &kernel, rt_min - 0.25, rt_max + 0.25);
+                (peptide, area)
             })
             .collect();
 
@@ -184,7 +183,7 @@ impl LfqIndex {
 pub struct Area {
     apex: f32,
     integrated_area: f32,
-    fwhm: f32,
+    // fwhm: f32,
     rt: f32,
 }
 
@@ -217,7 +216,7 @@ fn integrate(points: &[Quant], kernel: &[f32], rt_min: f32, rt_max: f32) -> Area
     let (left, peak, right) = find_peak(&density);
 
     let rt = peak as f32 * step + rt_min;
-    let fwhm = (right - left) as f32 * step;
+    // let fwhm = (right - left) as f32 * step;
     let (apex, integrated_area) = apex[left..right]
         .iter()
         .fold((0.0f32, 0.0), |(apex, area), &x| (apex.max(x), area + x));
@@ -226,7 +225,7 @@ fn integrate(points: &[Quant], kernel: &[f32], rt_min: f32, rt_max: f32) -> Area
         apex,
         integrated_area,
         rt,
-        fwhm,
+        // fwhm,
     }
 }
 
