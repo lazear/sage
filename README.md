@@ -1,4 +1,4 @@
-<img src="figures/logo.svg" width="300">
+<img src="figures/logo.png" width="300">
 
 # Sage: proteomics searching so fast it seems like magic
 
@@ -40,6 +40,8 @@ Check out the [blog post introducing Sage](https://lazear.github.io/sage/) for m
 ### Assign multiple peptides to complex spectra
 
 <img src="figures/chimera_27525.png" width="800">
+
+- When chimeric searching is turned on, 2 peptide identifications will be reported for each MS2 scan, both with `rank=1`
 
 
 ### Sage trains machine learning models for FDR refinement and posterior error probability calculation
