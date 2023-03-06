@@ -162,6 +162,17 @@ If `database.generate_decoys` is set to true (or unspecified), then decoy sequen
 
 Internally generated decoys will have protein accessions matching "{decoy_tag}{accession}", e.g. if `decoy_tag` is "rev_" then a protein accession like "rev_sp|P01234|HUMAN" will be listed in the output file.
 
+### FASTA digestion
+
+Sage will process a protein into peptides via several routes listed below. Currently, one and only one is supported.
+
+- Enzymatic: `database.enzyme.cleave_at = "KR"` - configuration option set to a sequence of amino acids (e.g. "KR" for trypsin, "FWYL" for chymotrypsin)
+- Non-enzymatic: `database.enzyme.cleave_at = ""` - All potential peptides between `min_len` and `max_len` will be generated from the sequence
+- No digestion: `database.enzyme.cleave_at = "$"` - FASTA entries will be used as-is, subject to `min_len` and `max_len` options
+
+
+### Example configuration file
+
 ```jsonc
 // Note that json does not allow comments, they are here just as explanation
 // but need to be removed in a real config.json file
@@ -170,10 +181,11 @@ Internally generated decoys will have protein accessions matching "{decoy_tag}{a
     "bucket_size": 32768,           // How many fragments are in each internal mass bucket
     "enzyme": {               // Optional. Default is trypsin, using the parameters below
       "missed_cleavages": 2,  // Optional[int], Number of missed cleavages for tryptic digest
-      "min_len": 5,           // Optional[int]{efault=5}, Minimum AA length of peptides to search
+      "min_len": 5,           // Optional[int] {default=5}, Minimum AA length of peptides to search
       "max_len": 50,          // Optional[int] {default=50}, Maximum AA length of peptides to search
       "cleave_at": "KR",      // Optional[str] {default='KR'}. Amino acids to cleave at
-      "restrict": "P"         // Optional[char/single AA] {default='P'}. Do not cleave if this AA follows the cleavage site
+      "restrict": "P",        // Optional[char/single AA] {default='P'}. Do not cleave if this AA follows the cleavage site
+      "c_terminal": true      // Optional[bool] {default=true}. Cleave at c terminus of matching amino acid
     },
     "fragment_min_mz": 200.0,       // Optional[float] {default=150.0}, Minimum mass of fragments to search
     "fragment_max_mz": 2000.0,      // Optional[float] {default=2000.0}, Maximum mass of fragments to search 
