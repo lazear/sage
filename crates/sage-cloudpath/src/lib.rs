@@ -1,7 +1,6 @@
 use async_compression::tokio::bufread::GzipDecoder;
 use async_compression::tokio::write::GzipEncoder;
 use http::Uri;
-use sage_core::mzml::{MzMLError, MzMLReader, Spectrum};
 use std::path::PathBuf;
 use std::str::FromStr;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWriteExt, BufReader};
@@ -111,12 +110,12 @@ impl CloudPath {
                     .key(key)
                     .send()
                     .await
-                    .map_err(|e| Error::S3Error(e.into()))?;
+                    .map_err(|e| Error::S3(e.into()))?;
 
                 Ok(BufReader::new(Box::new(object.body.into_async_read())))
             }
             Self::Local(path) => Ok(BufReader::new(Box::new(
-                tokio::fs::File::open(path).await.map_err(Error::IOError)?,
+                tokio::fs::File::open(path).await.map_err(Error::IO)?,
             ))),
         }
     }
@@ -137,23 +136,21 @@ impl CloudPath {
             true => {
                 let inner = Vec::with_capacity(bytes.len() / 2);
                 let mut wtr = GzipEncoder::new(inner);
-                wtr.write_all(&bytes).await.map_err(Error::IOError)?;
-                wtr.flush().await.map_err(Error::IOError)?;
+                wtr.write_all(&bytes).await.map_err(Error::IO)?;
+                wtr.flush().await.map_err(Error::IO)?;
                 wtr.into_inner()
             }
             false => bytes,
         };
         match self {
             Self::Local(path) => {
-                let mut file = tokio::fs::File::create(path)
-                    .await
-                    .map_err(Error::IOError)?;
-                file.write_all(&bytes).await.map_err(Error::IOError)?;
+                let mut file = tokio::fs::File::create(path).await.map_err(Error::IO)?;
+                file.write_all(&bytes).await.map_err(Error::IO)?;
                 Ok(())
             }
             Self::S3 { bucket, key } => Ok(multipart_upload(bucket, key, bytes)
                 .await
-                .map_err(Error::S3Error)?),
+                .map_err(Error::S3)?),
         }
     }
 
@@ -161,7 +158,7 @@ impl CloudPath {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
-            .map_err(Error::IOError)?;
+            .map_err(Error::IO)?;
 
         rt.block_on(async { self.write_bytes(bytes).await })
     }
@@ -237,38 +234,38 @@ async fn multipart_upload(
     Ok(())
 }
 
-pub fn read_mzml<S: AsRef<str>>(s: S) -> Result<Vec<Spectrum>, Error> {
-    let path = s.as_ref().parse::<CloudPath>()?;
+pub fn read_and_execute<P, F, Fut, T>(path: P, func: F) -> Result<T, Error>
+where
+    P: AsRef<str>,
+    Fut: futures::Future<Output = Result<T, Error>>,
+    F: FnOnce(Box<dyn AsyncBufRead + Unpin>) -> Fut,
+{
+    let path = path.as_ref().parse::<CloudPath>()?;
 
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(Error::IOError)?;
+        .map_err(Error::IO)?;
 
     rt.block_on(async {
         let reader = path.read().await?;
-        MzMLReader::default()
-            .parse(reader)
-            .await
-            .map_err(Error::MzMLError)
+        func(reader).await
     })
 }
 
 #[derive(Debug)]
 pub enum Error {
     InvalidUri,
-    MzMLError(MzMLError),
-    S3Error(aws_sdk_s3::Error),
-    IOError(tokio::io::Error),
+    S3(aws_sdk_s3::Error),
+    IO(tokio::io::Error),
 }
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::InvalidUri => f.write_str("invalid URI"),
-            Error::MzMLError(x) => x.fmt(f),
-            Error::S3Error(x) => x.fmt(f),
-            Error::IOError(x) => x.fmt(f),
+            Error::S3(x) => x.fmt(f),
+            Error::IO(x) => x.fmt(f),
         }
     }
 }

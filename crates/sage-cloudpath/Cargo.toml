@@ -11,11 +11,11 @@ license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-sage-core = { path = "../sage" }
 async-compression = { version = "0.3", features = ["tokio", "gzip"] }
-aws-config = "0.49"
-aws-sdk-s3 = "0.19"
+aws-config = "0.54.1"
+aws-sdk-s3 = "0.24"
 bytes = "1.0"
 http = "0.2"
+futures = "0.3"
 once_cell = "1.0"
 tokio = { version = "1.0", features = ["fs", "io-util", "rt"] }

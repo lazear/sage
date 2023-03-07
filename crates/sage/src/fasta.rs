@@ -1,7 +1,6 @@
 use dashmap::DashMap;
 use rayon::prelude::*;
 use std::hash::BuildHasherDefault;
-use std::path::Path;
 
 use crate::enzyme::{Digest, EnzymeParameters};
 
@@ -14,20 +13,15 @@ pub struct Fasta {
 }
 
 impl Fasta {
-    /// Open and parse a fasta file
-    pub fn open<P: AsRef<Path>, S: Into<String>>(
-        path: P,
-        decoy_tag: S,
-        generate_decoys: bool,
-    ) -> std::io::Result<Fasta> {
+    // Parse a string into a fasta database
+    pub fn parse<S: Into<String>>(contents: String, decoy_tag: S, generate_decoys: bool) -> Fasta {
         let decoy_tag = decoy_tag.into();
-        let buf = std::fs::read_to_string(path)?;
 
         let mut targets = Vec::new();
         let mut last_id = "";
         let mut s = String::new();
 
-        for line in buf.as_str().lines() {
+        for line in contents.as_str().lines() {
             if line.is_empty() {
                 continue;
             }
@@ -52,11 +46,11 @@ impl Fasta {
             }
         }
 
-        Ok(Fasta {
+        Fasta {
             targets,
             decoy_tag,
             generate_decoys,
-        })
+        }
     }
 
     pub fn digest(

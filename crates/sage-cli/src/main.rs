@@ -62,8 +62,7 @@ struct Quant {
 
 impl Input {
     pub fn load<S: AsRef<str>>(path: S) -> anyhow::Result<Self> {
-        let mut file = std::fs::File::open(path.as_ref())?;
-        serde_json::from_reader(&mut file).map_err(anyhow::Error::from)
+        sage_core::read_json(path).map_err(anyhow::Error::from)
     }
 
     pub fn build(self) -> anyhow::Result<Search> {
@@ -400,7 +399,7 @@ impl Runner {
             file_id,
         );
 
-        let spectra = sage_cloudpath::read_mzml(&path)?
+        let spectra = sage_core::read_mzml(&path)?
             .into_par_iter()
             .map(|spec| sp.process(spec))
             .collect::<Vec<_>>();
@@ -426,7 +425,7 @@ impl Runner {
         let start = Instant::now();
         let spectra = chunk
             .par_iter()
-            .map(sage_cloudpath::read_mzml)
+            .map(sage_core::read_mzml)
             .collect::<Vec<_>>();
         let io_time = Instant::now() - start;
 

@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::hash::Hash;
-use std::path::PathBuf;
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct EnzymeBuilder {
@@ -81,7 +80,7 @@ pub struct Builder {
 
     pub generate_decoys: Option<bool>,
     /// Path to fasta database
-    pub fasta: Option<PathBuf>,
+    pub fasta: Option<String>,
 }
 
 impl Builder {
@@ -121,7 +120,7 @@ impl Builder {
         }
     }
 
-    pub fn update_fasta(&mut self, fasta: PathBuf) {
+    pub fn update_fasta(&mut self, fasta: String) {
         self.fasta = Some(fasta)
     }
 }
@@ -140,7 +139,7 @@ pub struct Parameters {
     max_variable_mods: usize,
     decoy_tag: String,
     generate_decoys: bool,
-    pub fasta: PathBuf,
+    pub fasta: String,
 }
 
 impl Parameters {
@@ -185,9 +184,10 @@ impl Parameters {
     }
 
     // pub fn build(self) -> Result<IndexedDatabase, Box<dyn std::error::Error + Send + Sync + 'static>> {
-    pub fn build(self) -> std::io::Result<IndexedDatabase> {
+    pub fn build(self) -> Result<IndexedDatabase, crate::Error> {
         let enzyme = self.enzyme.clone().into();
-        let fasta = Fasta::open(&self.fasta, self.decoy_tag.clone(), self.generate_decoys)?;
+        // let fasta = Fasta::open(&self.fasta, self.decoy_tag.clone(), self.generate_decoys)?;
+        let fasta = crate::read_fasta(&self.fasta, &self.decoy_tag, self.generate_decoys)?;
 
         let (target_decoys, peptide_graph) = self.digest(&fasta, &enzyme);
 

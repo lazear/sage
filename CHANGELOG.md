@@ -4,7 +4,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [0.91]
+### Changed
+- FASTA file path, JSON configuration file can now be specified as "s3://" paths, allowing Sage to run completely disk-free
+
+## [0.9.0]
+### Added
+- Support for non-specific digests, N-terminal enzymatic digestion
+
+## [0.8.1]
+### Added
+- `quant.tmt_level` configuration option to enable MS2 (or MSn) isobaric quantification
+
+## [0.8.0]
 ### Added
 - Support for protein N-terminal ('['), C-terminal (']') as well as peptide C-terminal ('$') modifications
 - Support for k-combinations of variable modifications. This can be specified with the `database.max_variable_mods` parameter

@@ -10,7 +10,7 @@ fn integration() -> anyhow::Result<()> {
 
     let database = builder.make_parameters().build()?;
 
-    let spectra = sage_cloudpath::read_mzml("../../tests/LQSRPAAPPAPGPGQLTLR.mzML")?;
+    let spectra = sage_core::read_mzml("../../tests/LQSRPAAPPAPGPGQLTLR.mzML")?;
     assert_eq!(spectra.len(), 1);
 
     let sp = SpectrumProcessor::new(100, 0.0, 1500.0, true, 0);
