@@ -34,9 +34,15 @@ impl std::fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-pub fn read_mzml<S: AsRef<str>>(s: S) -> Result<Vec<mzml::Spectrum>, Error> {
+pub fn read_mzml<S: AsRef<str>>(
+    s: S,
+    signal_to_noise: Option<u8>,
+) -> Result<Vec<mzml::Spectrum>, Error> {
     let res = read_and_execute(s, |bf| async move {
-        Ok(mzml::MzMLReader::default().parse(bf).await)
+        Ok(mzml::MzMLReader::default()
+            .set_signal_to_noise(signal_to_noise)
+            .parse(bf)
+            .await)
     });
 
     match res {

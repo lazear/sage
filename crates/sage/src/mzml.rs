@@ -52,6 +52,7 @@ enum State {
 enum BinaryKind {
     Intensity,
     Mz,
+    Noise,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -67,6 +68,7 @@ const NO_COMPRESSION: &str = "MS:1000576";
 // MUST supply only one of the following
 const INTENSITY_ARRAY: &str = "MS:1000515";
 const MZ_ARRAY: &str = "MS:1000514";
+const NOISE_ARRAY: &str = "MS:1002744";
 
 // MUST supply only one of the following
 const FLOAT_64: &str = "MS:1000523";
@@ -90,6 +92,9 @@ const ISO_WINDOW_UPPER: &str = "MS:1000829";
 #[derive(Default)]
 pub struct MzMLReader {
     ms_level: Option<u8>,
+    // If set to Some(level) and noise intensities are present in the MzML file,
+    // divide intensities at this MS-level by noise to calculate S/N
+    signal_to_noise: Option<u8>,
 }
 
 impl MzMLReader {
@@ -101,7 +106,13 @@ impl MzMLReader {
     pub fn with_level_filter(ms_level: u8) -> Self {
         Self {
             ms_level: Some(ms_level),
+            signal_to_noise: None,
         }
+    }
+
+    pub fn set_signal_to_noise(&mut self, sn: Option<u8>) -> &mut Self {
+        self.signal_to_noise = sn;
+        self
     }
 
     /// Here be dragons -
@@ -122,6 +133,8 @@ impl MzMLReader {
         let mut iso_window_lo: Option<f32> = None;
         let mut iso_window_hi: Option<f32> = None;
         let mut spectra = Vec::new();
+
+        let mut noise_array = Vec::new();
 
         macro_rules! extract {
             ($ev:expr, $key:expr) => {
@@ -171,6 +184,7 @@ impl MzMLReader {
                             FLOAT_32 => binary_dtype = Dtype::F32,
                             INTENSITY_ARRAY => binary_array = Some(BinaryKind::Intensity),
                             MZ_ARRAY => binary_array = Some(BinaryKind::Mz),
+                            NOISE_ARRAY => binary_array = Some(BinaryKind::Noise),
                             _ => {
                                 // Unknown CV - perhaps noise
                                 binary_array = None;
@@ -313,6 +327,9 @@ impl MzMLReader {
                             Some(BinaryKind::Mz) => {
                                 spectrum.mz = array;
                             }
+                            Some(BinaryKind::Noise) => {
+                                noise_array = array;
+                            }
                             None => {}
                         }
 
@@ -342,8 +359,23 @@ impl MzMLReader {
                                 .as_ref()
                                 .map(|&level| level == spectrum.ms_level)
                                 .unwrap_or(true);
-                            if allow {
-                                spectra.push(spectrum);
+
+                            match (allow, self.signal_to_noise) {
+                                (true, Some(level))
+                                    if level == spectrum.ms_level && !noise_array.is_empty() =>
+                                {
+                                    spectrum
+                                        .intensity
+                                        .iter_mut()
+                                        .zip(noise_array.iter())
+                                        .for_each(|(int, noise)| *int /= noise);
+                                    noise_array.clear();
+                                    spectra.push(spectrum);
+                                }
+                                (true, _) => {
+                                    spectra.push(spectrum);
+                                }
+                                (false, _) => {}
                             }
                             spectrum = Spectrum::default();
                             None

@@ -57,6 +57,7 @@ struct Input {
 struct Quant {
     tmt: Option<Isobaric>,
     tmt_level: Option<u8>,
+    tmt_sn: bool,
     lfq: Option<bool>,
 }
 
@@ -399,7 +400,12 @@ impl Runner {
             file_id,
         );
 
-        let spectra = sage_core::read_mzml(&path)?
+        let sn = self
+            .parameters
+            .quant
+            .tmt_sn
+            .then_some(self.parameters.quant.tmt_level.unwrap_or(3));
+        let spectra = sage_core::read_mzml(&path, sn)?
             .into_par_iter()
             .map(|spec| sp.process(spec))
             .collect::<Vec<_>>();
@@ -423,9 +429,16 @@ impl Runner {
             batch_size * chunk_idx + chunk.len()
         );
         let start = Instant::now();
+
+        let sn = self
+            .parameters
+            .quant
+            .tmt_sn
+            .then_some(self.parameters.quant.tmt_level.unwrap_or(3));
+
         let spectra = chunk
             .par_iter()
-            .map(sage_core::read_mzml)
+            .map(|path| sage_core::read_mzml(path, sn))
             .collect::<Vec<_>>();
         let io_time = Instant::now() - start;
 

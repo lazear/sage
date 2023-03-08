@@ -213,6 +213,7 @@ Sage will process a protein into peptides via several routes listed below. Curre
   "quant": {                // Optional - specify only if TMT or LFQ
     "tmt": "Tmt16",         // Optional[str] {default=null}, one of "Tmt6", "Tmt10", "Tmt11", "Tmt16", or "Tmt18"
     "tmt_level": 2,         // Optional[int] {default=3}, MS-level to perform TMT quantification on
+    "tmt_sn": false,        // Optional[bool] {default=false}, use Signal/Noise instead of intensity for TMT quant. Requires noise values in mzML
     "lfq": true             // Optional[bool] {default=null}, perform label-free quantification
   },
   "precursor_tol": {        // Tolerance can be either "ppm" or "da"
