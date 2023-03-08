@@ -1,8 +1,9 @@
 FROM debian:bullseye-slim
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends procps \
-    && rm -rf /var/lib/apt /var/lib/dpkg /var/lib/cache /var/lib/log
+    apt-get install -y --no-install-recommends procps ca-certificates && \
+    update-ca-certificates && \
+    rm -rf /var/lib/apt /var/lib/dpkg /var/lib/cache /var/lib/log
 
 WORKDIR /app
 
