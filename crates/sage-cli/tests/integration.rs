@@ -17,17 +17,18 @@ fn integration() -> anyhow::Result<()> {
     let processed = sp.process(spectra[0].clone());
     assert!(processed.peaks.len() <= 300);
 
-    let scorer = Scorer::new(
-        &database,
-        Tolerance::Ppm(-50.0, 50.0),
-        Tolerance::Ppm(-10.0, 10.0),
-        -1,
-        3,
-        None,
-        0.0,
-        1500.0,
-        false,
-    );
+    let scorer = Scorer {
+        db: &database,
+        precursor_tol: Tolerance::Ppm(-50.0, 50.0),
+        fragment_tol: Tolerance::Ppm(-10.0, 10.0),
+        min_matched_peaks: 4,
+        min_isotope_err: -1,
+        max_isotope_err: 3,
+        max_fragment_charge: None,
+        min_fragment_mass: 0.0,
+        max_fragment_mass: 1500.0,
+        chimera: false,
+    };
 
     let psm = scorer.score(&processed, 1);
     assert_eq!(psm.len(), 1);

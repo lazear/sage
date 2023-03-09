@@ -23,6 +23,7 @@ struct Search {
     min_peaks: usize,
     max_peaks: usize,
     max_fragment_charge: Option<u8>,
+    min_matched_peaks: u16,
     report_psms: usize,
     predict_rt: bool,
     parallel: bool,
@@ -44,6 +45,7 @@ struct Input {
     min_peaks: Option<usize>,
     max_peaks: Option<usize>,
     max_fragment_charge: Option<u8>,
+    min_matched_peaks: Option<u16>,
     isotope_errors: Option<(i8, i8)>,
     deisotope: Option<bool>,
     quant: Option<Quant>,
@@ -57,7 +59,7 @@ struct Input {
 struct Quant {
     tmt: Option<Isobaric>,
     tmt_level: Option<u8>,
-    tmt_sn: bool,
+    tmt_sn: Option<bool>,
     lfq: Option<bool>,
 }
 
@@ -97,6 +99,7 @@ impl Input {
             report_psms: self.report_psms.unwrap_or(1),
             max_peaks: self.max_peaks.unwrap_or(150),
             min_peaks: self.min_peaks.unwrap_or(15),
+            min_matched_peaks: self.min_matched_peaks.unwrap_or(4),
             max_fragment_charge: self.max_fragment_charge,
             isotope_errors: self.isotope_errors.unwrap_or((0, 0)),
             deisotope: self.deisotope.unwrap_or(true),
@@ -404,7 +407,9 @@ impl Runner {
             .parameters
             .quant
             .tmt_sn
+            .unwrap_or_default()
             .then_some(self.parameters.quant.tmt_level.unwrap_or(3));
+
         let spectra = sage_core::read_mzml(&path, sn)?
             .into_par_iter()
             .map(|spec| sp.process(spec))
@@ -434,6 +439,7 @@ impl Runner {
             .parameters
             .quant
             .tmt_sn
+            .unwrap_or_default()
             .then_some(self.parameters.quant.tmt_level.unwrap_or(3));
 
         let spectra = chunk
@@ -498,17 +504,29 @@ impl Runner {
     }
 
     pub fn run(mut self) -> anyhow::Result<()> {
-        let scorer = Scorer::new(
-            &self.database,
-            self.parameters.precursor_tol,
-            self.parameters.fragment_tol,
-            self.parameters.isotope_errors.0,
-            self.parameters.isotope_errors.1,
-            self.parameters.max_fragment_charge,
-            self.parameters.database.fragment_min_mz,
-            self.parameters.database.fragment_max_mz,
-            self.parameters.chimera,
-        );
+        // let scorer = Scorer::new(
+        //     &self.database,
+        //     self.parameters.precursor_tol,
+        //     self.parameters.fragment_tol,
+        //     self.parameters.isotope_errors.0,
+        //     self.parameters.isotope_errors.1,
+        //     self.parameters.max_fragment_charge,
+        //     self.parameters.database.fragment_min_mz,
+        //     self.parameters.database.fragment_max_mz,
+        //     self.parameters.chimera,
+        // );
+        let scorer = Scorer {
+            db: &self.database,
+            precursor_tol: self.parameters.precursor_tol,
+            fragment_tol: self.parameters.fragment_tol,
+            min_matched_peaks: self.parameters.min_matched_peaks,
+            min_isotope_err: self.parameters.isotope_errors.0,
+            max_isotope_err: self.parameters.isotope_errors.1,
+            max_fragment_charge: self.parameters.max_fragment_charge,
+            min_fragment_mass: self.parameters.database.fragment_min_mz,
+            max_fragment_mass: self.parameters.database.fragment_max_mz,
+            chimera: self.parameters.chimera,
+        };
 
         //Collect all results into a single container
         let mut outputs = match self.parameters.parallel {

@@ -121,15 +121,25 @@ pub struct Feature {
     pub ms1_apex_rt: f32,
 }
 
+/// Stirling's approximation for log factorial
+fn lnfact(n: u16) -> f64 {
+    if n == 0 {
+        1.0
+    } else {
+        let n = n as f64;
+        n * n.ln() - n + 0.5 * n.ln() + 0.5 * (std::f64::consts::PI * 2.0 * n).ln()
+    }
+}
+
 impl Score {
     /// Calculate the X!Tandem hyperscore
     /// * `fact_table` is a precomputed vector of factorials
-    fn hyperscore(&self, fact_table: &[f64]) -> f64 {
+    fn hyperscore(&self) -> f64 {
         let i = (self.summed_b + 1.0) as f64 * (self.summed_y + 1.0) as f64;
-        let m = fact_table[(self.matched_b as usize).min(fact_table.len() - 2)].ln()
-            + fact_table[(self.matched_y as usize).min(fact_table.len() - 2)].ln();
+        // let m = fact_table[(self.matched_b as usize).min(fact_table.len() - 2)].ln()
+        // + fact_table[(self.matched_y as usize).min(fact_table.len() - 2)].ln();
 
-        let score = i.ln() + m;
+        let score = i.ln() + lnfact(self.matched_b) + lnfact(self.matched_y);
         if score.is_finite() {
             score
         } else {
@@ -142,52 +152,20 @@ pub struct Scorer<'db> {
     pub db: &'db IndexedDatabase,
     pub precursor_tol: Tolerance,
     pub fragment_tol: Tolerance,
+    /// What is the minimum number of matched b and y ion peaks to report PSMs for?
+    pub min_matched_peaks: u16,
     /// Precursor isotope error lower bounds (e.g. -1)
-    min_isotope_err: i8,
+    pub min_isotope_err: i8,
     /// Precursor isotope error upper bounds (e.g. 3)
-    max_isotope_err: i8,
-    max_fragment_charge: Option<u8>,
-    min_fragment_mass: f32,
-    max_fragment_mass: f32,
-    factorial: [f64; 32],
-    chimera: bool,
+    pub max_isotope_err: i8,
+    pub max_fragment_charge: Option<u8>,
+    pub min_fragment_mass: f32,
+    pub max_fragment_mass: f32,
+    // factorial: [f64; 32],
+    pub chimera: bool,
 }
 
 impl<'db> Scorer<'db> {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        db: &'db IndexedDatabase,
-        precursor_tol: Tolerance,
-        fragment_tol: Tolerance,
-        min_isotope_err: i8,
-        max_isotope_err: i8,
-        max_fragment_charge: Option<u8>,
-        min_fragment_mass: f32,
-        max_fragment_mass: f32,
-        chimera: bool,
-    ) -> Self {
-        let mut factorial = [1.0f64; 32];
-        for i in 1..32 {
-            factorial[i] = factorial[i - 1] * i as f64;
-        }
-
-        debug_assert!(factorial[3] == 6.0);
-        debug_assert!(factorial[4] == 24.0);
-
-        Scorer {
-            db,
-            precursor_tol,
-            fragment_tol,
-            min_isotope_err,
-            max_isotope_err,
-            max_fragment_charge,
-            min_fragment_mass,
-            max_fragment_mass,
-            factorial,
-            chimera,
-        }
-    }
-
     pub fn score(&self, query: &ProcessedSpectrum, report_psms: usize) -> Vec<Feature> {
         assert_eq!(
             query.level, 2,
@@ -307,7 +285,7 @@ impl<'db> Scorer<'db> {
             .filter(|score| score.peptide != PeptideIx::default())
             .take(n_calculate)
             .map(|pre| self.score_candidate(query, pre.precursor_charge, pre.peptide))
-            .filter(|s| (s.matched_b + s.matched_y) >= 2)
+            .filter(|s| (s.matched_b + s.matched_y) >= self.min_matched_peaks)
             .collect::<Vec<_>>();
 
         // Hyperscore is our primary score function for PSMs
@@ -329,9 +307,8 @@ impl<'db> Scorer<'db> {
                 .unwrap_or_default();
 
             // Poisson distribution probability mass function
-            let k = (better.matched_b + better.matched_y) as usize;
-            let mut poisson = lambda.powi(k as i32) * f64::exp(-lambda)
-                / self.factorial[k.min(self.factorial.len() - 1)];
+            let k = better.matched_b + better.matched_y;
+            let mut poisson = lambda.powi(k as i32) * f64::exp(-lambda) / lnfact(k).exp();
 
             if poisson.is_infinite() {
                 // Approximately the smallest positive non-zero value representable by f64
@@ -523,7 +500,7 @@ impl<'db> Scorer<'db> {
             }
         }
 
-        score.hyperscore = score.hyperscore(&self.factorial);
+        score.hyperscore = score.hyperscore();
         score
     }
 
