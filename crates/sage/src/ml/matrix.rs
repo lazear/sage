@@ -77,6 +77,14 @@ impl Matrix {
         matrix
     }
 
+    pub fn diagonal(size: usize, value: f64) -> Matrix {
+        let mut matrix = Matrix::zeros(size, size);
+        for i in 0..size {
+            matrix[(i, i)] = value
+        }
+        matrix
+    }
+
     /// Consume `self`, returning the underlying data in row-major order
     pub fn take(self) -> Vec<f64> {
         self.data

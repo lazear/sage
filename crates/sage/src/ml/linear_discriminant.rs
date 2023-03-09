@@ -34,6 +34,16 @@ const FEATURE_NAMES: [&str; FEATURES] = [
     "ln1p(delta_rt)",
 ];
 
+struct Features<'a>(&'a [f64]);
+
+impl<'a> std::fmt::Debug for Features<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_map()
+            .entries(FEATURE_NAMES.iter().zip(self.0))
+            .finish()
+    }
+}
+
 pub struct LinearDiscriminantAnalysis {
     eigenvector: Vec<f64>,
 }
@@ -60,24 +70,7 @@ impl LinearDiscriminantAnalysis {
                 .collect::<Vec<_>>();
 
             let mut class_data = Matrix::new(class_data, count, features.cols);
-            let mut class_mean = class_data.mean();
-
-            // Any zeroes in the covariance matrix will cause LDA to fail:
-            // Attempt to rectify by making the matrices contain 1 instead
-            let ln2 = (2.0f64).ln();
-            for (idx, col) in class_mean.iter_mut().enumerate() {
-                if *col == 0.0 {
-                    log::trace!(
-                        "- attempting to apply correction to LDA feature `{}`, where class mean = 0.0", FEATURE_NAMES[idx]
-                    );
-                    *col = -1.0;
-                } else if (*col - ln2).abs() <= 1E-8 {
-                    log::trace!(
-                        "- attempting to apply correction to LDA feature `{}`, where class mean = ln(2)", FEATURE_NAMES[idx]
-                    );
-                    *col = -1.0;
-                }
-            }
+            let class_mean = class_data.mean();
 
             for row in 0..class_data.rows {
                 for col in 0..class_data.cols {
@@ -114,7 +107,7 @@ impl LinearDiscriminantAnalysis {
             evec.iter_mut().for_each(|c| *c *= -1.0);
         }
 
-        log::trace!("- linear model fit with eigenvector: {:?}", evec);
+        log::trace!("- linear model fit with {:?}", Features(&evec));
 
         Some(LinearDiscriminantAnalysis { eigenvector: evec })
     }
@@ -146,7 +139,7 @@ pub fn score_psms(scores: &mut [Feature]) -> Option<()> {
                 perc.average_ppm as f64,
                 poisson,
                 (perc.matched_intensity_pct as f64).ln_1p(),
-                (perc.matched_peaks as f64).ln_1p(),
+                (perc.matched_peaks as f64),
                 (perc.longest_b as f64).ln_1p(),
                 (perc.longest_y as f64).ln_1p(),
                 (perc.longest_y as f64 / perc.peptide_len as f64),

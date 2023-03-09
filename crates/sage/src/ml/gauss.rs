@@ -26,18 +26,31 @@ impl Matrix {
 impl Gauss {
     pub fn solve(left: Matrix, right: Matrix) -> Option<Matrix> {
         let mut g = Gauss { left, right };
+        g.fill_zero();
         g.echelon();
         g.reduce();
         g.backfill();
 
-        // let eye = Matrix::identity(g.left.rows);
-
         // If `left` is the identity matrix, then `right` contains
         // the solution to the system of equations
-        // match g.left.is_close(&eye, 0.00001) {
         match g.left_solved() {
             true => Some(g.right),
             false => None,
+        }
+    }
+    /// This SO answer details how to handle covariance matrices with zeros on
+    /// diagonals, which can ruin solving
+    /// https://stackoverflow.com/a/35958102
+    /// "thus instead of using Sigma = Cov(X) you do Sigma = Cov(X) + eps * I,
+    ///  where eps is prefedefined small constant, and I is identity matrix.
+    ///  Consequently you never have a zero values on the diagonal,
+    ///  and it is easy to prove that for reasonable epsilon, this will be inversible"
+    fn fill_zero(&mut self) {
+        for i in 0..self.left.cols {
+            if self.left[(i, i)] == 0.0 {
+                // I'm no mathematician, so hopefully this is a reasonable epsilon :)
+                self.left[(i, i)] = 1E-8;
+            }
         }
     }
 
