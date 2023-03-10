@@ -47,10 +47,8 @@ impl Gauss {
     ///  and it is easy to prove that for reasonable epsilon, this will be inversible"
     fn fill_zero(&mut self) {
         for i in 0..self.left.cols {
-            if self.left[(i, i)] == 0.0 {
-                // I'm no mathematician, so hopefully this is a reasonable epsilon :)
-                self.left[(i, i)] = 1E-8;
-            }
+            // I'm no mathematician, so hopefully this is a reasonable epsilon :)
+            self.left[(i, i)] += 1.0;
         }
     }
 
@@ -62,9 +60,11 @@ impl Gauss {
                 let x = self.left[(i, j)];
                 if i == j {
                     if x != 1.0 && x != 0.0 {
+                        log::warn!("Finding solution to linear system failed: left side of matrix [{},{}] = {}", i, j, x);
                         return false;
                     }
                 } else if x != 0.0 {
+                    log::warn!("Finding solution to linear system failed: left side of matrix [{},{}] = {}", i, j, x);
                     return false;
                 }
             }

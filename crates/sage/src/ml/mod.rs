@@ -5,6 +5,7 @@ pub mod kde;
 pub mod linear_discriminant;
 pub mod matrix;
 pub mod qvalue;
+pub mod retention_alignment;
 pub mod retention_model;
 
 #[allow(dead_code)]

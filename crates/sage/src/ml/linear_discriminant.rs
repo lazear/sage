@@ -63,7 +63,6 @@ impl LinearDiscriminantAnalysis {
             let count = decoy.iter().filter(|&label| *label == class).count();
 
             let class_data = (0..features.rows)
-                .into_iter()
                 .zip(decoy)
                 .filter(|&(_, label)| *label == class)
                 .flat_map(|(row, _)| features.row(row))

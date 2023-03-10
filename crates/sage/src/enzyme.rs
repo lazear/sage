@@ -1,3 +1,4 @@
+use fnv::FnvHashSet;
 use regex::Regex;
 
 use crate::mass::VALID_AA;
@@ -6,7 +7,7 @@ use crate::mass::VALID_AA;
 /// An enzymatic digest
 ///
 /// # Important invariant about [`Digest`]:
-/// * two digests are equal if and only if their sequences are equal
+/// * two digests are equal if and only if their sequences and position are equal
 ///   i.e., decoy status is ignored for equality and hashing
 pub struct Digest {
     /// Is this a decoy peptide?
@@ -19,7 +20,7 @@ pub struct Digest {
     pub position: Position,
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
 pub enum Position {
     Nterm,
     Cterm,
@@ -67,6 +68,7 @@ impl Eq for Digest {
 impl std::hash::Hash for Digest {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.sequence.hash(state);
+        // self.position.hash(state);
     }
 }
 
@@ -169,17 +171,16 @@ impl EnzymeParameters {
             _ => self.missed_cleavages,
         };
 
+        // Keep a set of peptides that have been digested from this sequence
+        // - handles cases where the same peptide occurs multiple times in a protein
+        let mut seen = FnvHashSet::default();
+
         for cleavage in 1..=(1 + missed_cleavages) {
             // Generate missed cleavages
             for win in sites.windows(cleavage as usize) {
-                // dbg!(&win);
                 let start = win[0].start;
                 let end = win[cleavage as usize - 1].end;
-                // if start >= sequence.len() || end >= sequence.len() {
-                //     continue;
-                // }
 
-                // let sequence = &sequence[win[0].start..win[cleavage as usize - 1].end];
                 let sequence = match sequence.get(start..end) {
                     Some(sequence) => sequence,
                     None => continue,
@@ -194,7 +195,7 @@ impl EnzymeParameters {
                     (false, false) => Position::Internal,
                 };
 
-                if len >= self.min_len && len <= self.max_len && len > 0 {
+                if len >= self.min_len && len <= self.max_len && len > 0 && seen.insert(sequence) {
                     digests.push(Digest {
                         sequence: sequence.into(),
                         missed_cleavages: cleavage - 1,
@@ -216,29 +217,33 @@ mod test {
 
     #[test]
     fn hash_digest() {
-        let tryp = EnzymeParameters {
-            min_len: 2,
-            max_len: 50,
-            missed_cleavages: 0,
-            enyzme: Enzyme::new("KR", Some('P'), true),
-        };
-
-        let sequence = "MADEEKMADEEK";
-        let expected = vec!["MADEEK", "MADEEK"];
-
-        let mut observed = tryp.digest(sequence);
-
-        // Make sure digest worked!
-        assert_eq!(
-            expected,
-            observed.iter().map(|d| &d.sequence).collect::<Vec<_>>()
-        );
-
-        assert_eq!(observed[0].sequence, observed[1].sequence);
+        let mut digests = vec![
+            Digest {
+                decoy: false,
+                sequence: "MADEEK".into(),
+                missed_cleavages: 0,
+                position: Position::Nterm,
+            },
+            Digest {
+                decoy: false,
+                sequence: "MADEEK".into(),
+                missed_cleavages: 0,
+                position: Position::Nterm,
+            },
+        ];
 
         // Make sure hashing a digest works
-        let set = observed.drain(..).collect::<HashSet<_>>();
+        let set = digests.drain(..).collect::<HashSet<_>>();
         assert_eq!(set.len(), 1);
+
+        // let mut digests = vec![
+        //     Digest { decoy: false, sequence: "MADEEK".into(), missed_cleavages: 0, position: Position::Nterm },
+        //     Digest { decoy: false, sequence: "MADEEK".into(), missed_cleavages: 0, position: Position::Internal },
+        // ];
+
+        // // Make sure hashing a digest works
+        // let set = digests.drain(..).collect::<HashSet<_>>();
+        // assert_eq!(set.len(), 2);
     }
 
     #[test]
@@ -475,6 +480,27 @@ mod test {
             max_len: usize::MAX,
             missed_cleavages: 0,
             enyzme: Enzyme::new("$", None, true),
+        };
+
+        assert_eq!(
+            expected,
+            tryp.digest(sequence)
+                .into_iter()
+                .map(|d| d.sequence)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ensure_unique() {
+        let sequence = "KVEGAQNQGKKVEGAQNQGK";
+        let expected = vec!["VEGAQNQGK"];
+
+        let tryp = EnzymeParameters {
+            min_len: 2,
+            max_len: usize::MAX,
+            missed_cleavages: 0,
+            enyzme: Enzyme::new("KR", None, true),
         };
 
         assert_eq!(

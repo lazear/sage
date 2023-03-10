@@ -20,7 +20,6 @@ pub fn predict(db: &IndexedDatabase, features: &mut [Feature]) -> Option<()> {
 
     // Training LR might fail - not enough values, or r-squared is < 0.7
     let lr = RetentionModel::fit(db, &features[..passing])?;
-    log::trace!("- fit retention time model, rsq = {}", lr.r2);
     let predicted_rts = lr.predict(db, features);
     features
         .iter_mut()
@@ -86,6 +85,7 @@ impl RetentionModel {
 
         let rt = training_set
             .par_iter()
+            .filter(|feat| feat.label == 1)
             .map(|psm| psm.rt as f64)
             .collect::<Vec<f64>>();
 
@@ -101,10 +101,12 @@ impl RetentionModel {
 
         let features = training_set
             .par_iter()
+            .filter(|feat| feat.label == 1)
             .flat_map(|psm| Self::embed(&db[psm.peptide_idx], &map))
             .collect::<Vec<_>>();
 
-        let features = Matrix::new(features, training_set.len(), FEATURES);
+        let rows = features.len() / FEATURES;
+        let features = Matrix::new(features, rows, FEATURES);
 
         let f_t = features.transpose();
 
@@ -123,6 +125,7 @@ impl RetentionModel {
         let r2 = 1.0 - (sum_squared_error / rt_var);
 
         if r2 >= 0.7 {
+            log::info!("- fit retention time model, rsq = {}", r2);
             Some(Self {
                 beta,
                 map,
@@ -131,6 +134,7 @@ impl RetentionModel {
                 rt_max,
             })
         } else {
+            log::warn!("- fit retention time model, rsq = {}", r2);
             None
         }
     }

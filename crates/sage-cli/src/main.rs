@@ -365,10 +365,6 @@ impl Runner {
             .flat_map(|spec| scorer.score(spec, self.parameters.report_psms))
             .collect();
 
-        if self.parameters.predict_rt {
-            let _ = sage_core::ml::retention_model::predict(&self.database, &mut features);
-        }
-
         if self.parameters.quant.lfq.unwrap_or(false) {
             sage_core::lfq::quantify(&mut features, &spectra);
         }
@@ -539,6 +535,14 @@ impl Runner {
                 .flat_map(|(file_id, path)| self.process_file(&scorer, path, file_id))
                 .collect::<SageResults>(),
         };
+
+        if self.parameters.predict_rt {
+            // let _ = sage_core::ml::retention_alignment::global_alignment(
+            //     &mut outputs.features,
+            //     self.parameters.mzml_paths.len(),
+            // );
+            let _ = sage_core::ml::retention_model::predict(&self.database, &mut outputs.features);
+        }
 
         let q_spectrum = self.spectrum_fdr(&mut outputs.features);
         let q_peptide = sage_core::fdr::picked_peptide(&self.database, &mut outputs.features);
