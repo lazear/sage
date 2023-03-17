@@ -1,5 +1,18 @@
+//! Perform global retention time alignment using a modified algorithm based on
+//! Chen AT, et al. DART-ID https://pubmed.ncbi.nlm.nih.gov/31260443/ (Fig 1A/B)
+//!
+//! 0) Transform all RTs into unit-less percentages (0.0 - 1.0)
+//! 1) Assume that the expected RT for a peptide can be estimated from the average
+//!    RT across all runs
+//! 2) For each run, calculate a linear regression between the observed peptide RTs
+//!    and the global average. Transform all PSM retention times by the regression
+//!    parameters
+//!
+//! If LFQ is enabled, MS1 apex times will be used instead of PSM retention times
+
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
+use std::sync::atomic::AtomicU32;
 
 use super::matrix::Matrix;
 use crate::database::PeptideIx;
@@ -10,28 +23,44 @@ use rayon::prelude::*;
 
 type FnvDashMap<K, V> = DashMap<K, V, BuildHasherDefault<FnvHasher>>;
 
-fn mean_rt_by_file(features: &[Feature]) -> FnvDashMap<PeptideIx, HashMap<usize, f64>> {
-    let rts: FnvDashMap<PeptideIx, HashMap<usize, Vec<f64>>> = DashMap::default();
-    // let max_rt: FnvDashMap<usize, f64> = DashMap::default();
+fn max_rt_by_file(features: &[Feature], n_files: usize) -> Vec<f64> {
+    let max_rt = (0..n_files)
+        .map(|_| AtomicU32::new(0))
+        .map(|_| AtomicU32::new(0))
+        .collect::<Vec<_>>();
 
     features.par_iter().for_each(|feat| {
         // If LFQ is performed, we should use MS1 apex RT, rather than PSM retention times
-        if feat.ms1_apex_rt > 0.0 {
-            rts.entry(feat.peptide_idx)
-                .or_default()
-                .entry(feat.file_id)
-                .or_default()
-                .push(feat.ms1_apex_rt as f64);
+        let rt = if feat.ms1_apex_rt.is_normal() {
+            feat.ms1_apex_rt
         } else {
-            rts.entry(feat.peptide_idx)
-                .or_default()
-                .entry(feat.file_id)
-                .or_default()
-                .push(feat.rt as f64);
-        }
+            feat.rt
+        };
+        max_rt[feat.file_id].fetch_max(rt.ceil() as u32, std::sync::atomic::Ordering::Relaxed);
+    });
 
-        // let mut curr_max = max_rt.entry(feat.file_id).or_default();
-        // *curr_max = curr_max.max(feat.rt as f64);
+    max_rt
+        .into_iter()
+        .map(|v| v.load(std::sync::atomic::Ordering::Acquire) as f64)
+        .collect()
+}
+
+/// Return a map from PeptideIx to a map from File ID to average RT of the parent
+/// PeptideIX
+fn mean_rt_by_file(features: &[Feature]) -> FnvDashMap<PeptideIx, HashMap<usize, f64>> {
+    let rts: FnvDashMap<PeptideIx, HashMap<usize, Vec<f64>>> = DashMap::default();
+    features.par_iter().for_each(|feat| {
+        // If LFQ is performed, we should use MS1 apex RT, rather than PSM retention times
+        let rt = if feat.ms1_apex_rt.is_normal() {
+            feat.ms1_apex_rt
+        } else {
+            feat.rt
+        };
+        rts.entry(feat.peptide_idx)
+            .or_default()
+            .entry(feat.file_id)
+            .or_default()
+            .push(rt as f64);
     });
 
     // Use the average RT for each file
@@ -39,41 +68,44 @@ fn mean_rt_by_file(features: &[Feature]) -> FnvDashMap<PeptideIx, HashMap<usize,
         .map(|(ix, map)| {
             let map = map
                 .into_iter()
-                .map(|(file_id, rts)| {
-                    // let file_max_rt = max_rt.get(&file_id).map(|e| e.value()).unwrap_or(200.0);
-
-                    (file_id, super::mean(&rts))
-                })
+                .map(|(file_id, rts)| (file_id, super::mean(&rts)))
                 .collect();
             (ix, map)
         })
         .collect()
 }
 
-fn rt_matrix(features: &[Feature], n_files: usize) -> Matrix {
+fn rt_matrix(features: &[Feature], max_rt: &[f64]) -> (HashMap<PeptideIx, f64>, Matrix) {
     let mean_rt = mean_rt_by_file(features);
 
-    let mat = mean_rt
+    let (means, mat): (HashMap<PeptideIx, f64>, Vec<_>) = mean_rt
         .par_iter()
-        .filter(|entry| entry.value().len() >= 2)
-        .flat_map(|entry| {
-            let mut v = vec![f64::NAN; n_files];
-            for (file_id, rt) in entry.value() {
-                v[*file_id] = *rt;
-            }
-            v
-        })
-        .collect::<Vec<_>>();
+        .map(|entry| {
+            let mut v = vec![f64::NAN; max_rt.len()];
 
-    Matrix::new(mat, mean_rt.len(), n_files)
+            // While we're here, calculate the mean RT across all runs
+            let mut sum = 0.0;
+            let mut len = 0.0;
+            for (&file_id, &rt) in entry.value() {
+                let rt = rt / max_rt[file_id];
+                v[file_id] = rt;
+                sum += rt;
+                len += 1.0;
+            }
+
+            ((*entry.key(), sum / len), v)
+        })
+        .filter(|((_, mean), _)| mean.is_normal())
+        .unzip();
+    let n = mat.len();
+    let mat: Vec<f64> = mat.into_par_iter().flatten().collect();
+
+    (means, Matrix::new(mat, n, max_rt.len()))
 }
 
 pub fn global_alignment(features: &mut [Feature], n_files: usize) {
-    if n_files < 2 {
-        return;
-    }
-
-    let rt = rt_matrix(features, n_files);
+    let max_rt = max_rt_by_file(features, n_files);
+    let (peptide_rt, rt) = rt_matrix(features, &max_rt);
 
     let mean_rts: Vec<f64> = (0..rt.rows)
         .into_par_iter()
@@ -114,7 +146,7 @@ pub fn global_alignment(features: &mut [Feature], n_files: usize) {
             let intercept = y_mean - slope * x_mean;
 
             log::info!(
-                "running linear regression {file}: y = {m}x+{b}",
+                "aligning file #{file}: y = {m:.4}x + {b:.4}",
                 file = file_idx,
                 m = slope,
                 b = intercept
@@ -124,8 +156,20 @@ pub fn global_alignment(features: &mut [Feature], n_files: usize) {
         })
         .collect::<Vec<(f64, f64)>>();
 
+    log::info!("aligned retention times across {} files", n_files);
+
     features.par_iter_mut().for_each(|feature| {
         let (slope, intercept) = reg[feature.file_id];
-        feature.rt = feature.rt * (slope as f32) + (intercept as f32);
+
+        // Calculate aligned RT
+        // - Divide by maximum RT of this run
+        // - Multiply by regression parameters
+        feature.aligned_rt =
+            (feature.rt / max_rt[feature.file_id] as f32) * (slope as f32) + (intercept as f32);
+
+        if let Some(&rt) = peptide_rt.get(&feature.peptide_idx) {
+            feature.predicted_rt = rt as f32;
+            feature.delta_rt = (rt as f32 - feature.aligned_rt).abs();
+        }
     });
 }

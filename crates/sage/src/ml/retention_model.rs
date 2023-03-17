@@ -19,6 +19,7 @@ pub fn predict(db: &IndexedDatabase, features: &mut [Feature]) -> Option<()> {
     let passing = super::qvalue::spectrum_q_value(features);
 
     // Training LR might fail - not enough values, or r-squared is < 0.7
+    // let lr = RetentionModel::fit(db, &features[..passing])?;
     let lr = RetentionModel::fit(db, &features[..passing])?;
     let predicted_rts = lr.predict(db, features);
     features
@@ -26,9 +27,9 @@ pub fn predict(db: &IndexedDatabase, features: &mut [Feature]) -> Option<()> {
         .zip(&predicted_rts)
         .for_each(|(score, &rt)| {
             // LR can sometimes predict crazy values - clamp predicted RT
-            let bounded = rt.clamp(lr.rt_min - 10.0, lr.rt_max + 10.0) as f32;
+            let bounded = rt.clamp(0.0, 1.0) as f32;
             score.predicted_rt = bounded;
-            score.delta_rt = (score.rt - bounded).powi(2) / score.rt;
+            score.delta_rt = (score.aligned_rt - bounded).abs();
         });
     Some(())
 }
@@ -36,10 +37,6 @@ pub struct RetentionModel {
     beta: Matrix,
     map: [usize; 26],
     pub r2: f64,
-    /// Minimum retention time in training set
-    pub rt_min: f64,
-    /// Maximum retention time in training set
-    pub rt_max: f64,
 }
 
 const FEATURES: usize = VALID_AA.len() * 3 + 3;
@@ -86,14 +83,9 @@ impl RetentionModel {
         let rt = training_set
             .par_iter()
             .filter(|feat| feat.label == 1)
-            .map(|psm| psm.rt as f64)
+            .map(|psm| psm.aligned_rt as f64)
             .collect::<Vec<f64>>();
 
-        let (mut rt_min, mut rt_max) = (200.0f64, 0.0f64);
-        for &rt in &rt {
-            rt_min = rt_min.min(rt);
-            rt_max = rt_max.max(rt);
-        }
         let rt_mean = rt.iter().sum::<f64>() / rt.len() as f64;
         let rt_var = rt.iter().map(|rt| (rt - rt_mean).powi(2)).sum::<f64>();
 
@@ -123,20 +115,8 @@ impl RetentionModel {
             .sum::<f64>();
 
         let r2 = 1.0 - (sum_squared_error / rt_var);
-
-        if r2 >= 0.7 {
-            log::info!("- fit retention time model, rsq = {}", r2);
-            Some(Self {
-                beta,
-                map,
-                r2,
-                rt_min,
-                rt_max,
-            })
-        } else {
-            log::warn!("- fit retention time model, rsq = {}", r2);
-            None
-        }
+        log::info!("- fit retention time model, rsq = {}", r2);
+        Some(Self { beta, map, r2 })
     }
 
     /// Predict retention times for a collection of PSMs

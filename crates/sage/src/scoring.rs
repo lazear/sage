@@ -76,6 +76,8 @@ pub struct Feature {
     pub charge: u8,
     /// Retention time
     pub rt: f32,
+    /// Globally aligned retention time
+    pub aligned_rt: f32,
     /// Predicted RT, if enabled
     pub predicted_rt: f32,
     /// Difference between predicted & observed RT
@@ -371,6 +373,7 @@ impl<'db> Scorer<'db> {
                 protein_q: 1.0,
                 peptide_q: 1.0,
                 predicted_rt: 0.0,
+                aligned_rt: query.scan_start_time,
                 delta_rt: 1.0,
                 ms2_intensity: better.summed_b + better.summed_y,
                 ms1_intensity: 0.0,

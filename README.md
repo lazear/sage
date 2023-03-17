@@ -46,7 +46,8 @@ Check out the [blog post introducing Sage](https://lazear.github.io/sage/) for m
 
 ### Sage trains machine learning models for FDR refinement and posterior error probability calculation
 
-- Boosts PSM identifications using prediction of retention times with a [linear regression](https://doi.org/10.1021/ac070262k) model fit to each LC/MS run
+- Retention times are globally aligned across runs
+- Boosts PSM identifications using prediction of retention times with a [linear regression](https://doi.org/10.1021/ac070262k) model
 - Hand-rolled, 100% pure Rust implementations of Linear Discriminant Analysis and KDE-mixture models for refinement of false discovery rates
 - Models demonstrate 1:1 results with scikit-learn, but have increased performance
 - No need for a second post-search pipeline step

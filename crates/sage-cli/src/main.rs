@@ -216,6 +216,7 @@ impl Runner {
                 .as_bytes(),
         );
         record.push_field(ryu::Buffer::new().format(feature.rt).as_bytes());
+        record.push_field(ryu::Buffer::new().format(feature.aligned_rt).as_bytes());
         record.push_field(ryu::Buffer::new().format(feature.predicted_rt).as_bytes());
         record.push_field(ryu::Buffer::new().format(feature.delta_rt).as_bytes());
         record.push_field(itoa::Buffer::new().format(feature.matched_peaks).as_bytes());
@@ -280,6 +281,7 @@ impl Runner {
             "hyperscore",
             "delta_hyperscore",
             "rt",
+            "aligned_rt",
             "predicted_rt",
             "delta_rt",
             "matched_peaks",
@@ -537,10 +539,10 @@ impl Runner {
         };
 
         if self.parameters.predict_rt {
-            // let _ = sage_core::ml::retention_alignment::global_alignment(
-            //     &mut outputs.features,
-            //     self.parameters.mzml_paths.len(),
-            // );
+            sage_core::ml::retention_alignment::global_alignment(
+                &mut outputs.features,
+                self.parameters.mzml_paths.len(),
+            );
             let _ = sage_core::ml::retention_model::predict(&self.database, &mut outputs.features);
         }
 
