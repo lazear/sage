@@ -36,7 +36,7 @@ fn max_rt_by_file(features: &[Feature], n_files: usize) -> Vec<f64> {
         } else {
             feat.rt
         };
-        max_rt[feat.file_id].fetch_max(rt.ceil() as u32, std::sync::atomic::Ordering::Relaxed);
+        max_rt[feat.file_id].fetch_max(rt.ceil() as u32, std::sync::atomic::Ordering::SeqCst);
     });
 
     max_rt

@@ -374,7 +374,7 @@ impl<'db> Scorer<'db> {
                 peptide_q: 1.0,
                 predicted_rt: 0.0,
                 aligned_rt: query.scan_start_time,
-                delta_rt: 1.0,
+                delta_rt: 0.999,
                 ms2_intensity: better.summed_b + better.summed_y,
                 ms1_intensity: 0.0,
                 ms1_apex: 0.0,

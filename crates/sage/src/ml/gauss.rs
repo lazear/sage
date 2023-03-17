@@ -48,7 +48,7 @@ impl Gauss {
     fn fill_zero(&mut self) {
         for i in 0..self.left.cols {
             // I'm no mathematician, so hopefully this is a reasonable epsilon :)
-            self.left[(i, i)] += 1.0;
+            self.left[(i, i)] += 1.0E-8;
         }
     }
 

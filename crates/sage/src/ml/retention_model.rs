@@ -15,26 +15,23 @@ pub fn predict(db: &IndexedDatabase, features: &mut [Feature]) -> Option<()> {
     // Poisson probability is usually the best single feature for refining FDR.
     // Take our set of 1% FDR filtered PSMs, and use them to train a linear
     // regression model for predicting retention time
-    features.par_sort_unstable_by(|a, b| a.poisson.total_cmp(&b.poisson));
+    features.par_sort_by(|a, b| a.poisson.total_cmp(&b.poisson));
     let passing = super::qvalue::spectrum_q_value(features);
 
     // Training LR might fail - not enough values, or r-squared is < 0.7
     // let lr = RetentionModel::fit(db, &features[..passing])?;
     let lr = RetentionModel::fit(db, &features[..passing])?;
-    let predicted_rts = lr.predict(db, features);
-    features
-        .iter_mut()
-        .zip(&predicted_rts)
-        .for_each(|(score, &rt)| {
-            // LR can sometimes predict crazy values - clamp predicted RT
-            let bounded = rt.clamp(0.0, 1.0) as f32;
-            score.predicted_rt = bounded;
-            score.delta_rt = (score.aligned_rt - bounded).abs();
-        });
+    features.par_iter_mut().for_each(|feat| {
+        // LR can sometimes predict crazy values - clamp predicted RT
+        let rt = lr.predict_peptide(db, feat);
+        let bounded = rt.clamp(0.0, 1.0) as f32;
+        feat.predicted_rt = bounded;
+        feat.delta_rt = (feat.aligned_rt - bounded).abs();
+    });
     Some(())
 }
 pub struct RetentionModel {
-    beta: Matrix,
+    beta: Vec<f64>,
     map: [usize; 26],
     pub r2: f64,
 }
@@ -101,7 +98,6 @@ impl RetentionModel {
         let features = Matrix::new(features, rows, FEATURES);
 
         let f_t = features.transpose();
-
         let cov = f_t.dot(&features);
         let b = f_t.dot(&rt);
 
@@ -116,18 +112,18 @@ impl RetentionModel {
 
         let r2 = 1.0 - (sum_squared_error / rt_var);
         log::info!("- fit retention time model, rsq = {}", r2);
-        Some(Self { beta, map, r2 })
+        Some(Self {
+            beta: beta.take(),
+            map,
+            r2,
+        })
     }
 
     /// Predict retention times for a collection of PSMs
-    pub fn predict(&self, db: &IndexedDatabase, psms: &[Feature]) -> Vec<f64> {
-        let features = psms
-            .par_iter()
-            .flat_map(|psm| Self::embed(&db[psm.peptide_idx], &self.map))
-            .collect::<Vec<_>>();
-
-        let features = Matrix::new(features, psms.len(), FEATURES);
-
-        features.dot(&self.beta).take()
+    pub fn predict_peptide(&self, db: &IndexedDatabase, psm: &Feature) -> f64 {
+        let v = Self::embed(&db[psm.peptide_idx], &self.map);
+        v.into_iter()
+            .zip(&self.beta)
+            .fold(0.0f64, |sum, (x, y)| sum + x * y)
     }
 }
