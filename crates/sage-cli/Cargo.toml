@@ -1,6 +1,6 @@
 [package]
 name = "sage-cli"
-version = "0.9.4"
+version = "0.10.0"
 authors = ["Michael Lazear <michaellazear92@gmail.com"]
 edition = "2021"
 rust-version = "1.62"
