@@ -4,7 +4,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.91]
+## [0.10.0]
+### Added
+- Retention times are now globally aligned across files
+- RT prediction is then performed on all files at once (on aligned RTs), rather than one file at a time - previously, there were many instances where some files in a search could not have RTs predicted, decreasing the effectiveness of delta_rt as a feature for LDA.
+
+### Changed
+- Peptide sequences within a protein are now deduplicated - previously, repeated peptides would be called multiple times for the same protein (e.g. num_proteins > 1 even if the peptide was unique)
+
+## [0.9.4]
+### Changed
+- Fix issues with RT prediction (and occasionally LDA) that arise from 0's being present on the diagonals of the covariance matrix (small amount of regularization added)
+
+## [0.9.3]
+### Added
+- Allow users to set minimum number of matched b+y ions for reporting PSMs (`min_matched_peaks`)
+
+### Changed
+- Internal code for calculating factorials
+
+## [0.9.2]
+### Added
+- Added option for TMT signal/noise quantification, if noise values are present in mzML
+
+## [0.9.1]
 ### Changed
 - FASTA file path, JSON configuration file can now be specified as "s3://" paths, allowing Sage to run completely disk-free
 
