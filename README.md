@@ -242,9 +242,10 @@ Sage will process a protein into peptides via several routes listed below. Curre
   "max_fragment_charge": 1, // Optional[int] {default=null}: maximum fragment ion charge states to consider,
   "report_psms": 1,         // Optional[int] {default=1}: number of PSMs to report for each spectra. Recommend setting to 1, higher values might disrupt LDA
   "parallel": true,         // Optional[bool] {default=true}: search files in parallel. For large numbers of files or low RAM, set this to false
+  "output_directory": "s3://bucket/prefix" // Optional[str] {default=`.`}: Place output files in a given directory or S3 bucket/prefix
   "mzml_paths": [           // List[str]: representing paths to mzML (or gzipped-mzML) files for search
     "local/path.mzML",
-    "s3://my-mass-spec-data/PXD0000001/foo.mzML.gz"
+    "s3://bucket/PXD0000001/foo.mzML.gz"
   ]       
 }
 ```
