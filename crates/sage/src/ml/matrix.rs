@@ -11,7 +11,7 @@ pub struct Col;
 
 #[derive(Clone, PartialEq, PartialOrd)]
 pub struct Matrix {
-    data: Vec<f64>,
+    pub data: Vec<f64>,
     pub rows: usize,
     pub cols: usize,
 }
@@ -134,6 +134,14 @@ impl Matrix {
             col: 0,
             axes: PhantomData,
         }
+    }
+
+    pub fn row_slice(&self, row: usize) -> &[f64] {
+        &self.data[self.cols * row..self.cols * (row + 1)]
+    }
+
+    pub fn row_slice_mut(&mut self, row: usize) -> &mut [f64] {
+        &mut self.data[self.cols * row..self.cols * (row + 1)]
     }
 
     /// Return an iterator over values in a single column
@@ -404,5 +412,20 @@ mod test {
                 rows: 2
             }
         );
+    }
+
+    #[test]
+    fn slice() {
+        #[rustfmt::skip]
+        let b = vec![
+            1., 2., 1., 
+            2., 3., 1., 
+            4., 2., 2.
+        ];
+        let b = Matrix::new(b, 3, 3);
+
+        assert_eq!(b.row_slice(0), &[1., 2., 1.]);
+        assert_eq!(b.row_slice(1), &[2., 3., 1.]);
+        assert_eq!(b.row_slice(2), &[4., 2., 2.]);
     }
 }

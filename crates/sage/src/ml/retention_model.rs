@@ -12,21 +12,14 @@ use rayon::prelude::*;
 
 /// Try to fit a retention time prediction model
 pub fn predict(db: &IndexedDatabase, features: &mut [Feature]) -> Option<()> {
-    // Poisson probability is usually the best single feature for refining FDR.
-    // Take our set of 1% FDR filtered PSMs, and use them to train a linear
-    // regression model for predicting retention time
-    features.par_sort_by(|a, b| a.poisson.total_cmp(&b.poisson));
-    let passing = super::qvalue::spectrum_q_value(features);
-
     // Training LR might fail - not enough values, or r-squared is < 0.7
-    // let lr = RetentionModel::fit(db, &features[..passing])?;
-    let lr = RetentionModel::fit(db, &features[..passing])?;
+    let lr = RetentionModel::fit(db, features)?;
     features.par_iter_mut().for_each(|feat| {
         // LR can sometimes predict crazy values - clamp predicted RT
         let rt = lr.predict_peptide(db, feat);
         let bounded = rt.clamp(0.0, 1.0) as f32;
         feat.predicted_rt = bounded;
-        feat.delta_rt = (feat.aligned_rt - bounded).abs();
+        feat.delta_rt_model = (feat.aligned_rt - bounded).abs();
     });
     Some(())
 }
@@ -79,7 +72,7 @@ impl RetentionModel {
 
         let rt = training_set
             .par_iter()
-            .filter(|feat| feat.label == 1)
+            .filter(|feat| feat.label == 1 && feat.spectrum_q <= 0.01)
             .map(|psm| psm.aligned_rt as f64)
             .collect::<Vec<f64>>();
 
@@ -90,7 +83,7 @@ impl RetentionModel {
 
         let features = training_set
             .par_iter()
-            .filter(|feat| feat.label == 1)
+            .filter(|feat| feat.label == 1 && feat.spectrum_q <= 0.01)
             .flat_map(|psm| Self::embed(&db[psm.peptide_idx], &map))
             .collect::<Vec<_>>();
 

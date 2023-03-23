@@ -21,6 +21,9 @@ pub struct Peptide {
     pub missed_cleavages: u8,
     /// Where is this peptide located in the protein?
     pub position: Position,
+
+    pub carbons: u16,
+    pub sulfurs: u16,
 }
 
 impl Peptide {
@@ -249,12 +252,17 @@ impl TryFrom<&Digest> for Peptide {
         let mut sequence = Vec::with_capacity(value.sequence.len());
         let mut monoisotopic = H2O;
 
+        let mut carbons = 0;
+        let mut sulfurs = 0;
         for c in value.sequence.chars() {
             if !VALID_AA.contains(&c) {
                 return Err(c);
             }
             monoisotopic += c.monoisotopic();
             sequence.push(Residue::Just(c));
+            let comp = c.composition();
+            carbons += comp.carbon;
+            sulfurs += comp.sulfur;
         }
 
         Ok(Peptide {
@@ -265,6 +273,8 @@ impl TryFrom<&Digest> for Peptide {
             nterm: None,
             cterm: None,
             missed_cleavages: value.missed_cleavages,
+            carbons,
+            sulfurs,
         })
     }
 }

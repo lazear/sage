@@ -31,7 +31,8 @@ const FEATURE_NAMES: [&str; FEATURES] = [
     "ln1p(peptide_len)",
     "missed_cleavages",
     "rt",
-    "sqrt(delta_rt)",
+    "sqrt(delta_rt_model)",
+    // "ln1p(ms2_intensity)", // "sqrt(delta_rt_align)",
 ];
 
 struct Features<'a>(&'a [f64]);
@@ -145,7 +146,10 @@ pub fn score_psms(scores: &mut [Feature]) -> Option<()> {
                 (perc.peptide_len as f64).ln_1p(),
                 (perc.missed_cleavages as f64),
                 (perc.aligned_rt as f64),
-                (perc.delta_rt as f64).clamp(0.001, 0.999).sqrt(),
+                (perc.delta_rt_model as f64).clamp(0.001, 0.999).sqrt(),
+                // (perc.ms2_intensity as f64).ln_1p(), // (perc.delta_rt_align.abs() as f64)
+                //     .clamp(0.001, 0.999)
+                //     .sqrt(),
             ];
             x
         })

@@ -1,123 +1,27 @@
 use clap::{Arg, Command};
+use input::{Input, Search};
 use log::info;
 use rayon::prelude::*;
 use sage_cloudpath::CloudPath;
-use sage_core::database::{Builder, IndexedDatabase, Parameters};
+use sage_core::database::IndexedDatabase;
 use sage_core::mass::Tolerance;
 use sage_core::scoring::{Feature, Scorer};
 use sage_core::spectrum::{ProcessedSpectrum, SpectrumProcessor};
-use sage_core::tmt::{Isobaric, TmtQuant};
-use serde::{Deserialize, Serialize};
-use std::time::{self, Instant};
+use sage_core::tmt::TmtQuant;
+use std::time::Instant;
 
-#[derive(Serialize)]
-/// Actual search parameters - may include overrides or default values not set by user
-struct Search {
-    database: Parameters,
-    quant: Quant,
-    precursor_tol: Tolerance,
-    fragment_tol: Tolerance,
-    isotope_errors: (i8, i8),
-    deisotope: bool,
-    chimera: bool,
-    min_peaks: usize,
-    max_peaks: usize,
-    max_fragment_charge: Option<u8>,
-    min_matched_peaks: u16,
-    report_psms: usize,
-    predict_rt: bool,
-    parallel: bool,
-    mzml_paths: Vec<String>,
-    output_paths: Vec<String>,
-
-    #[serde(skip_serializing)]
-    output_directory: CloudPath,
-}
-
-#[derive(Deserialize)]
-/// Input search parameters deserialized from JSON file
-struct Input {
-    database: Builder,
-    precursor_tol: Tolerance,
-    fragment_tol: Tolerance,
-    report_psms: Option<usize>,
-    chimera: Option<bool>,
-    min_peaks: Option<usize>,
-    max_peaks: Option<usize>,
-    max_fragment_charge: Option<u8>,
-    min_matched_peaks: Option<u16>,
-    isotope_errors: Option<(i8, i8)>,
-    deisotope: Option<bool>,
-    quant: Option<Quant>,
-    predict_rt: Option<bool>,
-    output_directory: Option<String>,
-    parallel: Option<bool>,
-    mzml_paths: Option<Vec<String>>,
-}
-
-#[derive(Serialize, Deserialize, Default)]
-struct Quant {
-    tmt: Option<Isobaric>,
-    tmt_level: Option<u8>,
-    tmt_sn: Option<bool>,
-    lfq: Option<bool>,
-}
-
-impl Input {
-    pub fn load<S: AsRef<str>>(path: S) -> anyhow::Result<Self> {
-        sage_core::read_json(path).map_err(anyhow::Error::from)
-    }
-
-    pub fn build(self) -> anyhow::Result<Search> {
-        let database = self.database.make_parameters();
-        let isotope_errors = self.isotope_errors.unwrap_or((0, 0));
-        if isotope_errors.0 > isotope_errors.1 {
-            log::warn!("Minimum isotope_error value greater than maximum! Typical usage: `isotope_errors: [-1, 3]`");
-        }
-
-        let mzml_paths = self.mzml_paths.expect("'mzml_paths' must be provided!");
-
-        let output_directory = match self.output_directory {
-            Some(path) => {
-                let path = path.parse::<CloudPath>()?;
-                if let CloudPath::Local(p) = &path {
-                    std::fs::create_dir_all(p)?;
-                }
-                path
-            }
-            None => CloudPath::Local(std::env::current_dir()?),
-        };
-
-        Ok(Search {
-            database,
-            quant: self.quant.unwrap_or_default(),
-            parallel: self.parallel.unwrap_or(true),
-            mzml_paths,
-            output_directory,
-            precursor_tol: self.precursor_tol,
-            fragment_tol: self.fragment_tol,
-            report_psms: self.report_psms.unwrap_or(1),
-            max_peaks: self.max_peaks.unwrap_or(150),
-            min_peaks: self.min_peaks.unwrap_or(15),
-            min_matched_peaks: self.min_matched_peaks.unwrap_or(4),
-            max_fragment_charge: self.max_fragment_charge,
-            isotope_errors: self.isotope_errors.unwrap_or((0, 0)),
-            deisotope: self.deisotope.unwrap_or(true),
-            chimera: self.chimera.unwrap_or(false),
-            predict_rt: self.predict_rt.unwrap_or(true),
-            output_paths: Vec::new(),
-        })
-    }
-}
+mod input;
+mod output;
 
 struct Runner {
     database: IndexedDatabase,
-    parameters: Search,
+    parameters: input::Search,
     start: Instant,
 }
 
 #[derive(Default)]
 struct SageResults {
+    ms1: Vec<ProcessedSpectrum>,
     features: Vec<Feature>,
     quant: Vec<TmtQuant>,
 }
@@ -132,6 +36,7 @@ impl FromParallelIterator<SageResults> for SageResults {
             .reduce(SageResults::default, |mut acc, x| {
                 acc.features.extend(x.features);
                 acc.quant.extend(x.quant);
+                acc.ms1.extend(x.ms1);
                 acc
             })
     }
@@ -147,14 +52,16 @@ impl FromIterator<SageResults> for SageResults {
             .fold(SageResults::default(), |mut acc, x| {
                 acc.features.extend(x.features);
                 acc.quant.extend(x.quant);
+                acc.ms1.extend(x.ms1);
                 acc
             })
     }
 }
 
 impl Runner {
-    pub fn new(start: Instant, parameters: Search) -> anyhow::Result<Self> {
+    pub fn new(parameters: Search) -> anyhow::Result<Self> {
         let database = parameters.database.clone().build()?;
+        let start = Instant::now();
         info!(
             "generated {} fragments in {}ms",
             database.size(),
@@ -186,188 +93,16 @@ impl Runner {
         path
     }
 
-    fn serialize_feature(&self, feature: &Feature, filenames: &[String]) -> csv::ByteRecord {
-        let mut record = csv::ByteRecord::new();
-        record.push_field(feature.peptide.as_str().as_bytes());
-        record.push_field(feature.proteins.as_str().as_bytes());
-        record.push_field(itoa::Buffer::new().format(feature.num_proteins).as_bytes());
-        record.push_field(filenames[feature.file_id].as_bytes());
-        record.push_field(feature.spec_id.as_bytes());
-        record.push_field(itoa::Buffer::new().format(feature.rank).as_bytes());
-        record.push_field(itoa::Buffer::new().format(feature.label).as_bytes());
-        record.push_field(ryu::Buffer::new().format(feature.expmass).as_bytes());
-        record.push_field(ryu::Buffer::new().format(feature.calcmass).as_bytes());
-        record.push_field(itoa::Buffer::new().format(feature.charge).as_bytes());
-        record.push_field(itoa::Buffer::new().format(feature.peptide_len).as_bytes());
-        record.push_field(
-            itoa::Buffer::new()
-                .format(feature.missed_cleavages)
-                .as_bytes(),
-        );
-        record.push_field(ryu::Buffer::new().format(feature.isotope_error).as_bytes());
-        record.push_field(ryu::Buffer::new().format(feature.delta_mass).as_bytes());
-        record.push_field(ryu::Buffer::new().format(feature.average_ppm).as_bytes());
-        record.push_field(ryu::Buffer::new().format(feature.hyperscore).as_bytes());
-        record.push_field(
-            ryu::Buffer::new()
-                .format(feature.delta_hyperscore)
-                .as_bytes(),
-        );
-        record.push_field(ryu::Buffer::new().format(feature.rt).as_bytes());
-        record.push_field(ryu::Buffer::new().format(feature.aligned_rt).as_bytes());
-        record.push_field(ryu::Buffer::new().format(feature.predicted_rt).as_bytes());
-        record.push_field(ryu::Buffer::new().format(feature.delta_rt).as_bytes());
-        record.push_field(itoa::Buffer::new().format(feature.matched_peaks).as_bytes());
-        record.push_field(itoa::Buffer::new().format(feature.longest_b).as_bytes());
-        record.push_field(itoa::Buffer::new().format(feature.longest_y).as_bytes());
-        record.push_field(ryu::Buffer::new().format(feature.longest_y_pct).as_bytes());
-        record.push_field(
-            ryu::Buffer::new()
-                .format(feature.matched_intensity_pct)
-                .as_bytes(),
-        );
-        record.push_field(
-            itoa::Buffer::new()
-                .format(feature.scored_candidates)
-                .as_bytes(),
-        );
-        record.push_field(ryu::Buffer::new().format(feature.poisson).as_bytes());
-        record.push_field(
-            ryu::Buffer::new()
-                .format(feature.discriminant_score)
-                .as_bytes(),
-        );
-        record.push_field(
-            ryu::Buffer::new()
-                .format(feature.posterior_error)
-                .as_bytes(),
-        );
-        record.push_field(ryu::Buffer::new().format(feature.spectrum_q).as_bytes());
-        record.push_field(ryu::Buffer::new().format(feature.peptide_q).as_bytes());
-        record.push_field(ryu::Buffer::new().format(feature.protein_q).as_bytes());
-        record.push_field(ryu::Buffer::new().format(feature.ms1_intensity).as_bytes());
-        record
-    }
-
-    fn write_features(
-        &self,
-        features: Vec<Feature>,
-        filenames: &[String],
-    ) -> anyhow::Result<String> {
-        let path = self.make_path("results.sage.tsv");
-
-        let mut wtr = csv::WriterBuilder::new()
-            .delimiter(b'\t')
-            .from_writer(vec![]);
-
-        let headers = csv::ByteRecord::from(vec![
-            "peptide",
-            "proteins",
-            "num_proteins",
-            "filename",
-            "scannr",
-            "rank",
-            "label",
-            "expmass",
-            "calcmass",
-            "charge",
-            "peptide_len",
-            "missed_cleavages",
-            "isotope_error",
-            "precursor_ppm",
-            "fragment_ppm",
-            "hyperscore",
-            "delta_hyperscore",
-            "rt",
-            "aligned_rt",
-            "predicted_rt",
-            "delta_rt",
-            "matched_peaks",
-            "longest_b",
-            "longest_y",
-            "longest_y_pct",
-            "matched_intensity_pct",
-            "scored_candidates",
-            "poisson",
-            "sage_discriminant_score",
-            "posterior_error",
-            "spectrum_fdr",
-            "peptide_fdr",
-            "protein_fdr",
-            "ms1_intensity",
-        ]);
-
-        wtr.write_byte_record(&headers)?;
-        for record in features
-            .into_par_iter()
-            .map(|feat| self.serialize_feature(&feat, filenames))
-            .collect::<Vec<_>>()
-        {
-            wtr.write_byte_record(&record)?;
-        }
-
-        wtr.flush()?;
-        let bytes = wtr.into_inner()?;
-        path.write_bytes_sync(bytes)?;
-        Ok(path.to_string())
-    }
-
-    fn write_quant(&self, quant: &[TmtQuant], filenames: &[String]) -> anyhow::Result<String> {
-        let path = self.make_path("quant.tsv");
-
-        let mut wtr = csv::WriterBuilder::new()
-            .delimiter(b'\t')
-            .from_writer(vec![]);
-        let mut headers = csv::ByteRecord::from(vec!["filename", "scannr", "ion_injection_time"]);
-        headers.extend(
-            self.parameters
-                .quant
-                .tmt
-                .as_ref()
-                .map(|tmt| tmt.headers())
-                .expect("TMT quant cannot be performed without setting this parameter"),
-        );
-
-        wtr.write_byte_record(&headers)?;
-
-        let records = quant
-            .into_par_iter()
-            .map(|q| {
-                let mut record = csv::ByteRecord::new();
-                record.push_field(filenames[q.file_id].as_bytes());
-                record.push_field(q.spec_id.as_bytes());
-                record.push_field(ryu::Buffer::new().format(q.ion_injection_time).as_bytes());
-                for peak in &q.peaks {
-                    record.push_field(ryu::Buffer::new().format(*peak).as_bytes());
-                }
-                record
-            })
-            .collect::<Vec<csv::ByteRecord>>();
-
-        for record in records {
-            wtr.write_record(&record)?;
-        }
-        wtr.flush()?;
-
-        let bytes = wtr.into_inner()?;
-        path.write_bytes_sync(bytes)?;
-        Ok(path.to_string())
-    }
-
     fn search_processed_spectra(
         &self,
         scorer: &Scorer,
         spectra: Vec<ProcessedSpectrum>,
     ) -> SageResults {
-        let mut features: Vec<_> = spectra
+        let features: Vec<_> = spectra
             .par_iter()
             .filter(|spec| spec.peaks.len() >= self.parameters.min_peaks && spec.level == 2)
             .flat_map(|spec| scorer.score(spec, self.parameters.report_psms))
             .collect();
-
-        if self.parameters.quant.lfq.unwrap_or(false) {
-            sage_core::lfq::quantify(&mut features, &spectra);
-        }
 
         let quant = self
             .parameters
@@ -375,14 +110,20 @@ impl Runner {
             .tmt
             .as_ref()
             .map(|isobaric| {
-                let level = self.parameters.quant.tmt_level.unwrap_or(3);
+                let level = self.parameters.quant.tmt_settings.level;
                 if level != 2 && level != 3 {
                     log::warn!("TMT quant level set at {}, is this correct?", level);
                 }
                 sage_core::tmt::quantify(&spectra, isobaric, Tolerance::Ppm(-20.0, 20.0), level)
             })
             .unwrap_or_default();
-        SageResults { features, quant }
+        let ms1 = spectra.into_iter().filter(|s| s.level == 1).collect();
+
+        SageResults {
+            features,
+            quant,
+            ms1,
+        }
     }
 
     fn process_file<P: AsRef<str>>(
@@ -402,9 +143,12 @@ impl Runner {
         let sn = self
             .parameters
             .quant
-            .tmt_sn
-            .unwrap_or_default()
-            .then_some(self.parameters.quant.tmt_level.unwrap_or(3));
+            .tmt_settings
+            .sn
+            .then_some(self.parameters.quant.tmt_settings.level);
+        // .tmt_sn
+        // .unwrap_or_default()
+        // .then_some(self.parameters.quant.tmt_level.unwrap_or(3));
 
         let spectra = sage_core::read_mzml(&path, sn)?
             .into_par_iter()
@@ -434,9 +178,9 @@ impl Runner {
         let sn = self
             .parameters
             .quant
-            .tmt_sn
-            .unwrap_or_default()
-            .then_some(self.parameters.quant.tmt_level.unwrap_or(3));
+            .tmt_settings
+            .sn
+            .then_some(self.parameters.quant.tmt_settings.level);
 
         let spectra = chunk
             .par_iter()
@@ -500,17 +244,6 @@ impl Runner {
     }
 
     pub fn run(mut self) -> anyhow::Result<()> {
-        // let scorer = Scorer::new(
-        //     &self.database,
-        //     self.parameters.precursor_tol,
-        //     self.parameters.fragment_tol,
-        //     self.parameters.isotope_errors.0,
-        //     self.parameters.isotope_errors.1,
-        //     self.parameters.max_fragment_charge,
-        //     self.parameters.database.fragment_min_mz,
-        //     self.parameters.database.fragment_max_mz,
-        //     self.parameters.chimera,
-        // );
         let scorer = Scorer {
             db: &self.database,
             precursor_tol: self.parameters.precursor_tol,
@@ -536,24 +269,28 @@ impl Runner {
                 .collect::<SageResults>(),
         };
 
-        if self.parameters.predict_rt {
-            sage_core::ml::retention_alignment::global_alignment(
+        let alignments = if self.parameters.predict_rt {
+            // Poisson probability is usually the best single feature for refining FDR.
+            // Take our set of 1% FDR filtered PSMs, and use them to train a linear
+            // regression model for predicting retention time
+            outputs
+                .features
+                .par_sort_unstable_by(|a, b| a.poisson.total_cmp(&b.poisson));
+            sage_core::ml::qvalue::spectrum_q_value(&mut outputs.features);
+
+            let alignments = sage_core::ml::retention_alignment::global_alignment(
                 &mut outputs.features,
                 self.parameters.mzml_paths.len(),
             );
             let _ = sage_core::ml::retention_model::predict(&self.database, &mut outputs.features);
-        }
+            Some(alignments)
+        } else {
+            None
+        };
 
         let q_spectrum = self.spectrum_fdr(&mut outputs.features);
         let q_peptide = sage_core::fdr::picked_peptide(&self.database, &mut outputs.features);
         let q_protein = sage_core::fdr::picked_protein(&self.database, &mut outputs.features);
-
-        info!(
-            "discovered {} peptide-spectrum matches at 1% FDR",
-            q_spectrum
-        );
-        info!("discovered {} peptides at 1% FDR", q_peptide);
-        info!("discovered {} proteins at 1% FDR", q_protein);
 
         let filenames = self
             .parameters
@@ -567,17 +304,34 @@ impl Runner {
             })
             .collect::<Vec<_>>();
 
+        if let Some(alignments) = alignments {
+            if self.parameters.quant.lfq {
+                let areas = sage_core::lfq2::build_feature_map(
+                    self.parameters.quant.lfq_settings,
+                    &outputs.features,
+                )
+                .quantify(&self.database, &outputs.ms1, &alignments);
+                self.write_lfq(areas, &filenames)?;
+            }
+        }
+
+        log::info!(
+            "discovered {} peptide-spectrum matches at 1% FDR",
+            q_spectrum
+        );
+        log::info!("discovered {} peptides at 1% FDR", q_peptide);
+        log::info!("discovered {} proteins at 1% FDR", q_protein);
+        log::trace!("writing outputs");
+
         self.parameters
             .output_paths
             .push(self.write_features(outputs.features, &filenames)?);
+
         if !outputs.quant.is_empty() {
             self.parameters
                 .output_paths
-                .push(self.write_quant(&outputs.quant, &filenames)?);
+                .push(self.write_tmt(outputs.quant, &filenames)?);
         }
-
-        let run_time = (Instant::now() - self.start).as_secs();
-        info!("finished in {}s", run_time);
 
         let path = self.make_path("results.json");
         self.parameters.output_paths.push(path.to_string());
@@ -585,6 +339,9 @@ impl Runner {
 
         let bytes = serde_json::to_vec_pretty(&self.parameters)?;
         path.write_bytes_sync(bytes)?;
+
+        let run_time = (Instant::now() - self.start).as_secs();
+        info!("finished in {}s", run_time);
 
         Ok(())
     }
@@ -595,8 +352,6 @@ fn main() -> anyhow::Result<()> {
         .filter_level(log::LevelFilter::Error)
         .parse_env(env_logger::Env::default().filter_or("SAGE_LOG", "error,sage=info"))
         .init();
-
-    let start = time::Instant::now();
 
     let matches = Command::new("sage")
         .version(clap::crate_version!())
@@ -641,31 +396,9 @@ fn main() -> anyhow::Result<()> {
         )
         .get_matches();
 
-    let path = matches
-        .get_one::<String>("parameters")
-        .expect("required parameters");
-    let mut input = Input::load(path)?;
+    let input = Input::from_arguments(matches)?;
 
-    // Handle JSON configuration overrides
-    if let Some(output_directory) = matches.get_one::<String>("output_directory") {
-        input.output_directory = Some(output_directory.into());
-    }
-    if let Some(fasta) = matches.get_one::<String>("fasta") {
-        input.database.fasta = Some(fasta.into());
-    }
-    if let Some(mzml_paths) = matches.get_many::<String>("mzml_paths") {
-        input.mzml_paths = Some(mzml_paths.into_iter().map(|p| p.into()).collect());
-    }
-
-    if let Some(no_parallel) = matches.get_one::<bool>("no-parallel").copied() {
-        if !no_parallel {
-            input.parallel = Some(false);
-        }
-    }
-
-    let runner = input
-        .build()
-        .and_then(|search| Runner::new(start, search))?;
+    let runner = input.build().and_then(Runner::new)?;
 
     runner.run()?;
 

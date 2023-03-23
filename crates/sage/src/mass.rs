@@ -1,4 +1,4 @@
-use std::fmt::Write;
+use std::{fmt::Write, iter::Sum};
 
 use serde::{Deserialize, Serialize};
 
@@ -35,6 +35,7 @@ impl Tolerance {
 
 pub trait Mass {
     fn monoisotopic(&self) -> f32;
+    fn composition(&self) -> Composition;
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Serialize)]
@@ -50,6 +51,13 @@ impl Mass for Residue {
         match self {
             Residue::Just(c) => c.monoisotopic(),
             Residue::Mod(c, m) => c.monoisotopic() + m,
+        }
+    }
+
+    fn composition(&self) -> Composition {
+        match self {
+            Residue::Just(c) => c.composition(),
+            Residue::Mod(c, _) => c.composition(),
         }
     }
 }
@@ -86,6 +94,57 @@ impl Mass for char {
             'O' => 237.14773,
             _ => unreachable!("BUG: invalid amino acid {}", self),
         }
+    }
+
+    fn composition(&self) -> Composition {
+        match self {
+            'A' => Composition::new(3, 2, 0),
+            'R' => Composition::new(6, 2, 0),
+            'N' => Composition::new(4, 3, 0),
+            'D' => Composition::new(4, 4, 0),
+            'C' => Composition::new(3, 2, 1),
+            'E' => Composition::new(5, 4, 0),
+            'Q' => Composition::new(5, 3, 0),
+            'G' => Composition::new(2, 2, 0),
+            'H' => Composition::new(6, 2, 0),
+            'I' => Composition::new(6, 2, 0),
+            'L' => Composition::new(6, 2, 0),
+            'K' => Composition::new(6, 2, 0),
+            'M' => Composition::new(5, 2, 1),
+            'F' => Composition::new(9, 2, 0),
+            'P' => Composition::new(5, 2, 0),
+            'S' => Composition::new(3, 3, 0),
+            'T' => Composition::new(4, 3, 0),
+            'W' => Composition::new(11, 2, 0),
+            'Y' => Composition::new(9, 3, 0),
+            'V' => Composition::new(5, 2, 0),
+            'U' => Composition::new(3, 2, 0),
+            'O' => Composition::new(12, 3, 0),
+            _ => unreachable!("BUG: invalid amino acid {}", self),
+        }
+    }
+}
+
+pub struct Composition {
+    pub carbon: u16,
+    pub sulfur: u16,
+}
+
+impl Composition {
+    pub const fn new(carbon: u16, _oxygen: u8, sulfur: u16) -> Self {
+        Self { carbon, sulfur }
+    }
+}
+
+impl Sum for Composition {
+    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
+        let mut comp = Composition::new(0, 0, 0);
+        for i in iter {
+            comp.carbon += i.carbon;
+            // comp.oxygen += i.oxygen;
+            comp.sulfur += i.sulfur;
+        }
+        comp
     }
 }
 

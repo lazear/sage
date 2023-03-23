@@ -81,7 +81,7 @@ pub struct Feature {
     /// Predicted RT, if enabled
     pub predicted_rt: f32,
     /// Difference between predicted & observed RT
-    pub delta_rt: f32,
+    pub delta_rt_model: f32,
     /// Difference between expmass and calcmass
     pub delta_mass: f32,
     /// C13 isotope error
@@ -119,8 +119,8 @@ pub struct Feature {
 
     pub ms2_intensity: f32,
     pub ms1_intensity: f32,
-    pub ms1_apex: f32,
-    pub ms1_apex_rt: f32,
+    // pub ms1_apex: f32,
+    // pub ms1_apex_rt: f32,
 }
 
 /// Stirling's approximation for log factorial
@@ -374,11 +374,9 @@ impl<'db> Scorer<'db> {
                 peptide_q: 1.0,
                 predicted_rt: 0.0,
                 aligned_rt: query.scan_start_time,
-                delta_rt: 0.999,
+                delta_rt_model: 0.999,
                 ms2_intensity: better.summed_b + better.summed_y,
-                ms1_intensity: 0.0,
-                ms1_apex: 0.0,
-                ms1_apex_rt: 0.0,
+                ms1_intensity: precursor.intensity.unwrap_or(0.0),
             })
         }
         reporting
