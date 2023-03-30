@@ -62,7 +62,7 @@ pub struct PrecursorRange {
     charge: u8,
     isotope: usize,
     peptide: PeptideIx,
-    psm: usize,
+    file_id: usize,
 }
 
 /// Create a data structure analogous to [`IndexedDatabase`] - instaed of
@@ -92,7 +92,7 @@ pub fn build_feature_map(settings: LfqSettings, features: &[Feature]) -> Feature
                         peptide: feat.peptide_idx,
                         charge: feat.charge,
                         isotope: 0,
-                        psm: 0,
+                        file_id: feat.file_id,
                     },
                 );
             }
@@ -195,7 +195,7 @@ impl FeatureMap {
                         let mut grid = scores.entry(entry.peptide).or_insert_with(|| {
                             let p = &db[entry.peptide];
                             let dist = crate::isotopes::peptide_isotopes(p.carbons, p.sulfurs);
-                            Grid::new(entry.rt, RT_TOL, dist, alignments.len(), GRID_SIZE)
+                            Grid::new(entry, RT_TOL, dist, alignments.len(), GRID_SIZE)
                         });
 
                         grid.add_entry(rt, entry.isotope, spectrum.file_id, peak.intensity);
@@ -243,6 +243,7 @@ pub struct Grid {
     rt_min: f32,
     rt_step: f32,
     files: usize,
+    reference_file_id: usize,
     /// Relative theoretical isotopic abundances
     distribution: [f32; N_ISOTOPES],
     /// Matrix of summed intensities for each isotopic trace in each file, divided
@@ -264,6 +265,7 @@ pub struct Traces {
     // These are just here for debugging purposes
     left: usize,
     right: usize,
+    reference_file_id: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -357,7 +359,7 @@ impl DisjointPeakSet {
 impl Traces {
     /// Calculate and apply time warping factors
     fn warp(&mut self) {
-        let time_warps = Self::find_time_warps(&self.dot_product, 75);
+        let time_warps = self.find_time_warps(&self.dot_product, 75);
         Self::apply_time_warps(&mut self.spectral_angle, &time_warps);
         Self::apply_time_warps(&mut self.dot_product, &time_warps);
     }
@@ -365,20 +367,11 @@ impl Traces {
     /// Find time warping offsets for each file that maximize the dot product
     /// with the most intense run
     ///
-    /// * Identify the LC-MS run containing the maximum signal for ions potentially
-    ///   belonging to this precursor - this is the reference run.
+    /// * Use the LC-MS run with the most confident PSM for a peptide as the reference run
     /// * For each LC-MS run, find the time warping shif that maximizes dot product
     ///   with the `reference` run
-    fn find_time_warps(matrix: &Matrix, slack: isize) -> Vec<isize> {
-        let mut most_intense_run = (0, 0.0);
-        for row in 0..matrix.rows {
-            let sum = matrix.row_slice(row).iter().sum::<f64>();
-            if sum >= most_intense_run.1 {
-                most_intense_run = (row, sum);
-            }
-        }
-
-        let reference = matrix.row_slice(most_intense_run.0);
+    fn find_time_warps(&self, matrix: &Matrix, slack: isize) -> Vec<isize> {
+        let reference = matrix.row_slice(self.reference_file_id);
         let mut offsets = vec![0; matrix.rows];
 
         for (row, offset) in offsets.iter_mut().enumerate() {
@@ -526,7 +519,7 @@ impl Traces {
 
 impl Grid {
     pub fn new(
-        aligned_rt: f32,
+        entry: &PrecursorRange,
         rt_tol: f32,
         distribution: [f32; 4],
         files: usize,
@@ -536,11 +529,12 @@ impl Grid {
         let rt_step = (rt_tol * 2.0) / (grid_size) as f32;
 
         Grid {
-            rt_min: aligned_rt - rt_tol,
+            rt_min: entry.rt - rt_tol,
             rt_step,
             distribution,
             matrix,
             files,
+            reference_file_id: entry.file_id,
         }
     }
 
@@ -612,6 +606,7 @@ impl Grid {
             spectral_angle,
             left: 0,
             right: self.matrix.cols - 1,
+            reference_file_id: self.reference_file_id,
         }
     }
 }
