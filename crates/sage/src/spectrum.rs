@@ -223,7 +223,7 @@ impl SpectrumProcessor {
             .unwrap_or(3);
 
         if should_deisotope {
-            let mut peaks = deisotope(&spectrum.mz, &spectrum.intensity, charge, 5.0);
+            let mut peaks = deisotope(&spectrum.mz, &spectrum.intensity, charge, 10.0);
             peaks.sort_unstable_by(|a, b| b.intensity.total_cmp(&a.intensity));
 
             peaks

@@ -23,7 +23,7 @@ const GRID_SIZE: usize = 100;
 /// Number of isotopes to search for
 const N_ISOTOPES: usize = 4;
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum PeakScoringStrategy {
     RetentionTime,
     SpectralAngle,
@@ -56,13 +56,13 @@ impl Default for LfqSettings {
 
 #[derive(Copy, Clone, Debug, Serialize)]
 pub struct PrecursorRange {
-    rt: f32,
-    mass_lo: f32,
-    mass_hi: f32,
-    charge: u8,
-    isotope: usize,
-    peptide: PeptideIx,
-    file_id: usize,
+    pub rt: f32,
+    pub mass_lo: f32,
+    pub mass_hi: f32,
+    pub charge: u8,
+    pub isotope: usize,
+    pub peptide: PeptideIx,
+    pub file_id: usize,
 }
 
 /// Create a data structure analogous to [`IndexedDatabase`] - instaed of
@@ -253,7 +253,7 @@ pub struct Grid {
     /// Isotopic summed intensities are arranged in consequtive rows, ordered by file. The first
     /// N_ISOTOPE rows correspond to file 0, then the following N_ISOTOPE rows correspond to file 1, etc.
     /// Indexing into the matrix is done by [(n_file * N_ISOTOPES + isotope, rt_window)]
-    matrix: Matrix,
+    pub matrix: Matrix,
 }
 
 pub struct Traces {
@@ -263,17 +263,18 @@ pub struct Traces {
     /// Matrix of spectral angles at each retention time for each file
     spectral_angle: Matrix,
     // These are just here for debugging purposes
-    left: usize,
-    right: usize,
+    pub left: usize,
+    pub right: usize,
+    pub best_peak: Option<Peak>,
     reference_file_id: usize,
 }
 
 #[derive(Clone, Debug)]
-struct Peak {
+pub struct Peak {
     /// Discretized retention time
-    rt: usize,
+    pub rt: usize,
     /// Intensity weighted normalized spectral angle
-    spectral_angle: f64,
+    pub spectral_angle: f64,
     // Index of parent cell in [`DisjointPeakSet`], this is essentially an intrusively
     // linked list, allowing us to efficienty merge local maxima
     parent: Cell<usize>,
@@ -496,6 +497,7 @@ impl Traces {
 
         self.left = left;
         self.right = right;
+        self.best_peak = Some(best);
 
         // Actually perform integration
         let mut areas = Vec::with_capacity(self.dot_product.rows);
@@ -607,6 +609,7 @@ impl Grid {
             left: 0,
             right: self.matrix.cols - 1,
             reference_file_id: self.reference_file_id,
+            best_peak: None,
         }
     }
 }
