@@ -318,7 +318,7 @@ impl Runner {
         let mut wtr = csv::WriterBuilder::new()
             .delimiter(b'\t')
             .from_writer(vec![]);
-        let mut headers = csv::ByteRecord::from(vec!["file", "scannr", "ion_injection_time"]);
+        let mut headers = csv::ByteRecord::from(vec!["filename", "scannr", "ion_injection_time"]);
         headers.extend(
             self.parameters
                 .quant
