@@ -21,7 +21,7 @@ const K_WIDTH: usize = 10;
 /// Number of equally spaced bins that will be used to integrate ions in (-RT_TOL, +RT_TOL)
 const GRID_SIZE: usize = 100;
 /// Number of isotopes to search for
-const N_ISOTOPES: usize = 4;
+const N_ISOTOPES: usize = 3;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum PeakScoringStrategy {
@@ -78,11 +78,16 @@ pub struct FeatureMap {
 pub fn build_feature_map(settings: LfqSettings, features: &[Feature]) -> FeatureMap {
     let map: DashMap<PeptideIx, PrecursorRange, fnv::FnvBuildHasher> = DashMap::default();
     features
-        .into_par_iter()
+        .into_iter()
         .filter(|feat| feat.spectrum_q <= 0.01 && feat.peptide_q <= 0.05)
         .for_each(|feat| {
             // `features` is sorted by confidence, so just take the first entry
             if !map.contains_key(&feat.peptide_idx) {
+                // let mass = if feat.isotope_error > 0.0 || feat.delta_mass >= settings.ppm_tolerance * 3.0 {
+                //    feat.expmass - feat.isotope_error
+                // } else {
+                //     feat.calcmass
+                // };
                 map.insert(
                     feat.peptide_idx,
                     PrecursorRange {
@@ -245,7 +250,7 @@ pub struct Grid {
     files: usize,
     reference_file_id: usize,
     /// Relative theoretical isotopic abundances
-    distribution: [f32; N_ISOTOPES],
+    pub distribution: [f32; N_ISOTOPES],
     /// Matrix of summed intensities for each isotopic trace in each file, divided
     /// among equally spaced retention time bins. This is a [N_FILES * N_ISOTOPES, GRID_SIZE]
     /// sized matrix.
@@ -452,6 +457,40 @@ impl Traces {
         set.best_peak(strategy)
     }
 
+    pub fn scores(&self, strategy: PeakScoringStrategy) -> Vec<f64> {
+        let mut spectral = Vec::with_capacity(self.spectral_angle.cols);
+        let mut intensity = Vec::with_capacity(self.spectral_angle.cols);
+        let mut max = 0.0f64;
+        for col in 0..self.spectral_angle.cols {
+            let mut summed_int = 1.0;
+            let mut weighted = 0.0;
+            for (sa, dotp) in self.spectral_angle.col(col).zip(self.dot_product.col(col)) {
+                weighted += sa * dotp;
+                summed_int += dotp;
+            }
+            spectral.push(weighted / summed_int);
+            intensity.push(summed_int);
+            max = max.max(summed_int);
+        }
+
+        let center = self.spectral_angle.cols as isize;
+        spectral
+            .iter()
+            .zip(intensity.iter())
+            .enumerate()
+            .map(|(rt, (s, i))| match strategy {
+                PeakScoringStrategy::RetentionTime => {
+                    1.0 - ((rt as isize - center).abs() as f64 / center as f64)
+                }
+                PeakScoringStrategy::SpectralAngle => *s,
+                PeakScoringStrategy::Hybrid => {
+                    let rt = 1.0 - ((rt as isize - center).abs() as f64 / center as f64);
+                    (s.powi(2) * (*i / max) * rt)
+                }
+            })
+            .collect()
+    }
+
     /// Align and integrate MS1 traces across files
     ///
     /// * Calculate time warping factors for each file, aligning them so that
@@ -523,7 +562,7 @@ impl Grid {
     pub fn new(
         entry: &PrecursorRange,
         rt_tol: f32,
-        distribution: [f32; 4],
+        distribution: [f32; N_ISOTOPES],
         files: usize,
         grid_size: usize,
     ) -> Grid {
@@ -595,7 +634,11 @@ impl Grid {
 
             for (col, ss) in summed_squared_intensities.iter().enumerate() {
                 let dot = spectral_angle[(file, col)];
-                let similarity = dot / (ss.sqrt() * ss_dist);
+                let similarity = if *ss > 0.0 {
+                    dot / (ss.sqrt() * ss_dist)
+                } else {
+                    0.0
+                };
 
                 // Calculate the normalized spectral angle
                 spectral_angle[(file, col)] = 1.0 - 2.0 * similarity.acos() / std::f64::consts::PI;

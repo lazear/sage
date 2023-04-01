@@ -40,13 +40,13 @@ fn sulfur_isotopes(count: u16) -> [f32; 4] {
     convolve(&s33, &s35)
 }
 
-pub fn peptide_isotopes(carbons: u16, sulfurs: u16) -> [f32; 4] {
+pub fn peptide_isotopes(carbons: u16, sulfurs: u16) -> [f32; 3] {
     let c = carbon_isotopes(carbons);
     let s = sulfur_isotopes(sulfurs);
     let mut c = convolve(&c, &s);
     let max = c[0].max(c[1]).max(c[2]);
     c.iter_mut().for_each(|val| *val /= max);
-    c
+    [c[0], c[1], c[2]]
 }
 
 #[cfg(test)]
