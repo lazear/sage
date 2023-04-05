@@ -43,7 +43,6 @@ Check out the [blog post introducing Sage](https://lazear.github.io/sage/) for m
 
 - When chimeric searching is turned on, 2 peptide identifications will be reported for each MS2 scan, both with `rank=1`
 
-
 ### Sage trains machine learning models for FDR refinement and posterior error probability calculation
 
 - Retention times are globally aligned across runs
@@ -125,8 +124,7 @@ Sage is called from the command line using and requires a path to a JSON-encoded
 
 Example usage: `sage config.json`
 
-Some options in the parameters file can be over-written using the command line
-interface. These are:
+Some options in the parameters file can be over-written using the command line interface. These are:
 
 1. The paths to the raw mzML data
 2. The path to the database (fasta file)
@@ -148,7 +146,7 @@ sage config.json s3://my-bucket/YYYY-MM-DD_expt_A_fraction_1.mzML.gz
 Running Sage will produce several output files (located in either the current directory, or `output_directory` if that option is specified):
 - Record of search parameters (`results.json`) will be created that details input/output paths and all search parameters used for the search
 - MS2 search results will be stored as a tab-separated file (`results.sage.tsv`) file - this is a tab-separated file, which can be opened in Excel/Pandas/etc
-- MS2 and MS3 quantitation results will be stored as a tab-separated file (`quant.tsv`) if `quant.tmt` option is used in the parameter file
+- MS2 and MS3 quantitation results will be stored as a tab-separated file (`tmt.tsv`, `lfq.tsv`) if `quant.tmt` or `quant.lfq` options are used in the parameter file
 
 ## Configuration file schema
 
@@ -175,6 +173,8 @@ Sage will process a protein into peptides via several routes listed below. Curre
 
 
 ### Example configuration file
+
+For additional information about configuration options and output file formats, please see [DOCS.md](DOCS.md)
 
 ```jsonc
 // Note that json does not allow comments, they are here just as explanation
@@ -240,7 +240,7 @@ Sage will process a protein into peptides via several routes listed below. Curre
   "max_peaks": 150,         // Optional[int] {default=150}: take the top N most intense MS2 peaks to search,
   "min_matched_peaks": 6,   // Optional[int] {default=4}: minimum # of matched b+y ions to use for reporting PSMs
   "max_fragment_charge": 1, // Optional[int] {default=null}: maximum fragment ion charge states to consider,
-  "report_psms": 1,         // Optional[int] {default=1}: number of PSMs to report for each spectra. Recommend setting to 1, higher values might disrupt LDA
+  "report_psms": 1,         // Optional[int] {default=1}: number of PSMs to report for each spectra. Higher values might disrupt PSM rescoring.
   "parallel": true,         // Optional[bool] {default=true}: search files in parallel. For large numbers of files or low RAM, set this to false
   "output_directory": "s3://bucket/prefix" // Optional[str] {default=`.`}: Place output files in a given directory or S3 bucket/prefix
   "mzml_paths": [           // List[str]: representing paths to mzML (or gzipped-mzML) files for search
