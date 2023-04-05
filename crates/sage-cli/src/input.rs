@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize)]
 /// Actual search parameters - may include overrides or default values not set by user
 pub struct Search {
+    pub version: String,
     pub database: Parameters,
     pub quant: QuantSettings,
     pub precursor_tol: Tolerance,
@@ -231,6 +232,7 @@ impl Input {
         };
 
         Ok(Search {
+            version: clap::crate_version!().into(),
             database,
             quant: self.quant.map(Into::into).unwrap_or_default(),
             parallel: self.parallel.unwrap_or(true),
