@@ -6,7 +6,6 @@ use crate::spectrum::ProcessedSpectrum;
 use dashmap::DashMap;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::cell::Cell;
 use std::{collections::HashMap, hash::BuildHasherDefault};
 
 /// Minimum normalized spectral angle required to integrate a peak
@@ -27,12 +26,13 @@ const N_ISOTOPES: usize = 3;
 pub enum PeakScoringStrategy {
     RetentionTime,
     SpectralAngle,
+    Intensity,
     Hybrid,
 }
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum IntegrationStrategy {
-    Max,
+    Apex,
     Sum,
 }
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
@@ -63,6 +63,7 @@ pub struct PrecursorRange {
     pub isotope: usize,
     pub peptide: PeptideIx,
     pub file_id: usize,
+    pub decoy: bool,
 }
 
 /// Create a data structure analogous to [`IndexedDatabase`] - instaed of
@@ -78,8 +79,8 @@ pub struct FeatureMap {
 pub fn build_feature_map(settings: LfqSettings, features: &[Feature]) -> FeatureMap {
     let map: DashMap<PeptideIx, PrecursorRange, fnv::FnvBuildHasher> = DashMap::default();
     features
-        .into_iter()
-        .filter(|feat| feat.spectrum_q <= 0.01 && feat.peptide_q <= 0.05)
+        .iter()
+        .filter(|feat| feat.spectrum_q <= 0.01 && feat.peptide_q <= 0.05 && feat.label == 1)
         .for_each(|feat| {
             // `features` is sorted by confidence, so just take the first entry
             if !map.contains_key(&feat.peptide_idx) {
@@ -98,6 +99,7 @@ pub fn build_feature_map(settings: LfqSettings, features: &[Feature]) -> Feature
                         charge: feat.charge,
                         isotope: 0,
                         file_id: feat.file_id,
+                        decoy: false,
                     },
                 );
             }
@@ -108,19 +110,29 @@ pub fn build_feature_map(settings: LfqSettings, features: &[Feature]) -> Feature
         .into_par_iter()
         .flat_map_iter(|(_, range)| {
             (2..5).flat_map(move |charge| {
-                (0..N_ISOTOPES).map(move |isotope| {
+                (0..N_ISOTOPES).flat_map(move |isotope| {
                     let mass = (range.mass_lo + isotope as f32 * NEUTRON) / charge as f32;
                     let (mass_lo, mass_hi) =
                         Tolerance::Ppm(-settings.ppm_tolerance, settings.ppm_tolerance)
                             .bounds(mass);
 
-                    PrecursorRange {
+                    let fwd = PrecursorRange {
                         mass_lo,
                         mass_hi,
                         charge,
                         isotope,
+                        decoy: false,
                         ..range
-                    }
+                    };
+
+                    let rev = PrecursorRange {
+                        mass_lo: mass_lo + 10.005,
+                        mass_hi: mass_hi + 10.005,
+                        decoy: true,
+                        ..fwd
+                    };
+
+                    [fwd, rev]
                 })
             })
         })
@@ -182,8 +194,8 @@ impl FeatureMap {
         db: &IndexedDatabase,
         spectra: &[ProcessedSpectrum],
         alignments: &[Alignment],
-    ) -> HashMap<PeptideIx, Vec<f64>> {
-        let scores: DashMap<PeptideIx, Grid, BuildHasherDefault<fnv::FnvHasher>> =
+    ) -> HashMap<(PeptideIx, bool), (Peak, Vec<f64>)> {
+        let scores: DashMap<(PeptideIx, bool), Grid, BuildHasherDefault<fnv::FnvHasher>> =
             DashMap::default();
 
         log::info!("tracing MS1 features");
@@ -197,11 +209,15 @@ impl FeatureMap {
 
                 for peak in &spectrum.peaks {
                     for entry in query.mass_lookup(peak.mass) {
-                        let mut grid = scores.entry(entry.peptide).or_insert_with(|| {
-                            let p = &db[entry.peptide];
-                            let dist = crate::isotopes::peptide_isotopes(p.carbons, p.sulfurs);
-                            Grid::new(entry, RT_TOL, dist, alignments.len(), GRID_SIZE)
-                        });
+                        let mut grid =
+                            scores
+                                .entry((entry.peptide, entry.decoy))
+                                .or_insert_with(|| {
+                                    let p = &db[entry.peptide];
+                                    let dist =
+                                        crate::isotopes::peptide_isotopes(p.carbons, p.sulfurs);
+                                    Grid::new(entry, RT_TOL, dist, alignments.len(), GRID_SIZE)
+                                });
 
                         grid.add_entry(rt, entry.isotope, spectrum.file_id, peak.intensity);
                     }
@@ -217,7 +233,7 @@ impl FeatureMap {
                 // attempt to trace the peaks, find the best peak, and integrate
                 // it across all of the files
                 let mut traces = grid.summarize_traces();
-                let data = traces.integrate(&self.settings)?;
+                let (peak, data) = traces.integrate(&self.settings)?;
 
                 #[cfg(debug)]
                 {
@@ -238,9 +254,9 @@ impl FeatureMap {
                     .unwrap();
                 }
 
-                Some((peptide_ix, data))
+                Some((peptide_ix, (peak, data)))
             })
-            .collect::<HashMap<PeptideIx, _>>()
+            .collect::<HashMap<_, _>>()
     }
 }
 
@@ -268,98 +284,17 @@ pub struct Traces {
     /// Matrix of spectral angles at each retention time for each file
     spectral_angle: Matrix,
     // These are just here for debugging purposes
-    pub left: usize,
-    pub right: usize,
-    pub best_peak: Option<Peak>,
     reference_file_id: usize,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Peak {
     /// Discretized retention time
     pub rt: usize,
     /// Intensity weighted normalized spectral angle
     pub spectral_angle: f64,
-    // Index of parent cell in [`DisjointPeakSet`], this is essentially an intrusively
-    // linked list, allowing us to efficienty merge local maxima
-    parent: Cell<usize>,
-}
-
-impl Peak {
-    /// Higher is better
-    pub fn score(&self, strategy: PeakScoringStrategy) -> f64 {
-        const CENTER: isize = GRID_SIZE as isize / 2;
-        match strategy {
-            PeakScoringStrategy::RetentionTime => {
-                1.0 - ((self.rt as isize - CENTER).abs() as f64 / CENTER as f64)
-            }
-            PeakScoringStrategy::SpectralAngle => self.spectral_angle,
-            PeakScoringStrategy::Hybrid => {
-                let rt_score = self.score(PeakScoringStrategy::RetentionTime);
-                (self.spectral_angle.powi(2) * rt_score.powi(2)).sqrt()
-            }
-        }
-    }
-}
-
-#[derive(Default)]
-struct DisjointPeakSet {
-    peaks: Vec<Peak>,
-}
-
-impl DisjointPeakSet {
-    /// Find the best peak in the set that has not been merged into a parent peak
-    pub fn best_peak(self, strategy: PeakScoringStrategy) -> Option<Peak> {
-        let mut best = None;
-        for (idx, peak) in self.peaks.into_iter().enumerate() {
-            if idx == peak.parent.get() {
-                let x = best
-                    .as_ref()
-                    .map(|peak: &Peak| peak.score(strategy))
-                    .unwrap_or(0.0);
-                if peak.score(strategy) > x {
-                    best = Some(peak);
-                }
-            }
-        }
-        best
-    }
-
-    /// Merge the worse scoring peak into the better scoring peak
-    pub fn union(&mut self, left: usize, right: usize, strategy: PeakScoringStrategy) {
-        let a = self.find_set(left);
-        let b = self.find_set(right);
-        if self.peak(left).score(strategy) > self.peak(right).score(strategy) {
-            self.peaks[b].parent.set(a);
-        } else {
-            self.peaks[a].parent.set(b);
-        }
-    }
-
-    /// Record a new local maxima, retuning it's index in the set
-    pub fn singleton(&mut self, rt: usize, spectral_angle: f64) -> usize {
-        let idx = self.peaks.len();
-        self.peaks.push(Peak {
-            rt,
-            spectral_angle,
-            parent: Cell::new(idx),
-        });
-        idx
-    }
-
-    pub fn peak(&self, idx: usize) -> &Peak {
-        let ptr = self.find_set(idx);
-        &self.peaks[ptr]
-    }
-
-    pub fn find_set(&self, idx: usize) -> usize {
-        if idx != self.peaks[idx].parent.get() {
-            self.peaks[idx]
-                .parent
-                .set(self.find_set(self.peaks[idx].parent.get()));
-        }
-        self.peaks[idx].parent.get()
-    }
+    /// Peak score
+    pub score: f64,
 }
 
 impl Traces {
@@ -417,47 +352,7 @@ impl Traces {
         }
     }
 
-    fn find_peak(
-        spectral_angle: &[f64],
-        threshold: f64,
-        strategy: PeakScoringStrategy,
-    ) -> Option<Peak> {
-        let mut set = DisjointPeakSet::default();
-
-        // Locate points in RT space that are local maxima in both
-        // spectral angle and intensity dimensions
-        for index in 1..spectral_angle.len().saturating_sub(1) {
-            let sa = spectral_angle[index];
-            if sa >= threshold && sa >= spectral_angle[index - 1] && sa >= spectral_angle[index + 1]
-            {
-                set.singleton(index, sa);
-            }
-        }
-
-        // Proceed from left to right, attempting to merge peaks if there is no valley between them
-        'outer: for idx in 1..set.peaks.len() {
-            let left = set.peak(idx - 1);
-            let right = set.peak(idx);
-
-            if right.rt - left.rt > GRID_SIZE / 4 {
-                continue;
-            }
-
-            let sa_valley = left.spectral_angle.max(right.spectral_angle) * 0.75;
-
-            for sa in &spectral_angle[left.rt..right.rt] {
-                if *sa <= sa_valley {
-                    continue 'outer;
-                }
-            }
-
-            set.union(idx - 1, idx, strategy);
-        }
-
-        set.best_peak(strategy)
-    }
-
-    pub fn scores(&self, strategy: PeakScoringStrategy) -> Vec<f64> {
+    pub fn scores(&self, strategy: PeakScoringStrategy) -> (Vec<f64>, Vec<f64>) {
         let mut spectral = Vec::with_capacity(self.spectral_angle.cols);
         let mut intensity = Vec::with_capacity(self.spectral_angle.cols);
         let mut max = 0.0f64;
@@ -473,22 +368,24 @@ impl Traces {
             max = max.max(summed_int);
         }
 
-        let center = self.spectral_angle.cols as isize;
-        spectral
+        let center = self.spectral_angle.cols as isize / 2;
+        let scores = spectral
             .iter()
             .zip(intensity.iter())
             .enumerate()
             .map(|(rt, (s, i))| match strategy {
                 PeakScoringStrategy::RetentionTime => {
-                    1.0 - ((rt as isize - center).abs() as f64 / center as f64)
+                    (1.0 - ((rt as isize - center).abs() as f64 / center as f64)).powf(0.33)
                 }
                 PeakScoringStrategy::SpectralAngle => *s,
+                PeakScoringStrategy::Intensity => (*i / max).sqrt(),
                 PeakScoringStrategy::Hybrid => {
                     let rt = 1.0 - ((rt as isize - center).abs() as f64 / center as f64);
-                    (s.powi(2) * (*i / max) * rt)
+                    s.powi(3) * rt.powf(0.33) * (*i / max).sqrt()
                 }
             })
-            .collect()
+            .collect();
+        (scores, spectral)
     }
 
     /// Align and integrate MS1 traces across files
@@ -499,62 +396,68 @@ impl Traces {
     ///   angle observed across all of the files
     /// * Integrate all of the MS1 traces within said window, returning a vector
     ///   of length `n_files` containing the summed MS1 intensities
-    pub fn integrate(&mut self, settings: &LfqSettings) -> Option<Vec<f64>> {
+    pub fn integrate(&mut self, settings: &LfqSettings) -> Option<(Peak, Vec<f64>)> {
         self.warp();
 
-        // Calculate the average spectral angle at each point in the retention time grid
-        // weighted by intensities
-        let mut score = Vec::with_capacity(self.spectral_angle.cols);
-        for col in 0..self.spectral_angle.cols {
-            let mut summed_int = 0.0;
-            let mut weighted = 0.0;
-            for (sa, dotp) in self.spectral_angle.col(col).zip(self.dot_product.col(col)) {
-                weighted += sa * dotp;
-                summed_int += dotp;
+        let (scores, spectral) = self.scores(settings.peak_scoring);
+        let mut best = Peak::default();
+        for (rt, s) in scores.iter().enumerate() {
+            if *s > best.score && spectral[rt] >= settings.spectral_angle {
+                best.score = *s;
+                best.rt = rt;
             }
-            score.push(weighted / summed_int);
         }
 
-        // TODO: Instead of this fallback, maybe try determining which individual file contains the best trace,
-        // and using that file as the reference run for peak selection
-        let best = Traces::find_peak(&score, settings.spectral_angle, settings.peak_scoring)?;
+        if best.score == 0.0 {
+            return None;
+        }
 
         // Find peak boundaries
-        let mut left = best.rt - 1;
-        let mut right = best.rt + 1;
+        let mut left = best.rt.saturating_sub(1);
+        let mut right = best.rt.saturating_add(1);
 
-        let threshold = best.spectral_angle * 0.75;
+        let threshold = best.score * 0.50;
 
         // Don't let peaks extend more than 20 RT bins to either side
-        while left > best.rt.saturating_sub(20) && score[left] >= threshold {
+        while left > best.rt.saturating_sub(20)
+            && scores[left] >= threshold
+            && spectral[left] >= settings.spectral_angle
+        {
             left -= 1;
         }
 
-        while right < score.len().saturating_sub(1).min(best.rt + 20) && score[right] >= threshold {
+        while right < scores.len().saturating_sub(1).min(best.rt + 20)
+            && scores[right] >= threshold
+            && spectral[right] >= settings.spectral_angle
+        {
             right += 1;
         }
 
-        self.left = left;
-        self.right = right;
-        self.best_peak = Some(best);
-
         // Actually perform integration
         let mut areas = Vec::with_capacity(self.dot_product.rows);
-
         for file in 0..self.dot_product.rows {
             let area = match settings.integration {
                 IntegrationStrategy::Sum => self.dot_product.row_slice(file)[left..right]
                     .iter()
                     .sum::<f64>(),
-                IntegrationStrategy::Max => self.dot_product.row_slice(file)[left..right]
-                    .iter()
-                    .fold(0.0f64, |acc, x| acc.max(*x)),
+                IntegrationStrategy::Apex => self.dot_product.row_slice(file)[best.rt],
             };
 
             areas.push(area);
         }
 
-        Some(areas)
+        let mut summed_int = 1.0;
+        let mut weighted = 0.0;
+        for (sa, dotp) in self
+            .spectral_angle
+            .col(best.rt)
+            .zip(self.dot_product.col(best.rt))
+        {
+            weighted += sa * dotp;
+            summed_int += dotp;
+        }
+        best.spectral_angle = weighted / summed_int;
+        Some((best, areas))
     }
 }
 
@@ -649,10 +552,7 @@ impl Grid {
         Traces {
             dot_product,
             spectral_angle,
-            left: 0,
-            right: self.matrix.cols - 1,
             reference_file_id: self.reference_file_id,
-            best_peak: None,
         }
     }
 }
@@ -722,37 +622,37 @@ impl<'a> Query<'a> {
     }
 }
 
-#[cfg(test)]
-mod test {
+// #[cfg(test)]
+// mod test {
 
-    use super::*;
+//     use super::*;
 
-    #[test]
-    fn disjoint_set() {
-        let mut set = DisjointPeakSet::default();
+//     #[test]
+//     fn disjoint_set() {
+//         let mut set = DisjointPeakSet::default();
 
-        let a = set.singleton(10, 0.75);
-        let b = set.singleton(12, 0.90);
-        let c = set.singleton(13, 0.75);
-        let d = set.singleton(25, 0.90);
+//         let a = set.singleton(10, 0.75);
+//         let b = set.singleton(12, 0.90);
+//         let c = set.singleton(13, 0.75);
+//         let d = set.singleton(25, 0.90);
 
-        set.union(a, b, PeakScoringStrategy::SpectralAngle);
-        set.union(b, c, PeakScoringStrategy::SpectralAngle);
+//         set.union(a, b, PeakScoringStrategy::SpectralAngle);
+//         set.union(b, c, PeakScoringStrategy::SpectralAngle);
 
-        assert_eq!(set.peak(a).rt, 12);
-        assert_eq!(set.peak(b).rt, 12);
-        assert_eq!(set.peak(c).rt, 12);
-        assert_eq!(set.peak(d).rt, 25);
+//         assert_eq!(set.peak(a).rt, 12);
+//         assert_eq!(set.peak(b).rt, 12);
+//         assert_eq!(set.peak(c).rt, 12);
+//         assert_eq!(set.peak(d).rt, 25);
 
-        let peaks = set
-            .peaks
-            .iter()
-            .enumerate()
-            .filter(|(idx, peak)| peak.parent.get() == *idx)
-            .map(|(_, peak)| peak)
-            .collect::<Vec<_>>();
+//         let peaks = set
+//             .peaks
+//             .iter()
+//             .enumerate()
+//             .filter(|(idx, peak)| peak.parent.get() == *idx)
+//             .map(|(_, peak)| peak)
+//             .collect::<Vec<_>>();
 
-        assert_eq!(peaks[0].rt, 12);
-        assert_eq!(peaks[1].rt, 25);
-    }
-}
+//         assert_eq!(peaks[0].rt, 12);
+//         assert_eq!(peaks[1].rt, 25);
+//     }
+// }

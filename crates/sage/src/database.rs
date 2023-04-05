@@ -39,7 +39,7 @@ impl Default for EnzymeBuilder {
 impl From<EnzymeBuilder> for EnzymeParameters {
     fn from(en: EnzymeBuilder) -> EnzymeParameters {
         EnzymeParameters {
-            missed_cleavages: en.missed_cleavages.unwrap_or(0),
+            missed_cleavages: en.missed_cleavages.unwrap_or(1),
             min_len: en.min_len.unwrap_or(5),
             max_len: en.max_len.unwrap_or(50),
             enyzme: Enzyme::new(

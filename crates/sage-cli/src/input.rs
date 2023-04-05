@@ -2,7 +2,7 @@ use clap::ArgMatches;
 use sage_cloudpath::CloudPath;
 use sage_core::{
     database::{Builder, Parameters},
-    lfq2::LfqSettings,
+    lfq::LfqSettings,
     mass::Tolerance,
     tmt::Isobaric,
 };
@@ -55,20 +55,20 @@ pub struct Input {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct LfqOptions {
-    peak_scoring: Option<sage_core::lfq2::PeakScoringStrategy>,
-    integration: Option<sage_core::lfq2::IntegrationStrategy>,
+    peak_scoring: Option<sage_core::lfq::PeakScoringStrategy>,
+    integration: Option<sage_core::lfq::IntegrationStrategy>,
     spectral_angle: Option<f64>,
     ppm_tolerance: Option<f32>,
 }
 
-impl Into<LfqSettings> for LfqOptions {
-    fn into(self) -> LfqSettings {
+impl From<LfqOptions> for LfqSettings {
+    fn from(value: LfqOptions) -> LfqSettings {
         let default = LfqSettings::default();
         let settings = LfqSettings {
-            peak_scoring: self.peak_scoring.unwrap_or(default.peak_scoring),
-            integration: self.integration.unwrap_or(default.integration),
-            spectral_angle: self.spectral_angle.unwrap_or(default.spectral_angle).abs(),
-            ppm_tolerance: self.ppm_tolerance.unwrap_or(default.ppm_tolerance).abs(),
+            peak_scoring: value.peak_scoring.unwrap_or(default.peak_scoring),
+            integration: value.integration.unwrap_or(default.integration),
+            spectral_angle: value.spectral_angle.unwrap_or(default.spectral_angle).abs(),
+            ppm_tolerance: value.ppm_tolerance.unwrap_or(default.ppm_tolerance).abs(),
         };
         if settings.ppm_tolerance > 20.0 {
             log::warn!("lfq_settings.ppm_tolerance is higher than expected");
@@ -123,7 +123,7 @@ pub struct QuantOptions {
     pub lfq_options: Option<LfqOptions>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Default)]
 pub struct QuantSettings {
     pub tmt: Option<Isobaric>,
     pub tmt_settings: TmtSettings,
@@ -139,17 +139,6 @@ impl From<QuantOptions> for QuantSettings {
 
             lfq: value.lfq.unwrap_or(false),
             lfq_settings: value.lfq_options.map(Into::into).unwrap_or_default(),
-        }
-    }
-}
-
-impl Default for QuantSettings {
-    fn default() -> Self {
-        Self {
-            tmt: None,
-            tmt_settings: TmtSettings::default(),
-            lfq: false,
-            lfq_settings: LfqSettings::default(),
         }
     }
 }

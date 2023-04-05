@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use rayon::prelude::*;
-use sage_core::{database::PeptideIx, scoring::Feature, tmt::TmtQuant};
+use sage_core::{database::PeptideIx, lfq::Peak, scoring::Feature, tmt::TmtQuant};
 
 use crate::Runner;
 
@@ -179,7 +179,7 @@ impl Runner {
 
     pub fn write_lfq(
         &self,
-        areas: HashMap<PeptideIx, Vec<f64>>,
+        areas: HashMap<(PeptideIx, bool), (Peak, Vec<f64>)>,
         filenames: &[String],
     ) -> anyhow::Result<String> {
         let path = self.make_path("lfq.tsv");
@@ -187,16 +187,34 @@ impl Runner {
         let mut wtr = csv::WriterBuilder::new()
             .delimiter(b'\t')
             .from_writer(vec![]);
-        let mut headers = csv::ByteRecord::from(vec!["peptide"]);
+        let mut headers = csv::ByteRecord::from(vec![
+            "peptide",
+            "proteins",
+            "label",
+            "score",
+            "spectral_angle",
+        ]);
         headers.extend(filenames);
 
         wtr.write_byte_record(&headers)?;
 
         let records = areas
             .into_par_iter()
-            .map(|(peptide_ix, data)| {
+            .map(|((peptide_ix, decoy), (peak, data))| {
                 let mut record = csv::ByteRecord::new();
                 record.push_field(self.database[peptide_ix].to_string().as_bytes());
+                record.push_field(
+                    self.database
+                        .assign_proteins(&self.database[peptide_ix])
+                        .1
+                        .as_bytes(),
+                );
+                record.push_field(decoy.to_string().as_bytes());
+                record.push_field(ryu::Buffer::new().format(peak.score).as_bytes());
+                record.push_field(ryu::Buffer::new().format(peak.spectral_angle).as_bytes());
+                // record.push_field(ryu::Buffer::new().format(peak.intensity).as_bytes());
+                // record.push_field(ryu::Buffer::new().format(peak.fwhm).as_bytes());
+                // record.push_field(itoa::Buffer::new().format(peak.rt).as_bytes());
                 for x in data {
                     record.push_field(ryu::Buffer::new().format(x).as_bytes());
                 }

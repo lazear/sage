@@ -306,12 +306,14 @@ impl Runner {
 
         if let Some(alignments) = alignments {
             if self.parameters.quant.lfq {
-                let areas = sage_core::lfq2::build_feature_map(
+                let areas = sage_core::lfq::build_feature_map(
                     self.parameters.quant.lfq_settings,
                     &outputs.features,
                 )
                 .quantify(&self.database, &outputs.ms1, &alignments);
-                self.write_lfq(areas, &filenames)?;
+                self.parameters
+                    .output_paths
+                    .push(self.write_lfq(areas, &filenames)?);
             }
         }
 

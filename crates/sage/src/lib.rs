@@ -4,7 +4,7 @@ pub mod fasta;
 pub mod fdr;
 pub mod ion_series;
 pub mod isotopes;
-pub mod lfq2;
+pub mod lfq;
 pub mod mass;
 pub mod ml;
 pub mod mzml;
