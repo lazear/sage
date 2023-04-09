@@ -1,4 +1,4 @@
-use clap::{Arg, Command};
+use clap::{value_parser, Arg, Command};
 use input::{Input, Search};
 use log::info;
 use rayon::prelude::*;
@@ -60,8 +60,8 @@ impl FromIterator<SageResults> for SageResults {
 
 impl Runner {
     pub fn new(parameters: Search) -> anyhow::Result<Self> {
-        let database = parameters.database.clone().build()?;
         let start = Instant::now();
+        let database = parameters.database.clone().build()?;
         info!(
             "generated {} fragments in {}ms",
             database.size(),
@@ -233,8 +233,7 @@ impl Runner {
         results
     }
 
-    pub fn batch_files(&self, scorer: &Scorer) -> SageResults {
-        let batch_size = num_cpus::get() / 2;
+    pub fn batch_files(&self, scorer: &Scorer, batch_size: usize) -> SageResults {
         self.parameters
             .mzml_paths
             .chunks(batch_size)
@@ -243,7 +242,7 @@ impl Runner {
             .collect::<SageResults>()
     }
 
-    pub fn run(mut self) -> anyhow::Result<()> {
+    pub fn run(mut self, parallel: usize) -> anyhow::Result<()> {
         let scorer = Scorer {
             db: &self.database,
             precursor_tol: self.parameters.precursor_tol,
@@ -258,16 +257,7 @@ impl Runner {
         };
 
         //Collect all results into a single container
-        let mut outputs = match self.parameters.parallel {
-            true => self.batch_files(&scorer),
-            false => self
-                .parameters
-                .mzml_paths
-                .iter()
-                .enumerate()
-                .flat_map(|(file_id, path)| self.process_file(&scorer, path, file_id))
-                .collect::<SageResults>(),
-        };
+        let mut outputs = self.batch_files(&scorer, parallel);
 
         let alignments = if self.parameters.predict_rt {
             // Poisson probability is usually the best single feature for refining FDR.
@@ -325,6 +315,12 @@ impl Runner {
         log::info!("discovered {} proteins at 1% FDR", q_protein);
         log::trace!("writing outputs");
 
+        if self.parameters.write_pin {
+            self.parameters
+                .output_paths
+                .push(self.write_pin(&outputs.features, &filenames)?);
+        }
+
         self.parameters
             .output_paths
             .push(self.write_features(outputs.features, &filenames)?);
@@ -362,33 +358,36 @@ fn main() -> anyhow::Result<()> {
         .arg(
             Arg::new("parameters")
                 .required(true)
-                .help("The search parameters as a JSON file."),
+                .help("Path to configuration parameters (JSON file)"),
         )
         .arg(Arg::new("mzml_paths").num_args(1..).help(
-            "mzML files to analyze. Overrides mzML files listed in the \
-                     parameter file.",
+            "Paths to mzML files to process. Overrides mzML files listed in the \
+                     configuration file.",
         ))
         .arg(Arg::new("fasta").short('f').long("fasta").help(
-            "The FASTA protein database. Overrides the FASTA file \
-                     specified in the parameter file.",
+            "Path to FASTA database. Overrides the FASTA file \
+                     specified in the configuration file.",
         ))
         .arg(
             Arg::new("output_directory")
                 .short('o')
                 .long("output_directory")
                 .help(
-                    "Where the search and quant results will be written. \
-                     Overrides the directory specified in the parameter file.",
+                    "Path where search and quant results will be written. \
+                     Overrides the directory specified in the configuration file.",
                 ),
         )
         .arg(
-            Arg::new("no-parallel")
-                .long("no-parallel")
-                .action(clap::ArgAction::SetFalse)
-                .help(
-                    "Turn off parallel file searching. \
-                 Useful for memory constrained systems.",
-                ),
+            Arg::new("batch-size")
+                .long("batch-size")
+                .value_parser(value_parser!(usize))
+                .help("Number of files to load and search in parallel (default = # of CPUs/2)"),
+        )
+        .arg(
+            Arg::new("write-pin")
+                .long("write-pin")
+                .action(clap::ArgAction::SetTrue)
+                .help("Write percolator-compatible `.pin` output files"),
         )
         .help_template(
             "{usage-heading} {usage}\n\n\
@@ -398,11 +397,15 @@ fn main() -> anyhow::Result<()> {
         )
         .get_matches();
 
+    let parallel = matches
+        .get_one::<usize>("batch-size")
+        .copied()
+        .unwrap_or(num_cpus::get() / 2);
     let input = Input::from_arguments(matches)?;
 
     let runner = input.build().and_then(Runner::new)?;
 
-    runner.run()?;
+    runner.run(parallel)?;
 
     Ok(())
 }

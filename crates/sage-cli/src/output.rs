@@ -135,13 +135,145 @@ impl Runner {
         Ok(path.to_string())
     }
 
+    fn serialize_pin(
+        &self,
+        re: &regex::Regex,
+        idx: usize,
+        feature: &Feature,
+        filenames: &[String],
+    ) -> csv::ByteRecord {
+        let scannr = re
+            .captures_iter(&feature.spec_id)
+            .last()
+            .and_then(|cap| cap.get(1).map(|cap| cap.as_str()))
+            .unwrap_or(&feature.spec_id);
+
+        let mut record = csv::ByteRecord::new();
+        record.push_field(itoa::Buffer::new().format(idx).as_bytes());
+        record.push_field(itoa::Buffer::new().format(feature.label).as_bytes());
+        record.push_field(scannr.as_bytes());
+        // record.push_field(feature.spec_id.as_bytes());
+        record.push_field(ryu::Buffer::new().format(feature.expmass).as_bytes());
+        record.push_field(ryu::Buffer::new().format(feature.calcmass).as_bytes());
+        record.push_field(filenames[feature.file_id].as_bytes());
+        record.push_field(itoa::Buffer::new().format(feature.charge).as_bytes());
+        record.push_field(ryu::Buffer::new().format(feature.rt).as_bytes());
+        record.push_field(itoa::Buffer::new().format(feature.peptide_len).as_bytes());
+        record.push_field(
+            itoa::Buffer::new()
+                .format(feature.missed_cleavages)
+                .as_bytes(),
+        );
+        record.push_field(ryu::Buffer::new().format(feature.isotope_error).as_bytes());
+        record.push_field(
+            ryu::Buffer::new()
+                .format(feature.delta_mass.ln_1p())
+                .as_bytes(),
+        );
+        record.push_field(ryu::Buffer::new().format(feature.average_ppm).as_bytes());
+        record.push_field(
+            ryu::Buffer::new()
+                .format(feature.hyperscore.ln_1p())
+                .as_bytes(),
+        );
+        record.push_field(
+            ryu::Buffer::new()
+                .format(feature.delta_hyperscore.ln_1p())
+                .as_bytes(),
+        );
+        record.push_field(ryu::Buffer::new().format(feature.aligned_rt).as_bytes());
+        record.push_field(ryu::Buffer::new().format(feature.predicted_rt).as_bytes());
+        record.push_field(
+            ryu::Buffer::new()
+                .format(feature.delta_rt_model.clamp(0.001, 1.0).sqrt())
+                .as_bytes(),
+        );
+        record.push_field(itoa::Buffer::new().format(feature.matched_peaks).as_bytes());
+        record.push_field(itoa::Buffer::new().format(feature.longest_b).as_bytes());
+        record.push_field(itoa::Buffer::new().format(feature.longest_y).as_bytes());
+        record.push_field(ryu::Buffer::new().format(feature.longest_y_pct).as_bytes());
+        record.push_field(
+            ryu::Buffer::new()
+                .format(feature.matched_intensity_pct.ln_1p())
+                .as_bytes(),
+        );
+        record.push_field(
+            itoa::Buffer::new()
+                .format(feature.scored_candidates)
+                .as_bytes(),
+        );
+        record.push_field(
+            ryu::Buffer::new()
+                .format((-feature.poisson).ln_1p())
+                .as_bytes(),
+        );
+        record.push_field(feature.peptide.as_str().as_bytes());
+        record.push_field(feature.proteins.as_str().as_bytes());
+        record
+    }
+
+    pub fn write_pin(&self, features: &[Feature], filenames: &[String]) -> anyhow::Result<String> {
+        let path = self.make_path("results.sage.pin");
+
+        let mut wtr = csv::WriterBuilder::new()
+            .delimiter(b'\t')
+            .from_writer(vec![]);
+
+        let headers = csv::ByteRecord::from(vec![
+            "PSMId",
+            "Label",
+            "ScanNr",
+            "ExpMass",
+            "CalcMass",
+            "FileName",
+            "Charge",
+            "RetTime",
+            "peptide_len",
+            "missed_cleavages",
+            "isotope_error",
+            "ln(precursor_ppm)",
+            "fragment_ppm",
+            "ln(hyperscore)",
+            "ln(delta_hyperscore)",
+            "aligned_rt",
+            "predicted_rt",
+            "sqrt(delta_rt_model)",
+            "matched_peaks",
+            "longest_b",
+            "longest_y",
+            "longest_y_pct",
+            "ln(matched_intensity_pct)",
+            "scored_candidates",
+            "ln(-poisson)",
+            "Peptide",
+            "Proteins",
+        ]);
+
+        let re = regex::Regex::new(r#"scan=(\d+)"#).expect("This is valid regex");
+
+        wtr.write_byte_record(&headers)?;
+        for record in features
+            .into_par_iter()
+            .enumerate()
+            .map(|(idx, feat)| self.serialize_pin(&re, idx, &feat, filenames))
+            .collect::<Vec<_>>()
+        {
+            wtr.write_byte_record(&record)?;
+        }
+
+        wtr.flush()?;
+        let bytes = wtr.into_inner()?;
+        path.write_bytes_sync(bytes)?;
+        Ok(path.to_string())
+    }
+
     pub fn write_tmt(&self, quant: Vec<TmtQuant>, filenames: &[String]) -> anyhow::Result<String> {
         let path = self.make_path("tmt.tsv");
 
         let mut wtr = csv::WriterBuilder::new()
             .delimiter(b'\t')
             .from_writer(vec![]);
-        let mut headers = csv::ByteRecord::from(vec!["file", "scannr", "ion_injection_time"]);
+        let mut headers = csv::ByteRecord::from(vec!["filename", "scannr", "ion_injection_time"]);
         headers.extend(
             self.parameters
                 .quant

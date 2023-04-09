@@ -98,22 +98,23 @@ Sage is capable of natively reading & writing files to AWS S3:
 # Usage 
 
 ```shell
-$ sage --help
 Usage: sage [OPTIONS] <parameters> [mzml_paths]...
 
 🔮 Sage 🧙 - Proteomics searching so fast it feels like magic!
 
 Arguments:
-  <parameters>     The search parameters as a JSON file.
-  [mzml_paths]...  mzML files to analyze. Overrides mzML files listed in the parameter file.
+  <parameters>     Path to configuration parameters (JSON file)
+  [mzml_paths]...  Paths to mzML files to process. Overrides mzML files listed in the configuration file.
 
 Options:
   -f, --fasta <fasta>
-          The FASTA protein database. Overrides the FASTA file specified in the parameter file.
+          Path to FASTA database. Overrides the FASTA file specified in the configuration file.
   -o, --output_directory <output_directory>
-          Where the search and quant results will be written. Overrides the directory specified in the parameter file.
-      --no-parallel
-          Turn off parallel file searching. Useful for memory constrained systems or large sets of files.
+          Path where search and quant results will be written. Overrides the directory specified in the configuration file.
+      --batch-size <batch-size>
+          Number of files to search in parallel (default = number of CPUs/2)
+      --write-pin
+          Write percolator-compatible `.pin` output files
   -h, --help
           Print help information
   -V, --version

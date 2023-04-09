@@ -1,3 +1,5 @@
+use std::fmt::write;
+
 use clap::ArgMatches;
 use sage_cloudpath::CloudPath;
 use sage_core::{
@@ -25,12 +27,14 @@ pub struct Search {
     pub min_matched_peaks: u16,
     pub report_psms: usize,
     pub predict_rt: bool,
-    pub parallel: bool,
     pub mzml_paths: Vec<String>,
     pub output_paths: Vec<String>,
 
     #[serde(skip_serializing)]
     pub output_directory: CloudPath,
+
+    #[serde(skip_serializing)]
+    pub write_pin: bool,
 }
 
 #[derive(Deserialize)]
@@ -50,8 +54,9 @@ pub struct Input {
     quant: Option<QuantOptions>,
     predict_rt: Option<bool>,
     output_directory: Option<String>,
-    parallel: Option<bool>,
     mzml_paths: Option<Vec<String>>,
+
+    write_pin: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -162,10 +167,8 @@ impl Input {
             input.mzml_paths = Some(mzml_paths.into_iter().map(|p| p.into()).collect());
         }
 
-        if let Some(no_parallel) = matches.get_one::<bool>("no-parallel").copied() {
-            if !no_parallel {
-                input.parallel = Some(false);
-            }
+        if let Some(write_pin) = matches.get_one::<bool>("write-pin").copied() {
+            input.write_pin = Some(write_pin);
         }
 
         Ok(input)
@@ -235,7 +238,6 @@ impl Input {
             version: clap::crate_version!().into(),
             database,
             quant: self.quant.map(Into::into).unwrap_or_default(),
-            parallel: self.parallel.unwrap_or(true),
             mzml_paths,
             output_directory,
             precursor_tol: self.precursor_tol,
@@ -250,6 +252,7 @@ impl Input {
             chimera: self.chimera.unwrap_or(false),
             predict_rt: self.predict_rt.unwrap_or(true),
             output_paths: Vec::new(),
+            write_pin: self.write_pin.unwrap_or(false),
         })
     }
 }

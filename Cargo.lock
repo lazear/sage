@@ -1460,6 +1460,7 @@ dependencies = [
  "log",
  "num_cpus",
  "rayon",
+ "regex",
  "ryu",
  "sage-cloudpath",
  "sage-core",
