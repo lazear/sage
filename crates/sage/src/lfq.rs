@@ -469,7 +469,11 @@ impl Grid {
         files: usize,
         grid_size: usize,
     ) -> Grid {
-        let matrix = Matrix::new(vec![0.0; grid_size * files * 4], files * 4, grid_size);
+        let matrix = Matrix::new(
+            vec![0.0; grid_size * files * N_ISOTOPES],
+            files * N_ISOTOPES,
+            grid_size,
+        );
         let rt_step = (rt_tol * 2.0) / (grid_size) as f32;
 
         Grid {
