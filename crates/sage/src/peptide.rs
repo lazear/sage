@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Debug};
 
 use itertools::Itertools;
 
@@ -7,7 +7,7 @@ use crate::{
     mass::{Mass, Residue, H2O, VALID_AA},
 };
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Clone, PartialEq, PartialOrd)]
 pub struct Peptide {
     pub decoy: bool,
     pub sequence: Vec<Residue>,
@@ -24,6 +24,22 @@ pub struct Peptide {
 
     pub carbons: u16,
     pub sulfurs: u16,
+}
+
+impl Debug for Peptide {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Peptide")
+            .field("decoy", &self.decoy)
+            .field("sequence", &self.to_string())
+            .field("nterm", &self.nterm)
+            .field("cterm", &self.cterm)
+            .field("monoisotopic", &self.monoisotopic)
+            .field("missed_cleavages", &self.missed_cleavages)
+            .field("position", &self.position)
+            .field("carbons", &self.carbons)
+            .field("sulfurs", &self.sulfurs)
+            .finish()
+    }
 }
 
 impl Peptide {

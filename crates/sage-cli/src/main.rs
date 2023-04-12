@@ -126,40 +126,6 @@ impl Runner {
         }
     }
 
-    fn process_file<P: AsRef<str>>(
-        &self,
-        scorer: &Scorer,
-        path: P,
-        file_id: usize,
-    ) -> anyhow::Result<SageResults> {
-        let sp = SpectrumProcessor::new(
-            self.parameters.max_peaks,
-            self.parameters.database.fragment_min_mz,
-            self.parameters.database.fragment_max_mz,
-            self.parameters.deisotope,
-            file_id,
-        );
-
-        let sn = self
-            .parameters
-            .quant
-            .tmt_settings
-            .sn
-            .then_some(self.parameters.quant.tmt_settings.level);
-        // .tmt_sn
-        // .unwrap_or_default()
-        // .then_some(self.parameters.quant.tmt_level.unwrap_or(3));
-
-        let spectra = sage_core::read_mzml(&path, sn)?
-            .into_par_iter()
-            .map(|spec| sp.process(spec))
-            .collect::<Vec<_>>();
-
-        log::trace!("{}: read {} spectra", path.as_ref(), spectra.len());
-
-        Ok(self.search_processed_spectra(scorer, spectra))
-    }
-
     fn process_chunk(
         &self,
         scorer: &Scorer,

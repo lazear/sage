@@ -382,6 +382,7 @@ impl Traces {
                 PeakScoringStrategy::Hybrid => {
                     let rt = 1.0 - ((rt as isize - center).abs() as f64 / center as f64);
                     s.powi(3) * rt.powf(0.33) * (*i / max).sqrt()
+                    // s.powi(3) * (*i / max).sqrt()
                 }
             })
             .collect();

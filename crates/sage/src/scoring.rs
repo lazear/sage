@@ -92,7 +92,9 @@ pub struct Feature {
     /// X!Tandem hyperscore
     pub hyperscore: f64,
     /// Difference between hyperscore of this candidate, and the next best candidate
-    pub delta_hyperscore: f64,
+    pub delta_next: f64,
+    /// Difference between hyperscore of this candidate, and the best candidate
+    pub delta_best: f64,
     /// Number of matched theoretical fragment ions
     pub matched_peaks: u32,
     /// Longest b-ion series
@@ -172,7 +174,7 @@ impl<'db> Scorer<'db> {
             "internal bug, trying to score a non-MS2 scan!"
         );
         match self.chimera {
-            true => self.score_chimera(query),
+            true => self.score_chimera_multi(query, report_psms),
             false => self.score_standard(query, report_psms),
         }
     }
@@ -297,17 +299,22 @@ impl<'db> Scorer<'db> {
 
         let mut reporting = Vec::new();
         for idx in 0..report_psms.min(score_vector.len()) {
-            let better = score_vector[idx];
-            let peptide = &self.db[better.peptide];
-            let precursor_mass = mz * better.precursor_charge as f32;
+            let score = score_vector[idx];
+            let peptide = &self.db[score.peptide];
+            let precursor_mass = mz * score.precursor_charge as f32;
 
             let next = score_vector
                 .get(idx + 1)
                 .map(|score| score.hyperscore)
                 .unwrap_or_default();
 
+            let best = score_vector
+                .get(0)
+                .map(|score| score.hyperscore)
+                .expect("we know that index 0 is valid");
+
             // Poisson distribution probability mass function
-            let k = better.matched_b + better.matched_y;
+            let k = score.matched_b + score.matched_y;
             let mut poisson = lambda.powi(k as i32) * f64::exp(-lambda) / lnfact(k).exp();
 
             if poisson.is_infinite() {
@@ -332,7 +339,7 @@ impl<'db> Scorer<'db> {
 
             reporting.push(Feature {
                 // Identifiers
-                peptide_idx: better.peptide,
+                peptide_idx: score.peptide,
                 peptide: peptide.to_string(),
                 proteins,
                 num_proteins,
@@ -343,20 +350,21 @@ impl<'db> Scorer<'db> {
                 expmass: precursor_mass,
                 calcmass: peptide.monoisotopic,
                 // Features
-                charge: better.precursor_charge,
+                charge: score.precursor_charge,
                 rt: query.scan_start_time,
                 delta_mass,
                 isotope_error,
-                average_ppm: better.ppm_difference / k as f32,
-                hyperscore: better.hyperscore,
-                delta_hyperscore: better.hyperscore - next,
+                average_ppm: score.ppm_difference / k as f32,
+                hyperscore: score.hyperscore,
+                delta_next: score.hyperscore - next,
+                delta_best: best - score.hyperscore,
                 matched_peaks: k as u32,
-                matched_intensity_pct: 100.0 * (better.summed_b + better.summed_y)
+                matched_intensity_pct: 100.0 * (score.summed_b + score.summed_y)
                     / query.total_intensity,
                 poisson: poisson.log10(),
-                longest_b: better.longest_b as u32,
-                longest_y: better.longest_y as u32,
-                longest_y_pct: better.longest_y as f32 / (peptide.sequence.len() as f32),
+                longest_b: score.longest_b as u32,
+                longest_y: score.longest_y as u32,
+                longest_y_pct: score.longest_y as f32 / (peptide.sequence.len() as f32),
                 peptide_len: peptide.sequence.len(),
                 scored_candidates: hits.scored_candidates as u32,
                 missed_cleavages: peptide.missed_cleavages,
@@ -370,7 +378,7 @@ impl<'db> Scorer<'db> {
                 predicted_rt: 0.0,
                 aligned_rt: query.scan_start_time,
                 delta_rt_model: 0.999,
-                ms2_intensity: better.summed_b + better.summed_y,
+                ms2_intensity: score.summed_b + score.summed_y,
                 ms1_intensity: precursor.intensity.unwrap_or(0.0),
             })
         }
@@ -434,6 +442,58 @@ impl<'db> Scorer<'db> {
             scores.extend(self.score_standard(&subtracted, 1));
         }
         scores
+    }
+
+    /// Return 2 PSMs for each spectra - first is the best match, second PSM is the best match
+    /// after all theoretical peaks assigned to the best match are removed
+    pub fn score_chimera_multi(
+        &self,
+        query: &ProcessedSpectrum,
+        report_psms: usize,
+    ) -> Vec<Feature> {
+        let mut query = query.clone();
+        let mut reporting = Vec::new();
+        // while reporting.len() < report_psms {
+        for _ in 0..report_psms {
+            match self.score_standard(&query, 1).drain(..).next() {
+                None => break,
+                Some(mut psm) => {
+                    // Remove MS2 peaks matched by previous match
+                    let mut to_remove = Vec::new();
+                    psm.rank = reporting.len() as u32 + 1;
+
+                    let peptide = &self.db[psm.peptide_idx];
+                    let fragments =
+                        IonSeries::new(peptide, Kind::B).chain(IonSeries::new(peptide, Kind::Y));
+
+                    let max_fragment_charge = self.max_fragment_charge(psm.charge);
+                    for frag in fragments {
+                        for charge in 1..max_fragment_charge {
+                            // Experimental peaks are multipled by charge, therefore theoretical are divided
+                            if let Some(peak) = crate::spectrum::select_closest_peak(
+                                &query.peaks,
+                                frag.monoisotopic_mass / charge as f32,
+                                self.fragment_tol,
+                            ) {
+                                to_remove.push(*peak);
+                            }
+                        }
+                    }
+
+                    query.peaks = query
+                        .peaks
+                        .drain(..)
+                        .filter(|peak| !to_remove.contains(peak))
+                        .collect();
+
+                    reporting.push(psm);
+                }
+            }
+        }
+
+        // let best = reporting.iter().fold(0.0f64, |acc, feat| acc.max(feat.hyperscore));
+        // reporting.iter_mut().for_each(|feat| feat.delta_best = best - feat.hyperscore);
+        reporting
     }
 
     /// Calculate full hyperscore for a given PSM

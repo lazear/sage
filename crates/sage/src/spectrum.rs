@@ -224,7 +224,7 @@ impl SpectrumProcessor {
 
         if should_deisotope {
             let mut peaks = deisotope(&spectrum.mz, &spectrum.intensity, charge, 10.0);
-            peaks.sort_unstable_by(|a, b| b.intensity.total_cmp(&a.intensity));
+            peaks.sort_by(|a, b| b.intensity.total_cmp(&a.intensity));
 
             peaks
                 .into_iter()
@@ -254,7 +254,7 @@ impl SpectrumProcessor {
                     Peak { mass, intensity }
                 })
                 .collect::<Vec<_>>();
-            peaks.sort_unstable_by(|a, b| b.intensity.total_cmp(&a.intensity));
+            peaks.sort_by(|a, b| b.intensity.total_cmp(&a.intensity));
             peaks.truncate(self.take_top_n);
             peaks
         }
@@ -274,7 +274,7 @@ impl SpectrumProcessor {
                 .collect::<Vec<_>>(),
         };
 
-        peaks.sort_unstable_by(|a, b| a.mass.total_cmp(&b.mass));
+        peaks.sort_by(|a, b| a.mass.total_cmp(&b.mass));
         let total_intensity = peaks.iter().map(|peak| peak.intensity).sum::<f32>();
 
         ProcessedSpectrum {

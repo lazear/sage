@@ -57,7 +57,7 @@ impl Digest {
 
 impl PartialEq for Digest {
     fn eq(&self, other: &Self) -> bool {
-        self.sequence == other.sequence
+        self.sequence == other.sequence && self.position == other.position
     }
 }
 
@@ -68,7 +68,7 @@ impl Eq for Digest {
 impl std::hash::Hash for Digest {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.sequence.hash(state);
-        // self.position.hash(state);
+        self.position.hash(state);
     }
 }
 
@@ -236,20 +236,36 @@ mod test {
         let set = digests.drain(..).collect::<HashSet<_>>();
         assert_eq!(set.len(), 1);
 
-        // let mut digests = vec![
-        //     Digest { decoy: false, sequence: "MADEEK".into(), missed_cleavages: 0, position: Position::Nterm },
-        //     Digest { decoy: false, sequence: "MADEEK".into(), missed_cleavages: 0, position: Position::Internal },
-        // ];
+        let mut digests = vec![
+            Digest {
+                decoy: false,
+                sequence: "MADEEK".into(),
+                missed_cleavages: 0,
+                position: Position::Nterm,
+            },
+            Digest {
+                decoy: false,
+                sequence: "MADEEK".into(),
+                missed_cleavages: 0,
+                position: Position::Internal,
+            },
+        ];
 
         // // Make sure hashing a digest works
-        // let set = digests.drain(..).collect::<HashSet<_>>();
-        // assert_eq!(set.len(), 2);
+        let set = digests.drain(..).collect::<HashSet<_>>();
+        assert_eq!(set.len(), 2);
     }
 
     #[test]
     fn trypsin() {
         let sequence = "MADEEKLPPGWEKRMSRSSGRVYYFNHITNASQWERPSGN";
-        let expected = vec!["MADEEK", "LPPGWEK", "MSR", "SSGR", "VYYFNHITNASQWERPSGN"];
+        let expected = vec![
+            ("MADEEK".into(), Position::Nterm),
+            ("LPPGWEK".into(), Position::Internal),
+            ("MSR".into(), Position::Internal),
+            ("SSGR".into(), Position::Internal),
+            ("VYYFNHITNASQWERPSGN".into(), Position::Cterm),
+        ];
 
         let tryp = EnzymeParameters {
             min_len: 2,
@@ -262,7 +278,7 @@ mod test {
             expected,
             tryp.digest(sequence)
                 .into_iter()
-                .map(|d| d.sequence)
+                .map(|d| (d.sequence, d.position))
                 .collect::<Vec<_>>()
         );
     }

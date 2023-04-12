@@ -28,11 +28,8 @@ impl Runner {
         record.push_field(ryu::Buffer::new().format(feature.delta_mass).as_bytes());
         record.push_field(ryu::Buffer::new().format(feature.average_ppm).as_bytes());
         record.push_field(ryu::Buffer::new().format(feature.hyperscore).as_bytes());
-        record.push_field(
-            ryu::Buffer::new()
-                .format(feature.delta_hyperscore)
-                .as_bytes(),
-        );
+        record.push_field(ryu::Buffer::new().format(feature.delta_next).as_bytes());
+        record.push_field(ryu::Buffer::new().format(feature.delta_best).as_bytes());
         record.push_field(ryu::Buffer::new().format(feature.rt).as_bytes());
         record.push_field(ryu::Buffer::new().format(feature.aligned_rt).as_bytes());
         record.push_field(ryu::Buffer::new().format(feature.predicted_rt).as_bytes());
@@ -98,7 +95,8 @@ impl Runner {
             "precursor_ppm",
             "fragment_ppm",
             "hyperscore",
-            "delta_hyperscore",
+            "delta_next",
+            "delta_best",
             "rt",
             "aligned_rt",
             "predicted_rt",
@@ -178,7 +176,12 @@ impl Runner {
         );
         record.push_field(
             ryu::Buffer::new()
-                .format(feature.delta_hyperscore.ln_1p())
+                .format(feature.delta_next.ln_1p())
+                .as_bytes(),
+        );
+        record.push_field(
+            ryu::Buffer::new()
+                .format(feature.delta_best.ln_1p())
                 .as_bytes(),
         );
         record.push_field(ryu::Buffer::new().format(feature.aligned_rt).as_bytes());
@@ -234,7 +237,8 @@ impl Runner {
             "ln(precursor_ppm)",
             "fragment_ppm",
             "ln(hyperscore)",
-            "ln(delta_hyperscore)",
+            "ln(delta_next)",
+            "ln(delta_best)",
             "aligned_rt",
             "predicted_rt",
             "sqrt(delta_rt_model)",
@@ -255,7 +259,7 @@ impl Runner {
         for record in features
             .into_par_iter()
             .enumerate()
-            .map(|(idx, feat)| self.serialize_pin(&re, idx, &feat, filenames))
+            .map(|(idx, feat)| self.serialize_pin(&re, idx, feat, filenames))
             .collect::<Vec<_>>()
         {
             wtr.write_byte_record(&record)?;

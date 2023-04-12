@@ -1,5 +1,3 @@
-use std::fmt::write;
-
 use clap::ArgMatches;
 use sage_cloudpath::CloudPath;
 use sage_core::{

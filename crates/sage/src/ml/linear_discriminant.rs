@@ -15,10 +15,11 @@ use rayon::prelude::*;
 use crate::scoring::Feature;
 
 // Declare, so that we have compile time checking of matrix dimensions
-const FEATURES: usize = 15;
+const FEATURES: usize = 16;
 const FEATURE_NAMES: [&str; FEATURES] = [
     "ln1p(hyperscore)",
-    "ln1p(delta_hyperscore)",
+    "ln1p(delta_next)",
+    "ln1p(delta_best)",
     "ln1p(delta_mass)",
     "isotope_error",
     "average_ppm",
@@ -133,7 +134,8 @@ pub fn score_psms(scores: &mut [Feature]) -> Option<()> {
             // transform many of them to get them closer to a gaussian distr.
             let x: [f64; FEATURES] = [
                 (perc.hyperscore).ln_1p(),
-                (perc.delta_hyperscore).ln_1p(),
+                (perc.delta_next).ln_1p(),
+                (perc.delta_best).ln_1p(),
                 (perc.delta_mass as f64).ln_1p(),
                 perc.isotope_error as f64,
                 perc.average_ppm as f64,

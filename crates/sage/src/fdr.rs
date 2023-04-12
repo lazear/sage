@@ -96,7 +96,11 @@ pub fn picked_peptide(db: &IndexedDatabase, features: &mut [Feature]) -> usize {
         })
         .collect::<FnvHashMap<_, _>>();
     features.par_iter_mut().for_each(|feat| {
-        feat.peptide_q = scores[&feat.peptide_idx];
+        if !scores.contains_key(&feat.peptide_idx) {
+            dbg!(&feat);
+        } else {
+            feat.peptide_q = scores[&feat.peptide_idx];
+        }
     });
 
     passing

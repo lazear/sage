@@ -3,6 +3,8 @@ use crate::fasta::Fasta;
 use crate::ion_series::{IonSeries, Kind};
 use crate::mass::{Tolerance, NEUTRON};
 use crate::peptide::Peptide;
+use dashmap::DashMap;
+use fnv::FnvBuildHasher;
 use log::error;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -146,11 +148,11 @@ impl Parameters {
     fn digest(
         &self,
         fasta: &Fasta,
-        enzyme: &EnzymeParameters,
-    ) -> (Vec<Peptide>, HashMap<String, Vec<String>>) {
+    ) -> (Vec<Peptide>, DashMap<String, Vec<String>, FnvBuildHasher>) {
+        let enzyme = self.enzyme.clone().into();
         // Generate all tryptic peptide sequences, including reversed (decoy)
         // and missed cleavages, if applicable.
-        let digests = fasta.digest(enzyme);
+        let digests = fasta.digest(&enzyme);
 
         let mods = self
             .variable_mods
@@ -158,38 +160,47 @@ impl Parameters {
             .map(|(a, b)| (*a, *b))
             .collect::<Vec<_>>();
 
-        // From our set of unique peptide sequence, apply any modifications
-        // and convert to [`TargetDecoy`] enum
-        let mut target_decoys = digests
-            .par_iter()
-            .filter_map(|entry| Peptide::try_from(entry.key()).ok())
-            .flat_map(|peptide| peptide.apply(&mods, &self.static_mods, self.max_variable_mods))
-            .filter(|peptide| {
-                peptide.monoisotopic >= self.peptide_min_mass
-                    && peptide.monoisotopic <= self.peptide_max_mass
-            })
-            .collect::<Vec<Peptide>>();
+        let target_decoys: DashMap<String, Peptide, fnv::FnvBuildHasher> = DashMap::default();
+        let peptide_graph: DashMap<String, Vec<String>, fnv::FnvBuildHasher> = DashMap::default();
+        digests.into_par_iter().for_each(|(digest, proteins)| {
+            if let Ok(peptide) = Peptide::try_from(&digest) {
+                for peptide in peptide
+                    .apply(&mods, &self.static_mods, self.max_variable_mods)
+                    .into_iter()
+                    .filter(|peptide| {
+                        peptide.monoisotopic >= self.peptide_min_mass
+                            && peptide.monoisotopic <= self.peptide_max_mass
+                    })
+                {
+                    let sequence = peptide.to_string();
+                    peptide_graph
+                        .entry(sequence.clone())
+                        .or_default()
+                        .extend(proteins.clone());
+                    target_decoys.insert(sequence, peptide);
+                }
+            }
+        });
+
+        let mut target_decoys = target_decoys
+            .into_iter()
+            .map(|(_, v)| v)
+            .collect::<Vec<_>>();
 
         // NB: Stable sorting here (and only here?) is critical to achieving determinism...
         // not totally sure why... Probably has to do with using PeptideIxs
         // as keys for scoring vectors
         target_decoys.par_sort_by(|a, b| a.monoisotopic.total_cmp(&b.monoisotopic));
 
-        let peptide_graph = digests
-            .into_par_iter()
-            .map(|(digest, proteins)| (digest.sequence, proteins))
-            .collect::<HashMap<String, Vec<String>>>();
-
         (target_decoys, peptide_graph)
     }
 
     // pub fn build(self) -> Result<IndexedDatabase, Box<dyn std::error::Error + Send + Sync + 'static>> {
     pub fn build(self) -> Result<IndexedDatabase, crate::Error> {
-        let enzyme = self.enzyme.clone().into();
         // let fasta = Fasta::open(&self.fasta, self.decoy_tag.clone(), self.generate_decoys)?;
         let fasta = crate::read_fasta(&self.fasta, &self.decoy_tag, self.generate_decoys)?;
 
-        let (target_decoys, peptide_graph) = self.digest(&fasta, &enzyme);
+        let (target_decoys, peptide_graph) = self.digest(&fasta);
 
         // Finally, perform in silico digest for our target sequences
         // Note that multiple charge states are actually handled by
@@ -321,7 +332,7 @@ pub struct IndexedDatabase {
     /// Keep a list of potential (AA, mass) modifications for RT prediction
     pub potential_mods: Vec<(char, f32)>,
     pub bucket_size: usize,
-    peptide_graph: HashMap<String, Vec<String>>,
+    peptide_graph: DashMap<String, Vec<String>, FnvBuildHasher>,
 }
 
 impl IndexedDatabase {
@@ -367,16 +378,7 @@ impl IndexedDatabase {
     }
 
     pub fn assign_proteins(&self, peptide: &Peptide) -> (usize, String) {
-        let sequence_without_mods = peptide
-            .sequence
-            .iter()
-            .map(|resi| match resi {
-                crate::mass::Residue::Just(r) => r,
-                crate::mass::Residue::Mod(r, _) => r,
-            })
-            .collect::<String>();
-
-        match self.peptide_graph.get(&sequence_without_mods) {
+        match self.peptide_graph.get(&peptide.to_string()) {
             Some(proteins) => {
                 let n = proteins.len();
                 let proteins = proteins.join(";");
@@ -384,8 +386,8 @@ impl IndexedDatabase {
             }
             None => {
                 panic!(
-                    "BUG: peptide sequence {} doesn't appear in peptide graph!",
-                    &sequence_without_mods
+                    "BUG: peptide sequence {} doesn't appear in peptide => protein graph!",
+                    peptide // &digest.sequence
                 );
             }
         }
@@ -522,6 +524,74 @@ mod test {
         assert_eq!(
             &data[left..right],
             &[1.0, 1.5, 1.5, 1.5, 1.5, 2.0, 2.5, 3.0, 3.0]
+        );
+    }
+
+    #[test]
+    fn digestion() {
+        let fasta = r#"
+        >sp|AAAAA
+        MEWKLEQSMREQALLKAQLTQLK
+        >sp|BBBBB
+        RMEWKLEQSMREQALLKAQLTQLK
+        "#;
+
+        let fasta = Fasta::parse(fasta.into(), "rev_", false);
+
+        // Make sure that FASTA parsed OK
+        assert_eq!(
+            fasta.targets,
+            vec![
+                ("sp|AAAAA".into(), "MEWKLEQSMREQALLKAQLTQLK".into()),
+                ("sp|BBBBB".into(), "RMEWKLEQSMREQALLKAQLTQLK".into()),
+            ]
+        );
+
+        let params = Parameters {
+            bucket_size: 128,
+            enzyme: EnzymeBuilder {
+                missed_cleavages: Some(1),
+                min_len: Some(6),
+                max_len: Some(10),
+                ..Default::default()
+            },
+            fragment_min_mz: 100.0,
+            fragment_max_mz: 1000.0,
+            peptide_min_mass: 150.0,
+            peptide_max_mass: 5000.0,
+            min_ion_index: 2,
+            static_mods: HashMap::default(),
+            variable_mods: [('[', 42.0)].into_iter().collect(),
+            max_variable_mods: 2,
+            decoy_tag: "rev_".into(),
+            generate_decoys: false,
+            fasta: "none".into(),
+        };
+
+        let (peptides, peptide_graph) = params.digest(&fasta);
+
+        let expected = [
+            "EQALLK",
+            "LEQSMR",
+            "AQLTQLK",
+            "MEWKLEQSMR",
+            "[+42]-MEWKLEQSMR",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect::<Vec<_>>();
+
+        let sequences = peptides.iter().map(|p| p.to_string()).collect::<Vec<_>>();
+        assert_eq!(expected, sequences);
+
+        // All peptides are shared except for the protein N-term mod
+        for peptide in &expected[..4] {
+            assert_eq!(peptide_graph.get(peptide).unwrap().value().len(), 2);
+        }
+        // Ensure that this mod is uniquely called as the first protein
+        assert_eq!(
+            peptide_graph.get("[+42]-MEWKLEQSMR").unwrap().value(),
+            &vec!["sp|AAAAA".to_string()]
         );
     }
 }

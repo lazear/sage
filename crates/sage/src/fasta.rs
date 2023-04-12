@@ -25,6 +25,7 @@ impl Fasta {
             if line.is_empty() {
                 continue;
             }
+            let line = line.trim();
             if let Some(id) = line.strip_prefix('>') {
                 if !s.is_empty() {
                     let acc: String = last_id.split_ascii_whitespace().next().unwrap().into();
