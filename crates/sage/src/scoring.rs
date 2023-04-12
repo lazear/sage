@@ -3,8 +3,7 @@ use std::ops::AddAssign;
 use crate::database::{binary_search_slice, IndexedDatabase, PeptideIx, Theoretical};
 use crate::ion_series::{IonSeries, Kind};
 use crate::mass::{Tolerance, NEUTRON, PROTON};
-use crate::peptide::Peptide;
-use crate::spectrum::{Peak, Precursor, ProcessedSpectrum};
+use crate::spectrum::{Precursor, ProcessedSpectrum};
 use serde::Serialize;
 
 /// Structure to hold temporary scores
@@ -15,6 +14,8 @@ struct Score {
     matched_y: u16,
     summed_b: f32,
     summed_y: f32,
+    longest_b: usize,
+    longest_y: usize,
     hyperscore: f64,
     ppm_difference: f32,
     precursor_charge: u8,
@@ -318,7 +319,7 @@ impl<'db> Scorer<'db> {
             }
 
             // Calculate the longest continuous b- and y-ion ladders
-            let (b, y) = self.rescore(query, better.precursor_charge, peptide);
+            // let (b, y) = self.rescore(query, better.precursor_charge, peptide);
 
             let mut isotope_error = 0.0;
             for i in self.min_isotope_err..=self.max_isotope_err {
@@ -359,9 +360,9 @@ impl<'db> Scorer<'db> {
                 matched_intensity_pct: 100.0 * (better.summed_b + better.summed_y)
                     / query.total_intensity,
                 poisson: poisson.log10(),
-                longest_b: b,
-                longest_y: y,
-                longest_y_pct: y as f32 / (peptide.sequence.len() as f32),
+                longest_b: better.longest_b as u32,
+                longest_y: better.longest_y as u32,
+                longest_y_pct: better.longest_y as f32 / (peptide.sequence.len() as f32),
                 peptide_len: peptide.sequence.len(),
                 scored_candidates: hits.scored_candidates as u32,
                 missed_cleavages: peptide.missed_cleavages,
@@ -459,138 +460,120 @@ impl<'db> Scorer<'db> {
         // Regenerate theoretical ions - initial database search might be
         // using only a subset of all possible ions (e.g. no b1/b2/y1/y2)
         // so we need to completely re-score this candidate
-        let mut fragments = IonSeries::new(peptide, Kind::B)
-            .chain(IonSeries::new(peptide, Kind::Y))
-            .filter(|ion| {
-                ion.monoisotopic_mass >= self.min_fragment_mass
-                    && ion.monoisotopic_mass <= self.max_fragment_mass
-            })
-            .collect::<Vec<_>>();
+        let fragments = IonSeries::new(peptide, Kind::B)
+            .enumerate()
+            .chain(IonSeries::new(peptide, Kind::Y).enumerate());
 
-        fragments.sort_unstable_by(|a, b| a.monoisotopic_mass.total_cmp(&b.monoisotopic_mass));
+        let mut b_run = Run::default();
+        let mut y_run = Run::default();
 
-        for peak in query.peaks.iter() {
+        for (idx, frag) in fragments {
             for charge in 1..max_fragment_charge {
-                let mass = peak.mass * charge as f32;
-                let (lo, hi) = self.fragment_tol.bounds(mass);
-                let window = binary_search_slice(
-                    &fragments,
-                    |frag, mz| frag.monoisotopic_mass.total_cmp(mz),
-                    lo,
-                    hi,
-                );
-
-                for frag in fragments[window.0..window.1]
-                    .iter()
-                    .filter(|frag| frag.monoisotopic_mass >= lo && frag.monoisotopic_mass <= hi)
-                {
+                // Experimental peaks are multipled by charge, therefore theoretical are divided
+                if let Some(peak) = crate::spectrum::select_closest_peak(
+                    &query.peaks,
+                    frag.monoisotopic_mass / charge as f32,
+                    self.fragment_tol,
+                ) {
                     score.ppm_difference +=
-                        (frag.monoisotopic_mass - mass).abs() * 1E6 / frag.monoisotopic_mass;
+                        (frag.monoisotopic_mass - peak.mass).abs() * 1E6 / frag.monoisotopic_mass;
 
                     match frag.kind {
                         Kind::B => {
                             score.matched_b += 1;
                             score.summed_b += peak.intensity;
+                            b_run.matched(idx);
                         }
                         Kind::Y => {
                             score.matched_y += 1;
                             score.summed_y += peak.intensity;
+                            y_run.matched(idx);
                         }
                     }
                 }
             }
         }
 
+        // for peak in query.peaks.iter() {
+        //     for charge in 1..max_fragment_charge {
+        //         let mass = peak.mass * charge as f32;
+        //         let (lo, hi) = self.fragment_tol.bounds(mass);
+        //         // let window = binary_search_slice(
+        //         //     &fragments,
+        //         //     |frag, mz| frag.monoisotopic_mass.total_cmp(mz),
+        //         //     lo,
+        //         //     hi,
+        //         // );
+
+        //         // for frag in fragments[window.0..window.1]
+        //         //     .iter()
+        //         //     .filter(|frag| frag.monoisotopic_mass >= lo && frag.monoisotopic_mass <= hi)
+        //         if let Some(frag) = select_closest_peak(&fragments, mass, self.fragment_tol)
+        //         {
+        //             score.ppm_difference +=
+        //                 (frag.monoisotopic_mass - mass).abs() * 1E6 / frag.monoisotopic_mass;
+
+        //             match frag.kind {
+        //                 Kind::B => {
+        //                     score.matched_b += 1;
+        //                     score.summed_b += peak.intensity;
+        //                 }
+        //                 Kind::Y => {
+        //                     score.matched_y += 1;
+        //                     score.summed_y += peak.intensity;
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
+
         score.hyperscore = score.hyperscore();
+        score.longest_b = b_run.longest;
+        score.longest_y = y_run.longest;
         score
-    }
-
-    /// Calculate the longest continuous chain of B or Y fragment ions
-    fn longest_series(
-        &self,
-        peaks: &[Peak],
-        max_fragment_charge: u8,
-        kind: Kind,
-        peptide: &Peptide,
-    ) -> u32 {
-        let mut current_start = peaks.len();
-        let mut run = 0;
-        let mut longest_run = 0;
-        'outer: for (idx, frag) in IonSeries::new(peptide, kind)
-            .map(|ion| Theoretical {
-                peptide_index: PeptideIx(0),
-                fragment_mz: ion.monoisotopic_mass,
-            })
-            .enumerate()
-        {
-            for charge in 1..max_fragment_charge {
-                // Experimental peaks are multipled by charge, therefore theoretical are divided
-                if crate::spectrum::select_closest_peak(
-                    peaks,
-                    frag.fragment_mz / charge as f32,
-                    self.fragment_tol,
-                )
-                .is_some()
-                {
-                    run += 1;
-                    if current_start + run == idx {
-                        longest_run = longest_run.max(run as u32);
-                        continue 'outer;
-                    }
-                }
-            }
-            current_start = idx;
-            run = 0;
-        }
-
-        longest_run
-    }
-
-    /// Rescore a candidate peptide selected for final reporting:
-    /// calculate the longest (b, y) continous fragment ion series
-    fn rescore(
-        &self,
-        query: &ProcessedSpectrum,
-        precursor_charge: u8,
-        candidate: &Peptide,
-    ) -> (u32, u32) {
-        let max_fragment_charge = self.max_fragment_charge(precursor_charge);
-        let b = self.longest_series(&query.peaks, max_fragment_charge, Kind::B, candidate);
-        let y = self.longest_series(&query.peaks, max_fragment_charge, Kind::Y, candidate);
-        (b, y)
     }
 }
 
-// /// Calculate percentage of MS1 signal in isolation window that is attributed
-// /// to the selected precursor ion
-// pub fn ion_interference(spectra: &[ProcessedSpectrum], ms2: &ProcessedSpectrum) -> Option<f32> {
-//     // let (mz, charge) = ms2.extract_ms1_precursor();
-//     let precursor = ms2.precursors.first()?;
-//     let ms1_scan = crate::spectrum::find_spectrum_by_id(spectra, precursor.scan?)?;
+/// Maintain information about the longest continous ion ladder for a series
+#[derive(Default)]
+struct Run {
+    start: usize,
+    length: usize,
+    pub longest: usize,
+}
 
-//     let isolation_window = precursor
-//         .isolation_window
-//         .unwrap_or_else(|| Tolerance::Da(-0.5, 0.5));
-//     let precursor_mass = (precursor.mz - PROTON) * precursor.charge? as f32;
-//     let (lo, hi) = isolation_window.bounds(precursor_mass);
+impl Run {
+    pub fn matched(&mut self, index: usize) {
+        if self.start + self.length == index {
+            self.length += 1;
+            self.longest = self.longest.max(self.length);
+        } else {
+            self.start = index;
+            self.length = 1;
+            self.longest = self.longest.max(self.length);
+        }
+    }
+}
 
-//     let (idx_lo, idx_hi) =
-//         binary_search_slice(&ms1_scan.peaks, |peak, mz| peak.mass.total_cmp(mz), lo, hi);
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-//     let mut selected_intensity = precursor.intensity.unwrap_or(0.0);
-//     let mut total_intensity = selected_intensity;
-//     for peak in ms1_scan.peaks[idx_lo..idx_hi]
-//         .iter()
-//         .filter(|peak| peak.mass >= lo && peak.mass <= hi)
-//     {
-//         if peak.mass == precursor_mass {
-//             selected_intensity = peak.intensity;
-//         }
-//         total_intensity += peak.intensity;
-//     }
-//     if total_intensity == 0.0 {
-//         None
-//     } else {
-//         Some((total_intensity - selected_intensity) / total_intensity)
-//     }
-// }
+    #[test]
+    fn longest_series() {
+        let mut run = Run::default();
+
+        run.matched(1);
+        run.matched(2);
+        run.matched(3);
+
+        assert_eq!(run.length, 3);
+        assert_eq!(run.longest, 3);
+
+        run.matched(5);
+        assert_eq!(run.length, 1);
+        assert_eq!(run.longest, 3);
+        run.matched(6);
+        assert_eq!(run.length, 2);
+    }
+}

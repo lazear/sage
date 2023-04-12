@@ -56,7 +56,7 @@ pub struct ProcessedSpectrum {
     pub ion_injection_time: f32,
     /// Selected ions for precursors, if `level > 1`
     pub precursors: Vec<Precursor>,
-    /// MS peaks
+    /// MS peaks, sorted by mass in ascending order
     pub peaks: Vec<Peak>,
     /// Total ion current
     pub total_intensity: f32,
