@@ -24,7 +24,7 @@ fn integration() -> anyhow::Result<()> {
         min_matched_peaks: 4,
         min_isotope_err: -1,
         max_isotope_err: 3,
-        max_fragment_charge: None,
+        max_fragment_charge: Some(1),
         min_fragment_mass: 0.0,
         max_fragment_mass: 1500.0,
         chimera: false,
@@ -33,7 +33,7 @@ fn integration() -> anyhow::Result<()> {
     let psm = scorer.score(&processed, 1);
     assert_eq!(psm.len(), 1);
     assert_eq!(psm[0].peptide, "LQSRPAAPPAPGPGQLTLR");
-    assert_eq!(psm[0].matched_peaks, 28);
+    assert_eq!(psm[0].matched_peaks, 21);
 
     Ok(())
 }

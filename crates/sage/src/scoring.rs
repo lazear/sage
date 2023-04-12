@@ -139,9 +139,6 @@ impl Score {
     /// * `fact_table` is a precomputed vector of factorials
     fn hyperscore(&self) -> f64 {
         let i = (self.summed_b + 1.0) as f64 * (self.summed_y + 1.0) as f64;
-        // let m = fact_table[(self.matched_b as usize).min(fact_table.len() - 2)].ln()
-        // + fact_table[(self.matched_y as usize).min(fact_table.len() - 2)].ln();
-
         let score = i.ln() + lnfact(self.matched_b) + lnfact(self.matched_y);
         if score.is_finite() {
             score
@@ -318,9 +315,6 @@ impl<'db> Scorer<'db> {
                 poisson = 1E-325;
             }
 
-            // Calculate the longest continuous b- and y-ion ladders
-            // let (b, y) = self.rescore(query, better.precursor_charge, peptide);
-
             let mut isotope_error = 0.0;
             for i in self.min_isotope_err..=self.max_isotope_err {
                 let c13 = i as f32 * NEUTRON;
@@ -494,39 +488,6 @@ impl<'db> Scorer<'db> {
             }
         }
 
-        // for peak in query.peaks.iter() {
-        //     for charge in 1..max_fragment_charge {
-        //         let mass = peak.mass * charge as f32;
-        //         let (lo, hi) = self.fragment_tol.bounds(mass);
-        //         // let window = binary_search_slice(
-        //         //     &fragments,
-        //         //     |frag, mz| frag.monoisotopic_mass.total_cmp(mz),
-        //         //     lo,
-        //         //     hi,
-        //         // );
-
-        //         // for frag in fragments[window.0..window.1]
-        //         //     .iter()
-        //         //     .filter(|frag| frag.monoisotopic_mass >= lo && frag.monoisotopic_mass <= hi)
-        //         if let Some(frag) = select_closest_peak(&fragments, mass, self.fragment_tol)
-        //         {
-        //             score.ppm_difference +=
-        //                 (frag.monoisotopic_mass - mass).abs() * 1E6 / frag.monoisotopic_mass;
-
-        //             match frag.kind {
-        //                 Kind::B => {
-        //                     score.matched_b += 1;
-        //                     score.summed_b += peak.intensity;
-        //                 }
-        //                 Kind::Y => {
-        //                     score.matched_y += 1;
-        //                     score.summed_y += peak.intensity;
-        //                 }
-        //             }
-        //         }
-        //     }
-        // }
-
         score.hyperscore = score.hyperscore();
         score.longest_b = b_run.longest;
         score.longest_y = y_run.longest;
@@ -539,12 +500,15 @@ impl<'db> Scorer<'db> {
 struct Run {
     start: usize,
     length: usize,
+    last: usize,
     pub longest: usize,
 }
 
 impl Run {
     pub fn matched(&mut self, index: usize) {
-        if self.start + self.length == index {
+        if self.last == index {
+            return;
+        } else if self.start + self.length == index {
             self.length += 1;
             self.longest = self.longest.max(self.length);
         } else {
@@ -552,6 +516,7 @@ impl Run {
             self.length = 1;
             self.longest = self.longest.max(self.length);
         }
+        self.last = index;
     }
 }
 
@@ -566,10 +531,13 @@ mod tests {
         run.matched(1);
         run.matched(2);
         run.matched(3);
+        run.matched(3);
+        run.matched(3);
 
         assert_eq!(run.length, 3);
         assert_eq!(run.longest, 3);
 
+        run.matched(5);
         run.matched(5);
         assert_eq!(run.length, 1);
         assert_eq!(run.longest, 3);
