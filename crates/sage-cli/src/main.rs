@@ -262,11 +262,15 @@ impl Runner {
 
         if let Some(alignments) = alignments {
             if self.parameters.quant.lfq {
-                let areas = sage_core::lfq::build_feature_map(
+                let mut areas = sage_core::lfq::build_feature_map(
                     self.parameters.quant.lfq_settings,
                     &outputs.features,
                 )
                 .quantify(&self.database, &outputs.ms1, &alignments);
+
+                let q_precursor = sage_core::fdr::picked_precursor(&mut areas);
+
+                log::info!("discovered {} target MS1 peaks at 5% FDR", q_precursor);
                 self.parameters
                     .output_paths
                     .push(self.write_lfq(areas, &filenames)?);
@@ -274,11 +278,11 @@ impl Runner {
         }
 
         log::info!(
-            "discovered {} peptide-spectrum matches at 1% FDR",
+            "discovered {} target peptide-spectrum matches at 1% FDR",
             q_spectrum
         );
-        log::info!("discovered {} peptides at 1% FDR", q_peptide);
-        log::info!("discovered {} proteins at 1% FDR", q_protein);
+        log::info!("discovered {} target peptides at 1% FDR", q_peptide);
+        log::info!("discovered {} target proteins at 1% FDR", q_protein);
         log::trace!("writing outputs");
 
         if self.parameters.write_pin {

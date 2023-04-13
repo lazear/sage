@@ -182,6 +182,8 @@ impl Parameters {
             }
         });
 
+        // peptide_graph.par_iter_mut().for_each(|mut entry| entry.value_mut().sort());
+
         let mut target_decoys = target_decoys
             .into_iter()
             .map(|(_, v)| v)

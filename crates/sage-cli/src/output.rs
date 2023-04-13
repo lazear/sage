@@ -315,7 +315,7 @@ impl Runner {
 
     pub fn write_lfq(
         &self,
-        areas: HashMap<(PeptideIx, bool), (Peak, Vec<f64>)>,
+        areas: HashMap<(PeptideIx, bool), (Peak, Vec<f64>), fnv::FnvBuildHasher>,
         filenames: &[String],
     ) -> anyhow::Result<String> {
         let path = self.make_path("lfq.tsv");
@@ -326,7 +326,7 @@ impl Runner {
         let mut headers = csv::ByteRecord::from(vec![
             "peptide",
             "proteins",
-            "label",
+            "q_value",
             "score",
             "spectral_angle",
         ]);
@@ -336,7 +336,10 @@ impl Runner {
 
         let records = areas
             .into_par_iter()
-            .map(|((peptide_ix, decoy), (peak, data))| {
+            .filter_map(|((peptide_ix, decoy), (peak, data))| {
+                if decoy {
+                    return None;
+                };
                 let mut record = csv::ByteRecord::new();
                 record.push_field(self.database[peptide_ix].to_string().as_bytes());
                 record.push_field(
@@ -345,7 +348,7 @@ impl Runner {
                         .1
                         .as_bytes(),
                 );
-                record.push_field(decoy.to_string().as_bytes());
+                record.push_field(ryu::Buffer::new().format(peak.q_value).as_bytes());
                 record.push_field(ryu::Buffer::new().format(peak.score).as_bytes());
                 record.push_field(ryu::Buffer::new().format(peak.spectral_angle).as_bytes());
                 // record.push_field(ryu::Buffer::new().format(peak.intensity).as_bytes());
@@ -354,7 +357,7 @@ impl Runner {
                 for x in data {
                     record.push_field(ryu::Buffer::new().format(x).as_bytes());
                 }
-                record
+                Some(record)
             })
             .collect::<Vec<csv::ByteRecord>>();
 

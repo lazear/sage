@@ -21,6 +21,13 @@ pub struct Competition<Ix> {
     reverse_ix: Option<Ix>,
 }
 
+struct Row<Ix> {
+    ix: Ix,
+    decoy: bool,
+    score: f32,
+    q: f32,
+}
+
 impl<Ix: Default + Send> Default for Competition<Ix> {
     fn default() -> Self {
         Self {
@@ -49,19 +56,15 @@ impl<Ix: Default + Send> Competition<Ix> {
         Estimator::fit(&scores, &decoys)
     }
 
-    fn assign_q_value<K, B>(scores: HashMap<K, Self, B>) -> (HashMap<Ix, f32, B>, usize)
+    fn assign_q_value<K, B>(
+        scores: HashMap<K, Self, B>,
+        threshold: f32,
+    ) -> (HashMap<Ix, f32, B>, usize)
     where
         K: Eq + std::hash::Hash + Send,
         Ix: Eq + std::hash::Hash,
         B: BuildHasher + Default + Send,
     {
-        struct Row<Ix> {
-            ix: Ix,
-            decoy: bool,
-            score: f32,
-            q: f32,
-        }
-
         let estimator = Self::fit_kde(&scores);
         let mut scores = scores
             .into_par_iter()
@@ -102,7 +105,7 @@ impl<Ix: Default + Send> Competition<Ix> {
         for score in scores.iter_mut().rev() {
             q_min = q_min.min(score.q);
             score.q = q_min;
-            if q_min <= 0.01 {
+            if q_min <= threshold && !score.decoy {
                 passing += 1;
             }
         }
@@ -137,7 +140,7 @@ pub fn picked_peptide(db: &IndexedDatabase, features: &mut [Feature]) -> usize {
         }
     }
 
-    let (scores, passing) = Competition::assign_q_value(map);
+    let (scores, passing) = Competition::assign_q_value(map, 0.01);
 
     features.par_iter_mut().for_each(|feat| {
         feat.peptide_q = scores[&feat.peptide_idx];
@@ -173,7 +176,7 @@ pub fn picked_protein(db: &IndexedDatabase, features: &mut [Feature]) -> usize {
         }
     }
 
-    let (scores, passing) = Competition::assign_q_value(map);
+    let (scores, passing) = Competition::assign_q_value(map, 0.01);
 
     features.par_iter_mut().for_each(|feat| {
         feat.protein_q = scores[&feat.proteins];
@@ -182,36 +185,63 @@ pub fn picked_protein(db: &IndexedDatabase, features: &mut [Feature]) -> usize {
     passing
 }
 
-// pub fn picked_precursor(peaks: &mut FnvHashMap<(PeptideIx, bool), (crate::lfq::Peak, Vec<f64>)>) {
-//     let mut map: FnvHashMap<PeptideIx, Competition<PeptideIx>> = FnvHashMap::default();
-//     for ((peptide, decoy), (peak, _)) in peaks.iter() {
-//         let entry = map.entry(*peptide).or_default();
-//         match decoy {
-//             true => {
-//                 entry.reverse = entry.reverse.max(peak.score as f32);
-//                 entry.reverse_ix = *peptide;
-//             }
-//             false => {
-//                 entry.forward = entry.forward.max(peak.score as f32);
-//                 entry.foward_ix = *peptide;
-//             }
-//         }
-//     }
-//     let mut scores = map.into_values().collect::<Vec<_>>();
+pub fn picked_precursor(
+    peaks: &mut FnvHashMap<(PeptideIx, bool), (crate::lfq::Peak, Vec<f64>)>,
+) -> usize {
+    // let mut map: FnvHashMap<PeptideIx, Competition<(PeptideIx, bool)>> = FnvHashMap::default();
+    // for (key, (peak, _)) in peaks.iter() {
+    //     let entry = map.entry(key.0).or_default();
+    //     match key.1 {
+    //         true => {
+    //             entry.reverse = entry.reverse.max(peak.score as f32);
+    //             entry.reverse_ix = Some(*key);
+    //         }
+    //         false => {
+    //             entry.forward = entry.forward.max(peak.score as f32);
+    //             entry.foward_ix = Some(*key);
+    //         }
+    //     }
+    // }
+    let mut scores = peaks
+        .par_iter()
+        .map(|(key, (peak, _))| Row {
+            ix: *key,
+            decoy: key.1,
+            score: peak.score as f32,
+            q: 1.0,
+        })
+        .collect::<Vec<_>>();
 
-//     Competition::assign_q_value(&mut scores);
+    scores.par_sort_by(|a, b| b.score.total_cmp(&a.score));
 
-//     let scores = scores
-//         .into_par_iter()
-//         .flat_map(|score| {
-//             [
-//                 (score.foward_ix, score.q_value),
-//                 (score.reverse_ix, score.q_value),
-//             ]
-//         })
-//         .collect::<FnvHashMap<_, _>>();
+    let mut decoy = 1.0;
+    let mut target = 0.0;
+    for score in scores.iter_mut() {
+        match score.decoy {
+            true => decoy += 1.0,
+            false => target += 1.0,
+        };
+        score.q = decoy / target;
+    }
+    // Q-value is the minimum q-value at any given score threshold
+    // `q = q[::-1].cummin()[::-1] in python`
+    let mut q_min = 1.0f32;
+    let mut passing = 0;
+    for score in scores.iter_mut().rev() {
+        q_min = q_min.min(score.q);
+        score.q = q_min;
+        if q_min <= 0.05 && !score.decoy {
+            passing += 1;
+        }
+    }
 
-//     peaks.par_iter_mut().for_each(|((ix, _), (peak, _))| {
-//         peak.q_value = scores[ix];
-//     });
-// }
+    let scores = scores
+        .into_par_iter()
+        .map(|score| (score.ix, score.q))
+        .collect::<FnvHashMap<_, _>>();
+
+    peaks.par_iter_mut().for_each(|(ix, (peak, _))| {
+        peak.q_value = scores[ix];
+    });
+    passing
+}

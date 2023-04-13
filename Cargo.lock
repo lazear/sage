@@ -1456,6 +1456,7 @@ dependencies = [
  "clap",
  "csv",
  "env_logger",
+ "fnv",
  "itoa 1.0.4",
  "log",
  "num_cpus",

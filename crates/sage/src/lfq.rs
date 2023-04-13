@@ -6,7 +6,7 @@ use crate::spectrum::ProcessedSpectrum;
 use dashmap::DashMap;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, hash::BuildHasherDefault};
+use std::collections::HashMap;
 
 /// Minimum normalized spectral angle required to integrate a peak
 // const MIN_SPECTRAL_ANGLE: f64 = 0.70;
@@ -80,7 +80,7 @@ pub fn build_feature_map(settings: LfqSettings, features: &[Feature]) -> Feature
     let map: DashMap<PeptideIx, PrecursorRange, fnv::FnvBuildHasher> = DashMap::default();
     features
         .iter()
-        .filter(|feat| feat.spectrum_q <= 0.01 && feat.peptide_q <= 0.05 && feat.label == 1)
+        .filter(|feat| feat.peptide_q <= 0.01 && feat.label == 1)
         .for_each(|feat| {
             // `features` is sorted by confidence, so just take the first entry
             if !map.contains_key(&feat.peptide_idx) {
@@ -125,9 +125,14 @@ pub fn build_feature_map(settings: LfqSettings, features: &[Feature]) -> Feature
                         ..range
                     };
 
+                    let (mass_lo, mass_hi) =
+                        Tolerance::Ppm(-settings.ppm_tolerance, settings.ppm_tolerance)
+                            .bounds(mass + 11.06);
+
                     let rev = PrecursorRange {
-                        mass_lo: mass_lo + 10.005,
-                        mass_hi: mass_hi + 10.005,
+                        rt: (fwd.rt - RT_TOL * 2.0).max(0.0),
+                        mass_lo,
+                        mass_hi,
                         decoy: true,
                         ..fwd
                     };
@@ -194,9 +199,8 @@ impl FeatureMap {
         db: &IndexedDatabase,
         spectra: &[ProcessedSpectrum],
         alignments: &[Alignment],
-    ) -> HashMap<(PeptideIx, bool), (Peak, Vec<f64>)> {
-        let scores: DashMap<(PeptideIx, bool), Grid, BuildHasherDefault<fnv::FnvHasher>> =
-            DashMap::default();
+    ) -> HashMap<(PeptideIx, bool), (Peak, Vec<f64>), fnv::FnvBuildHasher> {
+        let scores: DashMap<(PeptideIx, bool), Grid, fnv::FnvBuildHasher> = DashMap::default();
 
         log::info!("tracing MS1 features");
         spectra
@@ -256,7 +260,7 @@ impl FeatureMap {
 
                 Some((peptide_ix, (peak, data)))
             })
-            .collect::<HashMap<_, _>>()
+            .collect::<HashMap<_, _, _>>()
     }
 }
 
@@ -264,6 +268,7 @@ pub struct Grid {
     rt_min: f32,
     rt_step: f32,
     files: usize,
+    /// File with the most confident PSM
     reference_file_id: usize,
     /// Relative theoretical isotopic abundances
     pub distribution: [f32; N_ISOTOPES],
@@ -280,10 +285,10 @@ pub struct Grid {
 pub struct Traces {
     /// Matrix of dot(MS1 ions, Grid.distribution). This collapses our N_FILES * N_ISOTOPES rows
     /// down to just N_FILES
-    dot_product: Matrix,
+    pub dot_product: Matrix,
     /// Matrix of spectral angles at each retention time for each file
-    spectral_angle: Matrix,
-    // These are just here for debugging purposes
+    pub spectral_angle: Matrix,
+    /// File with the most confident PSM
     reference_file_id: usize,
 }
 
@@ -295,6 +300,8 @@ pub struct Peak {
     pub spectral_angle: f64,
     /// Peak score
     pub score: f64,
+
+    pub q_value: f32,
 }
 
 impl Traces {
@@ -311,7 +318,7 @@ impl Traces {
     /// * Use the LC-MS run with the most confident PSM for a peptide as the reference run
     /// * For each LC-MS run, find the time warping shif that maximizes dot product
     ///   with the `reference` run
-    fn find_time_warps(&self, matrix: &Matrix, slack: isize) -> Vec<isize> {
+    pub fn find_time_warps(&self, matrix: &Matrix, slack: isize) -> Vec<isize> {
         let reference = matrix.row_slice(self.reference_file_id);
         let mut offsets = vec![0; matrix.rows];
 
@@ -419,8 +426,8 @@ impl Traces {
 
         let threshold = best.score * 0.50;
 
-        // Don't let peaks extend more than 20 RT bins to either side
-        while left > best.rt.saturating_sub(20)
+        // Don't let peaks extend more than GRID_SIZE/5 bins to either side
+        while left > best.rt.saturating_sub(scores.len() / 5)
             && scores[left] >= threshold
             && spectral[left] >= settings.spectral_angle
         {
@@ -487,6 +494,7 @@ impl Grid {
         }
     }
 
+    /// Add a data point to the integration grid
     pub fn add_entry(&mut self, spectrum_rt: f32, isotope: usize, file_id: usize, intensity: f32) {
         let bin_lo = ((spectrum_rt - self.rt_min) / self.rt_step).floor() as usize;
         let bin_lo = bin_lo.min(self.matrix.cols - 1);
@@ -626,38 +634,3 @@ impl<'a> Query<'a> {
         })
     }
 }
-
-// #[cfg(test)]
-// mod test {
-
-//     use super::*;
-
-//     #[test]
-//     fn disjoint_set() {
-//         let mut set = DisjointPeakSet::default();
-
-//         let a = set.singleton(10, 0.75);
-//         let b = set.singleton(12, 0.90);
-//         let c = set.singleton(13, 0.75);
-//         let d = set.singleton(25, 0.90);
-
-//         set.union(a, b, PeakScoringStrategy::SpectralAngle);
-//         set.union(b, c, PeakScoringStrategy::SpectralAngle);
-
-//         assert_eq!(set.peak(a).rt, 12);
-//         assert_eq!(set.peak(b).rt, 12);
-//         assert_eq!(set.peak(c).rt, 12);
-//         assert_eq!(set.peak(d).rt, 25);
-
-//         let peaks = set
-//             .peaks
-//             .iter()
-//             .enumerate()
-//             .filter(|(idx, peak)| peak.parent.get() == *idx)
-//             .map(|(_, peak)| peak)
-//             .collect::<Vec<_>>();
-
-//         assert_eq!(peaks[0].rt, 12);
-//         assert_eq!(peaks[1].rt, 25);
-//     }
-// }
