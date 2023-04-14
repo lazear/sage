@@ -28,6 +28,7 @@ fn integration() -> anyhow::Result<()> {
         min_fragment_mass: 0.0,
         max_fragment_mass: 1500.0,
         chimera: false,
+        wide_window: false,
     };
 
     let psm = scorer.score(&processed, 1);

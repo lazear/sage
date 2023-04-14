@@ -220,6 +220,7 @@ impl Runner {
             min_fragment_mass: self.parameters.database.fragment_min_mz,
             max_fragment_mass: self.parameters.database.fragment_max_mz,
             chimera: self.parameters.chimera,
+            wide_window: self.parameters.wide_window,
         };
 
         //Collect all results into a single container

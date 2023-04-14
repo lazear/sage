@@ -165,6 +165,10 @@ pub struct Scorer<'db> {
     pub max_fragment_mass: f32,
     // factorial: [f64; 32],
     pub chimera: bool,
+
+    // Rather than use a fixed precursor tolerance, dynamically alter
+    // the precursor tolerance window based on MS2 isolation window and charge
+    pub wide_window: bool,
 }
 
 impl<'db> Scorer<'db> {
@@ -196,10 +200,12 @@ impl<'db> Scorer<'db> {
         query: &ProcessedSpectrum,
         precursor_mass: f32,
         precursor_charge: u8,
+        precursor_tol: Tolerance,
     ) -> InitialHits {
         let candidates = self.db.query(
             precursor_mass,
-            self.precursor_tol,
+            // self.precursor_tol,
+            precursor_tol,
             self.fragment_tol,
             self.min_isotope_err,
             self.max_isotope_err,
@@ -240,6 +246,45 @@ impl<'db> Scorer<'db> {
         hits
     }
 
+    fn initial_hits(&self, query: &ProcessedSpectrum, precursor: &Precursor) -> InitialHits {
+        // Sage operates on masses without protons; [M] instead of [MH+]
+        let mz = precursor.mz - PROTON;
+
+        // Search in wide-window/DIA mode
+        if self.wide_window {
+            let mut hits = (2..5).fold(InitialHits::default(), |mut hits, precursor_charge| {
+                let precursor_mass = mz * precursor_charge as f32;
+                let precursor_tol = precursor
+                    .isolation_window
+                    .unwrap_or(Tolerance::Da(-2.4, 2.4))
+                    * precursor_charge as f32;
+                hits += self.matched_peaks(query, precursor_mass, precursor_charge, precursor_tol);
+
+                hits
+            });
+            hits.preliminary.sort_by(|a, b| b.matched.cmp(&a.matched));
+            hits
+        } else if let Some(charge) = precursor.charge {
+            // Charge state is already annotated for this precusor, only search once
+            let precursor_mass = mz * charge as f32;
+            self.matched_peaks(query, precursor_mass, charge, self.precursor_tol)
+        } else {
+            // Not all selected ion precursors have charge states annotated -
+            // assume it could be z=2, z=3, z=4 and search all three
+            let mut hits = (2..5).fold(InitialHits::default(), |mut hits, precursor_charge| {
+                let precursor_mass = mz * precursor_charge as f32;
+                hits +=
+                    self.matched_peaks(query, precursor_mass, precursor_charge, self.precursor_tol);
+                hits
+            });
+
+            // We have merged results from multiple initial searches,
+            // which are now concatenated and need to be sorted again
+            hits.preliminary.sort_by(|a, b| b.matched.cmp(&a.matched));
+            hits
+        }
+    }
+
     /// Score a single [`ProcessedSpectrum`] against the database
     pub fn score_standard(&self, query: &ProcessedSpectrum, report_psms: usize) -> Vec<Feature> {
         let precursor = query.precursors.get(0).unwrap_or_else(|| {
@@ -248,25 +293,7 @@ impl<'db> Scorer<'db> {
 
         // Sage operates on masses without protons; [M] instead of [MH+]
         let mz = precursor.mz - PROTON;
-
-        let hits = if let Some(charge) = precursor.charge {
-            // Charge state is already annotated for this precusor, only search once
-            let precursor_mass = mz * charge as f32;
-            self.matched_peaks(query, precursor_mass, charge)
-        } else {
-            // Not all selected ion precursors have charge states annotated -
-            // assume it could be z=2, z=3, z=4 and search all three
-            let mut hits = (2..5).fold(InitialHits::default(), |mut hits, precursor_charge| {
-                let precursor_mass = mz * precursor_charge as f32;
-                hits += self.matched_peaks(query, precursor_mass, precursor_charge);
-                hits
-            });
-
-            // We have merged results from multiple initial searches,
-            // which are now concatenated and need to be sorted again
-            hits.preliminary.sort_by(|a, b| b.matched.cmp(&a.matched));
-            hits
-        };
+        let hits = self.initial_hits(query, precursor);
 
         // Determine how many candidates to actually calculate hyperscore for.
         // Hyperscore is relatively computationally expensive, so we don't want

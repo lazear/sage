@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Sort protein names alphanumerically for each peptide entry. This should enhance stability across runs, and fixes a bug with picked-protein group FDR
 - Fix another bug where picked-FDR approaches assume internal decoy generation
 
+### Changed
+- Modify order of operations during deisotoping. Deisotoped peaks can contribute intensity to only 1 parent peak now, rather than potentially multiple parent peaks
+
 ## [0.11.0]
 ### Added
 - Support for percolator output files (`--write-pin` CLI flag)

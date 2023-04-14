@@ -164,6 +164,7 @@ Note on the settings below:
 
 - **deisotope**: Boolean. Perform deisotoping and charge state deconvolution on MS2 spectra (default: false). Recommended for high-resolution MS2 scans. This setting may interfere with TMT-MS2 quantification, use at your own risk.
 - **chimera**: Boolean. Search for chimeric/co-fragmenting PSMs (default: false).
+- **wide_window**: Boolean. Ignore `precursor_tol` and search spectra in wide-window/dynamic precursor tolerance mode (default: false).
 - **predict_rt**: Boolean. Use retention time prediction model as a feature for LDA (default: false).
 - **min_peaks**: Integer. Only process MS2 spectra with at least N peaks (default: 15).
 - **max_peaks**: Integer. Take the top N most intense MS2 peaks to search (default: 150).

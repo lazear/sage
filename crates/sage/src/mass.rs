@@ -1,4 +1,4 @@
-use std::{fmt::Write, iter::Sum};
+use std::{fmt::Write, iter::Sum, ops::Mul};
 
 use serde::{Deserialize, Serialize};
 
@@ -30,6 +30,17 @@ impl Tolerance {
 
     pub fn ppm_to_delta_mass(center: f32, ppm: f32) -> f32 {
         ppm * center / 1_000_000.0
+    }
+}
+
+impl Mul<f32> for Tolerance {
+    type Output = Tolerance;
+
+    fn mul(self, rhs: f32) -> Self::Output {
+        match self {
+            Tolerance::Ppm(lo, hi) => Tolerance::Ppm(lo * rhs, hi * rhs),
+            Tolerance::Da(lo, hi) => Tolerance::Da(lo * rhs, hi * rhs),
+        }
     }
 }
 

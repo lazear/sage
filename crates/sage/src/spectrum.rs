@@ -139,13 +139,13 @@ pub fn deisotope(mz: &[f32], int: &[f32], max_charge: u8, ppm: f32) -> Vec<Deiso
             for charge in 1..=max_charge {
                 let iso = NEUTRON / charge as f32;
                 if (delta - iso).abs() <= tol && int[i] < int[j] {
-                    peaks[j].intensity += peaks[i].intensity;
                     // Make sure this peak isn't already part of an isotopic envelope
                     if let Some(existing) = peaks[i].charge {
                         if existing != charge {
                             continue;
                         }
                     }
+                    peaks[j].intensity += peaks[i].intensity;
                     peaks[j].charge = Some(charge);
                     peaks[i].charge = Some(charge);
                     peaks[i].envelope = Some(j);
