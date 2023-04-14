@@ -158,8 +158,6 @@ Example:
 
 Note on the settings below:
 
-`chimera: true` and `report_psms > 1` are incompatible. Setting `chimera = true` will override any user settings for `report_psms`. Two PSMs for each MS2 spectrum will be reported, each with rank = 1. 
-
 `predict_rt` is incompatible with `quant.lfq = true`. Setting `quant.lfq = true` will automatically turn on global retention time alignment and prediction, which are crucial for accurate direct ion current extraction.
 
 - **deisotope**: Boolean. Perform deisotoping and charge state deconvolution on MS2 spectra (default: false). Recommended for high-resolution MS2 scans. This setting may interfere with TMT-MS2 quantification, use at your own risk.
@@ -201,7 +199,7 @@ The "results.sage.tsv" file contains the following columns (headers):
 - `num_proteins`: Number of proteins assigned to the peptide sequence.
 - `filename`: File containing this PSM
 - `scannr`: Spectrum identifier from mzML file.
-- `rank`: Rank of the PSM. If `chimera = True`, then both matches will have a rank of 1. If `report_psms > 1`, then the best match will have rank = 1, the second best match will have rank = 2, etc. 
+- `rank`: Rank of the PSM. If `report_psms > 1`, then the best match will have rank = 1, the second best match will have rank = 2, etc. 
 - `label`: Target/Decoy label (-1: decoy, 1: target).
 - `expmass`: Experimental mass of the peptide.
 - `calcmass`: Calculated mass of the peptide.
@@ -212,7 +210,8 @@ The "results.sage.tsv" file contains the following columns (headers):
 - `precursor_ppm`: Difference between experimental mass and calculated mass, reported in parts-per-million.
 - `fragment_ppm`: Average parts-per-million (delta mass) for matched fragment ions compared to theoretical ions.
 - `hyperscore`: X!Tandem hyperscore for the PSM.
-- `delta_hyperscore`: Difference between the hyperscore of this candidate and the next best candidate.
+- `delta_next`: Difference between the hyperscore of this candidate and the next best candidate.
+- `delta_bext`: Difference between the hyperscore of the best candidate (rank=1) and this candidate.
 - `rt`: Retention time.
 - `aligned_rt`: Globally aligned retention time.
 - `predicted_rt`: Predicted retention time, if enabled.

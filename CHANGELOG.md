@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0]
+### Added
+- Support for percolator output files (`--write-pin` CLI flag)
+- Support for modifying file batch size (`--batch-size N` CLI flag)
+- Add `delta_best` feature, which reports the delta hyperscore from the best match to current ranked PSM
+- Add Sage version to `results.json` files
+
+### Changed
+- Breaking changes to `quant` section of the configuration file format
+- Rename `delta_hyperscore` to `delta_next`
+- Altered internal scoring algorithm. Rather than consider all MS2 peaks within a m/z tolerance window to be matches to a theoretical spectrum, consider only the closest peak. This should increase the accuracy of # of matched peaks, and subsequent scores
+- Overhaul of chimeric scoring, `report_psms` can now be used to search for multiple chimeric spectra
+- Completely overhauled the LFQ algorithm: added match-between runs, peak scoring using normalized spectral angle relative to theoretical isotopic envelope, target decoy scoring of MS1 integration
+- Fixed bug in picked-peptide FDR that could lead to liberal FDR
+- Fixed bug in picked-protein FDR that could lead to conservative FDR
+- Fixed bug where using variable protein terminal (e.g. protein N-terminal acetylation) modifications could cause some determinism. This also improves the accuracy of peptide => protein assignment. Unfortunately this fix has performance implications, causing creation of the fragment index to take up to ~2x as long.
+
+### Removed
+- Remove `no-parallel` CLI flag, and `parallel` configuration file entry
+
 ## [0.10.0]
 ### Added
 - Retention times are now globally aligned across files

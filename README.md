@@ -214,9 +214,17 @@ For additional information about configuration options and output file formats, 
   },
   "quant": {                // Optional - specify only if TMT or LFQ
     "tmt": "Tmt16",         // Optional[str] {default=null}, one of "Tmt6", "Tmt10", "Tmt11", "Tmt16", or "Tmt18"
-    "tmt_level": 2,         // Optional[int] {default=3}, MS-level to perform TMT quantification on
-    "tmt_sn": false,        // Optional[bool] {default=false}, use Signal/Noise instead of intensity for TMT quant. Requires noise values in mzML
+    "tmt_settings": {
+      "level": 3,           // Optional[int] {default=3}, MS-level to perform TMT quantification on
+      "sn": false           // Optional[bool] {default=false}, use Signal/Noise instead of intensity for TMT quant. Requires noise values in mzML
+    },
     "lfq": true             // Optional[bool] {default=null}, perform label-free quantification
+    "lfq_settings": {
+      "peak_scoring": "Hybrid", // See DOCS.md for details - recommend that you do not change this setting
+      "integration": "Sum",   // Optional["Sum" | "Apex"], use sum of MS1 traces in peak, or MS1 intensity at peak apex
+      "spectral_angle": 0.7,  // Optional[float] {default = 0.7}, normalized spectral angle cutoff for calling an MS1 peak
+      "ppm_tolerance": 5.0    // Optional[float] {default = 5.0}, tolerance (in p.p.m.) for DICE window around calculated precursor mass
+    }
   },
   "precursor_tol": {        // Tolerance can be either "ppm" or "da"
     "da": [
@@ -242,7 +250,6 @@ For additional information about configuration options and output file formats, 
   "min_matched_peaks": 6,   // Optional[int] {default=4}: minimum # of matched b+y ions to use for reporting PSMs
   "max_fragment_charge": 1, // Optional[int] {default=null}: maximum fragment ion charge states to consider,
   "report_psms": 1,         // Optional[int] {default=1}: number of PSMs to report for each spectra. Higher values might disrupt PSM rescoring.
-  "parallel": true,         // Optional[bool] {default=true}: search files in parallel. For large numbers of files or low RAM, set this to false
   "output_directory": "s3://bucket/prefix" // Optional[str] {default=`.`}: Place output files in a given directory or S3 bucket/prefix
   "mzml_paths": [           // List[str]: representing paths to mzML (or gzipped-mzML) files for search
     "local/path.mzML",

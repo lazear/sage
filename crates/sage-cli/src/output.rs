@@ -351,9 +351,6 @@ impl Runner {
                 record.push_field(ryu::Buffer::new().format(peak.q_value).as_bytes());
                 record.push_field(ryu::Buffer::new().format(peak.score).as_bytes());
                 record.push_field(ryu::Buffer::new().format(peak.spectral_angle).as_bytes());
-                // record.push_field(ryu::Buffer::new().format(peak.intensity).as_bytes());
-                // record.push_field(ryu::Buffer::new().format(peak.fwhm).as_bytes());
-                // record.push_field(itoa::Buffer::new().format(peak.rt).as_bytes());
                 for x in data {
                     record.push_field(ryu::Buffer::new().format(x).as_bytes());
                 }
