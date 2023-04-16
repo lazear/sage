@@ -68,6 +68,8 @@ pub struct Builder {
     pub peptide_min_mass: Option<f32>,
     /// Maximum peptide monoisotopic mass that will be fragmented
     pub peptide_max_mass: Option<f32>,
+    /// Which kind of fragment ions to generate (a, b, c, x, y, z)
+    pub ion_kinds: Option<Vec<Kind>>,
     /// Minimum ion index to be generated: 1 will remove b1/y1 ions
     /// 2 will remove b1/b2/y1/y2 ions, etc
     pub min_ion_index: Option<usize>,
@@ -111,6 +113,7 @@ impl Builder {
             fragment_max_mz: self.fragment_max_mz.unwrap_or(2000.0),
             peptide_min_mass: self.peptide_min_mass.unwrap_or(500.0),
             peptide_max_mass: self.peptide_max_mass.unwrap_or(5000.0),
+            ion_kinds: self.ion_kinds.unwrap_or(vec![Kind::B, Kind::Y]),
             min_ion_index: self.min_ion_index.unwrap_or(2),
             decoy_tag: self.decoy_tag.unwrap_or_else(|| "rev_".into()),
             enzyme: self.enzyme.unwrap_or_default(),
@@ -135,6 +138,7 @@ pub struct Parameters {
     pub fragment_max_mz: f32,
     peptide_min_mass: f32,
     peptide_max_mass: f32,
+    ion_kinds: Vec<Kind>,
     min_ion_index: usize,
     static_mods: HashMap<char, f32>,
     variable_mods: HashMap<char, f32>,
@@ -182,12 +186,16 @@ impl Parameters {
             }
         });
 
-        // peptide_graph.par_iter_mut().for_each(|mut entry| entry.value_mut().sort());
-
         let mut target_decoys = target_decoys
-            .into_iter()
+            .into_par_iter()
             .map(|(_, v)| v)
             .collect::<Vec<_>>();
+
+        // Sort protein lists alphanumerically, to ensure stability across runs, and for
+        // picked-protein group FDR
+        peptide_graph
+            .par_iter_mut()
+            .for_each(|mut entry| entry.sort_unstable());
 
         // NB: Stable sorting here (and only here?) is critical to achieving determinism...
         // not totally sure why... Probably has to do with using PeptideIxs
@@ -214,14 +222,14 @@ impl Parameters {
             .flat_map_iter(|(idx, peptide)| {
                 // Generate both B and Y ions, then filter down to make sure that
                 // theoretical fragments are within the search space
-                IonSeries::new(peptide, Kind::B)
-                    .enumerate()
-                    .chain(IonSeries::new(peptide, Kind::Y).enumerate())
+                self.ion_kinds
+                    .iter()
+                    .flat_map(|kind| IonSeries::new(peptide, *kind).enumerate())
                     .filter(|(ion_idx, ion)| {
                         // Don't store b1, b2, y1, y2 ions for preliminary scoring
                         let ion_idx_filter = match ion.kind {
-                            Kind::B => (ion_idx + 1) > self.min_ion_index,
-                            Kind::Y => {
+                            Kind::A | Kind::B | Kind::C => (ion_idx + 1) > self.min_ion_index,
+                            Kind::X | Kind::Y | Kind::Z => {
                                 peptide.sequence.len().saturating_sub(1) - ion_idx
                                     > self.min_ion_index
                             }
@@ -304,6 +312,7 @@ impl Parameters {
             fragments,
             min_value,
             bucket_size: self.bucket_size,
+            ion_kinds: self.ion_kinds,
             peptide_graph,
             potential_mods,
         })
@@ -330,6 +339,7 @@ pub struct Theoretical {
 pub struct IndexedDatabase {
     pub peptides: Vec<Peptide>,
     pub fragments: Vec<Theoretical>,
+    pub ion_kinds: Vec<Kind>,
     pub(crate) min_value: Vec<f32>,
     /// Keep a list of potential (AA, mass) modifications for RT prediction
     pub potential_mods: Vec<(char, f32)>,
@@ -561,6 +571,7 @@ mod test {
             fragment_max_mz: 1000.0,
             peptide_min_mass: 150.0,
             peptide_max_mass: 5000.0,
+            ion_kinds: vec![Kind::B, Kind::Y],
             min_ion_index: 2,
             static_mods: HashMap::default(),
             variable_mods: [('[', 42.0)].into_iter().collect(),

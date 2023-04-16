@@ -25,7 +25,7 @@ const FEATURE_NAMES: [&str; FEATURES] = [
     "average_ppm",
     "ln1p(-poisson)",
     "ln1p(matched_intensity_pct)",
-    "ln1p(match_peaks)",
+    "ln1p(matched_peaks)",
     "ln1p(longest_b)",
     "ln1p(longest_y)",
     "longest_y_pct",
@@ -33,7 +33,6 @@ const FEATURE_NAMES: [&str; FEATURES] = [
     "missed_cleavages",
     "rt",
     "sqrt(delta_rt_model)",
-    // "ln1p(ms2_intensity)", // "sqrt(delta_rt_align)",
 ];
 
 struct Features<'a>(&'a [f64]);
@@ -149,9 +148,6 @@ pub fn score_psms(scores: &mut [Feature]) -> Option<()> {
                 (perc.missed_cleavages as f64),
                 (perc.aligned_rt as f64),
                 (perc.delta_rt_model as f64).clamp(0.001, 0.999).sqrt(),
-                // (perc.ms2_intensity as f64).ln_1p(), // (perc.delta_rt_align.abs() as f64)
-                //     .clamp(0.001, 0.999)
-                //     .sqrt(),
             ];
             x
         })

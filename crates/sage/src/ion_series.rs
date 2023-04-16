@@ -1,12 +1,17 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::mass::Mass;
 use crate::peptide::Peptide;
 
-#[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Serialize)]
+#[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Kind {
+    A,
     B,
+    C,
+    X,
     Y,
+    Z,
 }
 
 /// Theoretical B/Y ion
@@ -29,9 +34,22 @@ pub struct IonSeries<'p> {
 impl<'p> IonSeries<'p> {
     /// Create a new [`IonSeries`] iterator for a specified peptide
     pub fn new(peptide: &'p Peptide, kind: Kind) -> Self {
+        const C: f32 = 12.0;
+        const O: f32 = 15.994914;
+        const H: f32 = 1.007825;
+        const PRO: f32 = 1.0072764;
+        const N: f32 = 14.003074;
+        const NH3: f32 = N + H * 2.0 + PRO;
+
         let cumulative_mass = match kind {
+            Kind::A => peptide.nterm.unwrap_or_default() - (C + O),
             Kind::B => peptide.nterm.unwrap_or_default(),
+            Kind::C => peptide.nterm.unwrap_or_default() + NH3,
+            Kind::X => {
+                peptide.monoisotopic - peptide.nterm.unwrap_or_default() + (C + O - NH3 + N + H)
+            }
             Kind::Y => peptide.monoisotopic - peptide.nterm.unwrap_or_default(),
+            Kind::Z => peptide.monoisotopic - peptide.nterm.unwrap_or_default() - NH3,
         };
         Self {
             kind,
@@ -54,8 +72,8 @@ impl<'p> Iterator for IonSeries<'p> {
         let r = self.peptide.sequence.get(self.idx)?;
 
         self.cumulative_mass += match self.kind {
-            Kind::B => r.monoisotopic(),
-            Kind::Y => -r.monoisotopic(),
+            Kind::A | Kind::B | Kind::C => r.monoisotopic(),
+            Kind::X | Kind::Y | Kind::Z => -r.monoisotopic(),
         };
         self.idx += 1;
 
@@ -86,7 +104,7 @@ mod test {
             expected_mz
                 .iter()
                 .zip(observed.iter())
-                .all(|(a, b)| (a - b).abs() < 0.01),
+                .all(|(a, b)| (a - b).abs() < 0.005),
             "{:?}",
             expected_mz
                 .iter()
@@ -103,6 +121,24 @@ mod test {
                 ion
             })
         }};
+    }
+
+    #[test]
+    fn abc_xyz() {
+        let peptide = peptide("PEPTIDE");
+        let expected_a = vec![70.065, 199.108, 296.160, 397.208, 510.292, 625.32];
+        let expected_b = vec![98.0600, 227.1026, 324.155, 425.2030, 538.287, 653.314];
+        let expected_c = vec![115.086, 244.129, 341.182, 442.229, 555.314, 670.341];
+        let expected_x = vec![729.294, 600.251, 503.198, 402.151, 289.066, 174.039];
+        let expected_y = vec![703.314, 574.2719, 477.219, 376.171, 263.0874, 148.0604];
+        let expected_z = vec![686.288, 557.245, 460.193, 359.145, 246.061, 131.034];
+
+        check_within(ions!(&peptide, Kind::A, 1.0), &expected_a);
+        check_within(ions!(&peptide, Kind::B, 1.0), &expected_b);
+        check_within(ions!(&peptide, Kind::C, 1.0), &expected_c);
+        check_within(ions!(&peptide, Kind::X, 1.0), &expected_x);
+        check_within(ions!(&peptide, Kind::Y, 1.0), &expected_y);
+        check_within(ions!(&peptide, Kind::Z, 1.0), &expected_z);
     }
 
     #[test]
@@ -159,8 +195,10 @@ mod test {
             .filter(|(ion_idx, ion)| {
                 // Don't store b1, b2, y1, y2 ions for preliminary scoring
                 let ion_idx_filter = match ion.kind {
-                    Kind::B => (ion_idx + 1) > 2,
-                    Kind::Y => peptide.sequence.len().saturating_sub(1) - ion_idx > 2,
+                    Kind::A | Kind::B | Kind::C => (ion_idx + 1) > 2,
+                    Kind::X | Kind::Y | Kind::Z => {
+                        peptide.sequence.len().saturating_sub(1) - ion_idx > 2
+                    }
                 };
                 ion_idx_filter
             })

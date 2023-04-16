@@ -37,6 +37,7 @@ Example:
 - **fragment_max_mz**: Float. The maximum mass of fragments to search (default: 2000.0).
 - **peptide_min_mass**: Float. The minimum monoisotopic mass of peptides to fragment *in silico* (default: 500.0).
 - **peptide_max_mass**: Float. The maximum monoisotopic mass of peptides to fragment *in silico* (default: 5000.0).
+- **ion_kinds**: List of strings. Which fragment ions to produce? Allowed values: "a", "b", "c", "x", "y", "z". (default: ["b", "y"])
 - **min_ion_index**: Integer. Do not generate b1/bN/y1/yN ions for preliminary searching if `min_ion_index = N`. Does not affect full scoring of PSMs (default: 2).
 
 Example:
@@ -46,6 +47,7 @@ Example:
   "fragment_max_mz": 2000.0,
   "peptide_min_mass": 500.0,
   "peptide_max_mass": 5000.0,
+  "ion_kinds": ["b", "y"],
   "min_ion_index": 2
 }
 ```

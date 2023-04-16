@@ -411,7 +411,9 @@ impl<'db> Scorer<'db> {
 
         let peptide = &self.db[best.peptide_idx];
         if !peptide.decoy {
-            let mut theo = [Kind::B, Kind::Y]
+            let mut theo = self
+                .db
+                .ion_kinds
                 .iter()
                 .flat_map(|kind| {
                     IonSeries::new(peptide, *kind).map(|ion| Theoretical {
@@ -463,8 +465,11 @@ impl<'db> Scorer<'db> {
                     psm.rank = reporting.len() as u32 + 1;
 
                     let peptide = &self.db[psm.peptide_idx];
-                    let fragments =
-                        IonSeries::new(peptide, Kind::B).chain(IonSeries::new(peptide, Kind::Y));
+                    let fragments = self
+                        .db
+                        .ion_kinds
+                        .iter()
+                        .flat_map(|kind| IonSeries::new(peptide, *kind));
 
                     let max_fragment_charge = self.max_fragment_charge(psm.charge);
                     for frag in fragments {
@@ -514,9 +519,11 @@ impl<'db> Scorer<'db> {
         // Regenerate theoretical ions - initial database search might be
         // using only a subset of all possible ions (e.g. no b1/b2/y1/y2)
         // so we need to completely re-score this candidate
-        let fragments = IonSeries::new(peptide, Kind::B)
-            .enumerate()
-            .chain(IonSeries::new(peptide, Kind::Y).enumerate());
+        let fragments = self
+            .db
+            .ion_kinds
+            .iter()
+            .flat_map(|kind| IonSeries::new(peptide, *kind).enumerate());
 
         let mut b_run = Run::default();
         let mut y_run = Run::default();
@@ -533,12 +540,12 @@ impl<'db> Scorer<'db> {
                         (frag.monoisotopic_mass - peak.mass).abs() * 1E6 / frag.monoisotopic_mass;
 
                     match frag.kind {
-                        Kind::B => {
+                        Kind::A | Kind::B | Kind::C => {
                             score.matched_b += 1;
                             score.summed_b += peak.intensity;
                             b_run.matched(idx);
                         }
-                        Kind::Y => {
+                        Kind::X | Kind::Y | Kind::Z => {
                             score.matched_y += 1;
                             score.summed_y += peak.intensity;
                             y_run.matched(idx);
