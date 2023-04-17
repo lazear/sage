@@ -15,8 +15,10 @@ use rayon::prelude::*;
 use crate::scoring::Feature;
 
 // Declare, so that we have compile time checking of matrix dimensions
-const FEATURES: usize = 16;
+const FEATURES: usize = 18;
 const FEATURE_NAMES: [&str; FEATURES] = [
+    "rank",
+    "charge",
     "ln1p(hyperscore)",
     "ln1p(delta_next)",
     "ln1p(delta_best)",
@@ -132,6 +134,8 @@ pub fn score_psms(scores: &mut [Feature]) -> Option<()> {
             // distributed. This is not true for all of our inputs, so we log
             // transform many of them to get them closer to a gaussian distr.
             let x: [f64; FEATURES] = [
+                (perc.rank as f64),
+                (perc.charge as f64),
                 (perc.hyperscore).ln_1p(),
                 (perc.delta_next).ln_1p(),
                 (perc.delta_best).ln_1p(),

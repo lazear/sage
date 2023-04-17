@@ -154,8 +154,38 @@ impl Runner {
         record.push_field(ryu::Buffer::new().format(feature.expmass).as_bytes());
         record.push_field(ryu::Buffer::new().format(feature.calcmass).as_bytes());
         record.push_field(filenames[feature.file_id].as_bytes());
-        record.push_field(itoa::Buffer::new().format(feature.charge).as_bytes());
         record.push_field(ryu::Buffer::new().format(feature.rt).as_bytes());
+        record.push_field(itoa::Buffer::new().format(feature.rank).as_bytes());
+        record.push_field(
+            itoa::Buffer::new()
+                .format((feature.charge == 2) as i32)
+                .as_bytes(),
+        );
+        record.push_field(
+            itoa::Buffer::new()
+                .format((feature.charge == 3) as i32)
+                .as_bytes(),
+        );
+        record.push_field(
+            itoa::Buffer::new()
+                .format((feature.charge == 4) as i32)
+                .as_bytes(),
+        );
+        record.push_field(
+            itoa::Buffer::new()
+                .format((feature.charge == 5) as i32)
+                .as_bytes(),
+        );
+        record.push_field(
+            itoa::Buffer::new()
+                .format((feature.charge == 6) as i32)
+                .as_bytes(),
+        );
+        record.push_field(
+            itoa::Buffer::new()
+                .format((feature.charge < 2 || feature.charge > 6) as i32)
+                .as_bytes(),
+        );
         record.push_field(itoa::Buffer::new().format(feature.peptide_len).as_bytes());
         record.push_field(
             itoa::Buffer::new()
@@ -223,14 +253,20 @@ impl Runner {
             .from_writer(vec![]);
 
         let headers = csv::ByteRecord::from(vec![
-            "PSMId",
+            "SpecId",
             "Label",
             "ScanNr",
             "ExpMass",
             "CalcMass",
             "FileName",
-            "Charge",
-            "RetTime",
+            "retentiontime",
+            "rank",
+            "z=2",
+            "z=3",
+            "z=4",
+            "z=5",
+            "z=6",
+            "z=other",
             "peptide_len",
             "missed_cleavages",
             "isotope_error",
