@@ -124,8 +124,14 @@ pub fn picked_peptide(db: &IndexedDatabase, features: &mut [Feature]) -> usize {
     let mut map: FnvHashMap<String, Competition<PeptideIx>> = FnvHashMap::default();
     for feat in features.iter() {
         let peptide = &db[feat.peptide_idx];
-        let fwd = peptide.pseudo_forward();
-        let key = fwd.as_ref().unwrap_or(peptide).to_string();
+        // Only reverse the peptide sequence if we generated decoys ourselves
+        let key = match db.generate_decoys {
+            true => peptide
+                .pseudo_forward()
+                .map(|peptide| peptide.to_string())
+                .unwrap_or_else(|| peptide.to_string()),
+            false => peptide.to_string(),
+        };
 
         let entry = map.entry(key).or_default();
         match peptide.decoy {
@@ -154,13 +160,16 @@ pub fn picked_protein(db: &IndexedDatabase, features: &mut [Feature]) -> usize {
     for feat in features.iter() {
         let (decoy, proteins) = match feat.label == -1 {
             false => (false, feat.proteins.clone()),
-            true => {
-                let peptide = db[feat.peptide_idx]
-                    .pseudo_forward()
-                    .expect("we know this is a decoy");
-                let proteins = db.assign_proteins(&peptide).1;
-                (true, proteins)
-            }
+            true => match db.generate_decoys {
+                true => {
+                    let peptide = db[feat.peptide_idx]
+                        .pseudo_forward()
+                        .expect("we know this is a decoy");
+                    let proteins = db.assign_proteins(&peptide).1;
+                    (true, proteins)
+                }
+                false => (true, feat.proteins.clone()),
+            },
         };
 
         let entry = map.entry(proteins).or_default();

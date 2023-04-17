@@ -313,6 +313,7 @@ impl Parameters {
             min_value,
             bucket_size: self.bucket_size,
             ion_kinds: self.ion_kinds,
+            generate_decoys: self.generate_decoys,
             peptide_graph,
             potential_mods,
         })
@@ -344,6 +345,7 @@ pub struct IndexedDatabase {
     /// Keep a list of potential (AA, mass) modifications for RT prediction
     pub potential_mods: Vec<(char, f32)>,
     pub bucket_size: usize,
+    pub generate_decoys: bool,
     peptide_graph: DashMap<String, Vec<String>, FnvBuildHasher>,
 }
 
@@ -399,7 +401,7 @@ impl IndexedDatabase {
             None => {
                 panic!(
                     "BUG: peptide sequence {} doesn't appear in peptide => protein graph!",
-                    peptide // &digest.sequence
+                    peptide
                 );
             }
         }
