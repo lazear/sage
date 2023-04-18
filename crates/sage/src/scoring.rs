@@ -1,6 +1,6 @@
 use std::ops::AddAssign;
 
-use crate::database::{binary_search_slice, IndexedDatabase, PeptideIx, Theoretical};
+use crate::database::{IndexedDatabase, PeptideIx};
 use crate::ion_series::{IonSeries, Kind};
 use crate::mass::{Tolerance, NEUTRON, PROTON};
 use crate::spectrum::{Precursor, ProcessedSpectrum};
@@ -178,7 +178,7 @@ impl<'db> Scorer<'db> {
             "internal bug, trying to score a non-MS2 scan!"
         );
         match self.chimera {
-            true => self.score_chimera_multi(query, report_psms),
+            true => self.score_chimera_fast(query, report_psms),
             false => self.score_standard(query, report_psms),
         }
     }
@@ -291,10 +291,22 @@ impl<'db> Scorer<'db> {
             panic!("missing MS1 precursor for {}", query.id);
         });
 
-        // Sage operates on masses without protons; [M] instead of [MH+]
-        let mz = precursor.mz - PROTON;
         let hits = self.initial_hits(query, precursor);
+        let mut features = Vec::with_capacity(report_psms);
+        self.build_features(query, precursor, &hits, report_psms, &mut features);
+        features
+    }
 
+    /// Given a set of [`InitialHits`] against a query spectrum, prepare N=`report_psms`
+    /// best PSMs ([`Feature`])
+    fn build_features(
+        &self,
+        query: &ProcessedSpectrum,
+        precursor: &Precursor,
+        hits: &InitialHits,
+        report_psms: usize,
+        features: &mut Vec<Feature>,
+    ) {
         // Determine how many candidates to actually calculate hyperscore for.
         // Hyperscore is relatively computationally expensive, so we don't want
         // to calculate it for every possible candidate (100s - 10,000s depending on search)
@@ -324,7 +336,9 @@ impl<'db> Scorer<'db> {
         // (average # of matches peaks/peptide candidate)
         let lambda = hits.matched_peaks as f64 / hits.scored_candidates as f64;
 
-        let mut reporting = Vec::new();
+        // Sage operates on masses without protons; [M] instead of [MH+]
+        let mz = precursor.mz - PROTON;
+
         for idx in 0..report_psms.min(score_vector.len()) {
             let score = score_vector[idx];
             let peptide = &self.db[score.peptide];
@@ -364,7 +378,7 @@ impl<'db> Scorer<'db> {
 
             let (num_proteins, proteins) = self.db.assign_proteins(peptide);
 
-            reporting.push(Feature {
+            features.push(Feature {
                 // Identifiers
                 peptide_idx: score.peptide,
                 peptide: peptide.to_string(),
@@ -409,123 +423,72 @@ impl<'db> Scorer<'db> {
                 ms1_intensity: precursor.intensity.unwrap_or(0.0),
             })
         }
-        reporting
     }
 
-    /// Return 2 PSMs for each spectra - first is the best match, second PSM is the best match
-    /// after all theoretical peaks assigned to the best match are removed
-    pub fn score_chimera(&self, query: &ProcessedSpectrum) -> Vec<Feature> {
-        let mut scores = self.score_standard(query, 1);
-        if scores.is_empty() {
-            return scores;
-        }
+    /// Remove peaks matching a PSM from a query spectrum
+    fn remove_matched_peaks(&self, query: &mut ProcessedSpectrum, psm: &Feature) {
+        let peptide = &self.db[psm.peptide_idx];
+        let fragments = self
+            .db
+            .ion_kinds
+            .iter()
+            .flat_map(|kind| IonSeries::new(peptide, *kind));
 
-        let best = &scores[0];
-        let mut subtracted = ProcessedSpectrum {
-            peaks: Vec::new(),
-            precursors: query
-                .precursors
-                .iter()
-                .map(|prec| Precursor {
-                    mz: prec.mz + 0.005,
-                    spectrum_ref: prec.spectrum_ref.clone(),
-                    ..*prec
-                })
-                .collect(),
-            id: query.id.clone(),
-            ..*query
-        };
+        let max_fragment_charge = self.max_fragment_charge(psm.charge);
 
-        let peptide = &self.db[best.peptide_idx];
-        if !peptide.decoy {
-            let mut theo = self
-                .db
-                .ion_kinds
-                .iter()
-                .flat_map(|kind| {
-                    IonSeries::new(peptide, *kind).map(|ion| Theoretical {
-                        peptide_index: PeptideIx(0),
-                        fragment_mz: ion.monoisotopic_mass,
-                    })
-                })
-                .collect::<Vec<_>>();
-            theo.sort_unstable_by(|a, b| a.fragment_mz.total_cmp(&b.fragment_mz));
-
-            for peak in &query.peaks {
-                let mut allow = true;
-                for charge in 1..best.charge {
-                    let (low, high) = self.fragment_tol.bounds(peak.mass * charge as f32);
-                    let slice =
-                        binary_search_slice(&theo, |a, x| a.fragment_mz.total_cmp(x), low, high);
-                    for frag in &theo[slice.0..slice.1] {
-                        if frag.fragment_mz >= low && frag.fragment_mz <= high {
-                            allow = false;
-                        }
-                    }
-                }
-                if allow {
-                    subtracted.peaks.push(*peak);
+        // Remove MS2 peaks matched by previous match
+        let mut to_remove = Vec::new();
+        for frag in fragments {
+            for charge in 1..max_fragment_charge {
+                // Experimental peaks are multipled by charge, therefore theoretical are divided
+                if let Some(peak) = crate::spectrum::select_closest_peak(
+                    &query.peaks,
+                    frag.monoisotopic_mass / charge as f32,
+                    self.fragment_tol,
+                ) {
+                    to_remove.push(*peak);
                 }
             }
-
-            scores.extend(self.score_standard(&subtracted, 1));
         }
-        scores
+
+        query.peaks = query
+            .peaks
+            .drain(..)
+            .filter(|peak| !to_remove.contains(peak))
+            .collect();
+        query.total_intensity = query.peaks.iter().map(|peak| peak.intensity).sum::<f32>();
     }
 
-    /// Return 2 PSMs for each spectra - first is the best match, second PSM is the best match
-    /// after all theoretical peaks assigned to the best match are removed
-    pub fn score_chimera_multi(
+    /// Return multiple PSMs for each spectra - first is the best match, second PSM is the best match
+    /// after all theoretical peaks assigned to the best match are removed, etc
+    pub fn score_chimera_fast(
         &self,
         query: &ProcessedSpectrum,
         report_psms: usize,
     ) -> Vec<Feature> {
+        let precursor = query.precursors.get(0).unwrap_or_else(|| {
+            panic!("missing MS1 precursor for {}", query.id);
+        });
+
         let mut query = query.clone();
-        let mut reporting = Vec::new();
-        // while reporting.len() < report_psms {
-        for _ in 0..report_psms {
-            match self.score_standard(&query, 1).drain(..).next() {
-                None => break,
-                Some(mut psm) => {
-                    // Remove MS2 peaks matched by previous match
-                    let mut to_remove = Vec::new();
-                    psm.rank = reporting.len() as u32 + 1;
+        let hits = self.initial_hits(&query, precursor);
 
-                    let peptide = &self.db[psm.peptide_idx];
-                    let fragments = self
-                        .db
-                        .ion_kinds
-                        .iter()
-                        .flat_map(|kind| IonSeries::new(peptide, *kind));
+        let mut candidates: Vec<Feature> = Vec::with_capacity(report_psms);
 
-                    let max_fragment_charge = self.max_fragment_charge(psm.charge);
-                    for frag in fragments {
-                        for charge in 1..max_fragment_charge {
-                            // Experimental peaks are multipled by charge, therefore theoretical are divided
-                            if let Some(peak) = crate::spectrum::select_closest_peak(
-                                &query.peaks,
-                                frag.monoisotopic_mass / charge as f32,
-                                self.fragment_tol,
-                            ) {
-                                to_remove.push(*peak);
-                            }
-                        }
-                    }
-
-                    query.peaks = query
-                        .peaks
-                        .drain(..)
-                        .filter(|peak| !to_remove.contains(peak))
-                        .collect();
-
-                    reporting.push(psm);
+        let mut prev = 0;
+        while candidates.len() < report_psms {
+            self.build_features(&query, precursor, &hits, 1, &mut candidates);
+            if candidates.len() > prev {
+                if let Some(feat) = candidates.get_mut(prev) {
+                    self.remove_matched_peaks(&mut query, &feat);
+                    feat.rank = prev as u32 + 1;
                 }
+                prev = candidates.len()
+            } else {
+                break;
             }
         }
-
-        // let best = reporting.iter().fold(0.0f64, |acc, feat| acc.max(feat.hyperscore));
-        // reporting.iter_mut().for_each(|feat| feat.delta_best = best - feat.hyperscore);
-        reporting
+        candidates
     }
 
     /// Calculate full hyperscore for a given PSM
