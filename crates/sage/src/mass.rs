@@ -28,6 +28,11 @@ impl Tolerance {
         }
     }
 
+    pub fn contains(&self, center: f32, rhs: f32) -> bool {
+        let (lo, hi) = self.bounds(center);
+        rhs >= lo && rhs <= hi
+    }
+
     pub fn ppm_to_delta_mass(center: f32, ppm: f32) -> f32 {
         ppm * center / 1_000_000.0
     }

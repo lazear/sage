@@ -259,6 +259,35 @@ impl Matrix {
             })
             .collect()
     }
+
+    pub fn correlation_matrix(mut self) -> Matrix {
+        let mut stds = vec![0.0f64; self.cols];
+
+        // Center the transition matrix, and calculate the standard deviation for
+        // each transition
+        for (col, mean) in self.mean().iter().enumerate() {
+            let mut std = 0.0;
+            for row in 0..self.rows {
+                std += (self[(row, col)] - mean).powi(2);
+                self[(row, col)] -= mean;
+            }
+            stds[col] = (std / self.rows as f64).sqrt();
+        }
+        // calculate the emperical covariance matrix
+        let mut cov = self.transpose().dot(&self);
+        cov = cov / (self.rows as f64);
+
+        for i in 0..self.cols {
+            for j in 0..self.cols {
+                cov[(i, j)] /= stds[i] * stds[j];
+                if cov[(i, j)].is_nan() {
+                    cov[(i, j)] = 0.0;
+                }
+            }
+        }
+
+        cov
+    }
 }
 
 impl Index<(usize, usize)> for Matrix {

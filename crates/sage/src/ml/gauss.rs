@@ -63,7 +63,7 @@ impl Gauss {
                         log::warn!("Finding solution to linear system failed: left side of matrix [{},{}] = {}", i, j, x);
                         return false;
                     }
-                } else if x != 0.0 {
+                } else if x > 1E-8 {
                     log::warn!("Finding solution to linear system failed: left side of matrix [{},{}] = {}", i, j, x);
                     return false;
                 }

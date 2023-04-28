@@ -204,7 +204,6 @@ impl<'db> Scorer<'db> {
     ) -> InitialHits {
         let candidates = self.db.query(
             precursor_mass,
-            // self.precursor_tol,
             precursor_tol,
             self.fragment_tol,
             self.min_isotope_err,
@@ -363,18 +362,22 @@ impl<'db> Scorer<'db> {
                 poisson = 1E-325;
             }
 
-            let mut isotope_error = 0.0;
-            for i in self.min_isotope_err..=self.max_isotope_err {
-                let c13 = i as f32 * NEUTRON;
-                let (iso_tol_lo, iso_tol_hi) = self.precursor_tol.bounds(precursor_mass - c13);
-                if peptide.monoisotopic >= iso_tol_lo && peptide.monoisotopic <= iso_tol_hi {
-                    isotope_error = c13;
-                    break;
+            let mut isotope_error = (0.0, (precursor_mass - peptide.monoisotopic).abs());
+            if !self
+                .precursor_tol
+                .contains(precursor_mass, peptide.monoisotopic)
+            {
+                for i in self.min_isotope_err..=self.max_isotope_err {
+                    let delta = (precursor_mass - i as f32 * NEUTRON - peptide.monoisotopic).abs();
+                    if delta <= isotope_error.1 {
+                        isotope_error = (i as f32 * NEUTRON, delta)
+                    }
                 }
             }
+            let isotope_error = isotope_error.0;
 
-            let delta_mass = (precursor_mass - peptide.monoisotopic - isotope_error).abs() * 1E6
-                / peptide.monoisotopic;
+            let delta_mass = (precursor_mass - peptide.monoisotopic - isotope_error).abs() * 2E6
+                / (precursor_mass - isotope_error + peptide.monoisotopic);
 
             let (num_proteins, proteins) = self.db.assign_proteins(peptide);
 
@@ -395,7 +398,7 @@ impl<'db> Scorer<'db> {
                 rt: query.scan_start_time,
                 delta_mass,
                 isotope_error,
-                average_ppm: score.ppm_difference / k as f32,
+                average_ppm: score.ppm_difference,
                 hyperscore: score.hyperscore,
                 delta_next: score.hyperscore - next,
                 delta_best: best - score.hyperscore,
@@ -480,7 +483,7 @@ impl<'db> Scorer<'db> {
             self.build_features(&query, precursor, &hits, 1, &mut candidates);
             if candidates.len() > prev {
                 if let Some(feat) = candidates.get_mut(prev) {
-                    self.remove_matched_peaks(&mut query, &feat);
+                    self.remove_matched_peaks(&mut query, feat);
                     feat.rank = prev as u32 + 1;
                 }
                 prev = candidates.len()
@@ -521,13 +524,12 @@ impl<'db> Scorer<'db> {
         for (idx, frag) in fragments {
             for charge in 1..max_fragment_charge {
                 // Experimental peaks are multipled by charge, therefore theoretical are divided
-                if let Some(peak) = crate::spectrum::select_closest_peak(
-                    &query.peaks,
-                    frag.monoisotopic_mass / charge as f32,
-                    self.fragment_tol,
-                ) {
+                let mz = frag.monoisotopic_mass / charge as f32;
+                if let Some(peak) =
+                    crate::spectrum::select_closest_peak(&query.peaks, mz, self.fragment_tol)
+                {
                     score.ppm_difference +=
-                        (frag.monoisotopic_mass - peak.mass).abs() * 1E6 / frag.monoisotopic_mass;
+                        peak.intensity * (mz - peak.mass).abs() * 2E6 / (mz + peak.mass);
 
                     match frag.kind {
                         Kind::A | Kind::B | Kind::C => {
@@ -548,6 +550,7 @@ impl<'db> Scorer<'db> {
         score.hyperscore = score.hyperscore();
         score.longest_b = b_run.longest;
         score.longest_y = y_run.longest;
+        score.ppm_difference /= score.summed_b + score.summed_y;
         score
     }
 }

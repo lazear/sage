@@ -80,7 +80,7 @@ impl LinearDiscriminantAnalysis {
                 }
             }
 
-            let cov = class_data.transpose().dot(&class_data);
+            let cov = class_data.transpose().dot(&class_data) / class_data.rows as f64;
             scatter_within += cov;
 
             let diff = Matrix::col_vector(
@@ -157,7 +157,10 @@ pub fn score_psms(scores: &mut [Feature]) -> Option<()> {
         })
         .collect::<Vec<_>>();
 
-    let decoys = scores.iter().map(|sc| sc.label == -1).collect::<Vec<_>>();
+    let decoys = scores
+        .par_iter()
+        .map(|sc| sc.label == -1)
+        .collect::<Vec<_>>();
     let features = Matrix::new(features, scores.len(), FEATURES);
 
     let lda = LinearDiscriminantAnalysis::train(&features, &decoys)?;

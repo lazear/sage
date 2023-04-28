@@ -179,6 +179,12 @@ impl ProcessedSpectrum {
         let mass = (precursor.mz - PROTON) * charge as f32;
         Some((mass, charge))
     }
+
+    pub fn in_isolation_window(&self, mz: f32) -> Option<bool> {
+        let precursor = self.precursors.get(0)?;
+        let (lo, hi) = precursor.isolation_window?.bounds(precursor.mz - PROTON);
+        Some(mz >= lo && mz <= hi)
+    }
 }
 
 impl SpectrumProcessor {
