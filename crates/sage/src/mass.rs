@@ -57,9 +57,9 @@ pub trait Mass {
 #[derive(Clone, Debug, PartialEq, PartialOrd, Serialize)]
 pub enum Residue {
     // Standard amino acid residue
-    Just(char),
+    Just(u8),
     // Amino acid residue with a mass modification
-    Mod(char, f32),
+    Mod(u8, f32),
 }
 
 impl Mass for Residue {
@@ -78,65 +78,65 @@ impl Mass for Residue {
     }
 }
 
-pub const VALID_AA: [char; 22] = [
-    'A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W',
-    'Y', 'U', 'O',
+pub const VALID_AA: [u8; 22] = [
+    b'A', b'C', b'D', b'E', b'F', b'G', b'H', b'I', b'K', b'L', b'M', b'N', b'P', b'Q', b'R', b'S',
+    b'T', b'V', b'W', b'Y', b'U', b'O',
 ];
 
-impl Mass for char {
+impl Mass for u8 {
     fn monoisotopic(&self) -> f32 {
         match self {
-            'A' => 71.03711,
-            'R' => 156.1011,
-            'N' => 114.04293,
-            'D' => 115.02694,
-            'C' => 103.00919,
-            'E' => 129.04259,
-            'Q' => 128.05858,
-            'G' => 57.02146,
-            'H' => 137.05891,
-            'I' => 113.08406,
-            'L' => 113.08406,
-            'K' => 128.09496,
-            'M' => 131.0405,
-            'F' => 147.0684,
-            'P' => 97.05276,
-            'S' => 87.03203,
-            'T' => 101.04768,
-            'W' => 186.07931,
-            'Y' => 163.06333,
-            'V' => 99.06841,
-            'U' => 150.95363,
-            'O' => 237.14773,
-            _ => unreachable!("BUG: invalid amino acid {}", self),
+            b'A' => 71.03711,
+            b'R' => 156.1011,
+            b'N' => 114.04293,
+            b'D' => 115.02694,
+            b'C' => 103.00919,
+            b'E' => 129.04259,
+            b'Q' => 128.05858,
+            b'G' => 57.02146,
+            b'H' => 137.05891,
+            b'I' => 113.08406,
+            b'L' => 113.08406,
+            b'K' => 128.09496,
+            b'M' => 131.0405,
+            b'F' => 147.0684,
+            b'P' => 97.05276,
+            b'S' => 87.03203,
+            b'T' => 101.04768,
+            b'W' => 186.07931,
+            b'Y' => 163.06333,
+            b'V' => 99.06841,
+            b'U' => 150.95363,
+            b'O' => 237.14773,
+            _ => unreachable!("BUG: invalid amino acid {}", *self as char),
         }
     }
 
     fn composition(&self) -> Composition {
         match self {
-            'A' => Composition::new(3, 2, 0),
-            'R' => Composition::new(6, 2, 0),
-            'N' => Composition::new(4, 3, 0),
-            'D' => Composition::new(4, 4, 0),
-            'C' => Composition::new(3, 2, 1),
-            'E' => Composition::new(5, 4, 0),
-            'Q' => Composition::new(5, 3, 0),
-            'G' => Composition::new(2, 2, 0),
-            'H' => Composition::new(6, 2, 0),
-            'I' => Composition::new(6, 2, 0),
-            'L' => Composition::new(6, 2, 0),
-            'K' => Composition::new(6, 2, 0),
-            'M' => Composition::new(5, 2, 1),
-            'F' => Composition::new(9, 2, 0),
-            'P' => Composition::new(5, 2, 0),
-            'S' => Composition::new(3, 3, 0),
-            'T' => Composition::new(4, 3, 0),
-            'W' => Composition::new(11, 2, 0),
-            'Y' => Composition::new(9, 3, 0),
-            'V' => Composition::new(5, 2, 0),
-            'U' => Composition::new(3, 2, 0),
-            'O' => Composition::new(12, 3, 0),
-            _ => unreachable!("BUG: invalid amino acid {}", self),
+            b'A' => Composition::new(3, 2, 0),
+            b'R' => Composition::new(6, 2, 0),
+            b'N' => Composition::new(4, 3, 0),
+            b'D' => Composition::new(4, 4, 0),
+            b'C' => Composition::new(3, 2, 1),
+            b'E' => Composition::new(5, 4, 0),
+            b'Q' => Composition::new(5, 3, 0),
+            b'G' => Composition::new(2, 2, 0),
+            b'H' => Composition::new(6, 2, 0),
+            b'I' => Composition::new(6, 2, 0),
+            b'L' => Composition::new(6, 2, 0),
+            b'K' => Composition::new(6, 2, 0),
+            b'M' => Composition::new(5, 2, 1),
+            b'F' => Composition::new(9, 2, 0),
+            b'P' => Composition::new(5, 2, 0),
+            b'S' => Composition::new(3, 3, 0),
+            b'T' => Composition::new(4, 3, 0),
+            b'W' => Composition::new(11, 2, 0),
+            b'Y' => Composition::new(9, 3, 0),
+            b'V' => Composition::new(5, 2, 0),
+            b'U' => Composition::new(3, 2, 0),
+            b'O' => Composition::new(12, 3, 0),
+            _ => unreachable!("BUG: invalid amino acid {}", *self as char),
         }
     }
 }
@@ -167,12 +167,12 @@ impl Sum for Composition {
 impl std::fmt::Display for Residue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Residue::Just(c) => f.write_char(*c),
+            Residue::Just(c) => f.write_char(*c as char),
             Residue::Mod(c, m) => {
                 if m.is_sign_positive() {
-                    write!(f, "{}[+{}]", c, m)
+                    write!(f, "{}[+{}]", *c as char, m)
                 } else {
-                    write!(f, "{}[{}]", c, m)
+                    write!(f, "{}[{}]", *c as char, m)
                 }
             }
         }

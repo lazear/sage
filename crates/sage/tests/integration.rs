@@ -47,8 +47,6 @@ fn visit_all_ions() {
         1000.0,
         Tolerance::Da(-5000.0, 5000.0),
         Tolerance::Da(-100.0, 100.0),
-        0,
-        0,
     );
 
     for fragment in query.page_search(600.0) {

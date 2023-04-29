@@ -21,9 +21,6 @@ pub struct Peptide {
     pub missed_cleavages: u8,
     /// Where is this peptide located in the protein?
     pub position: Position,
-
-    pub carbons: u16,
-    pub sulfurs: u16,
 }
 
 impl Debug for Peptide {
@@ -36,8 +33,6 @@ impl Debug for Peptide {
             .field("monoisotopic", &self.monoisotopic)
             .field("missed_cleavages", &self.missed_cleavages)
             .field("position", &self.position)
-            .field("carbons", &self.carbons)
-            .field("sulfurs", &self.sulfurs)
             .finish()
     }
 }
@@ -87,9 +82,9 @@ impl Peptide {
                 for resi in self.sequence.iter_mut() {
                     // Don't overwrite an already modified amino acid!
                     match resi {
-                        Residue::Just(c) if *c == residue => {
+                        Residue::Just(c) if *c == residue as u8 => {
                             self.monoisotopic += mass;
-                            *resi = Residue::Mod(residue, mass);
+                            *resi = Residue::Mod(residue as u8, mass);
                         }
                         _ => {}
                     }
@@ -251,7 +246,7 @@ impl<'a> Iterator for ModificationSites<'a> {
             let idx = self.index;
             self.index += 1;
             match self.peptide.sequence[idx] {
-                Residue::Just(r) if r == self.residue => {
+                Residue::Just(r) if r == self.residue as u8 => {
                     return Some((Site::Sequence(idx as u32), self.mass))
                 }
                 _ => continue,
@@ -268,17 +263,12 @@ impl TryFrom<&Digest> for Peptide {
         let mut sequence = Vec::with_capacity(value.sequence.len());
         let mut monoisotopic = H2O;
 
-        let mut carbons = 0;
-        let mut sulfurs = 0;
-        for c in value.sequence.chars() {
-            if !VALID_AA.contains(&c) {
-                return Err(c);
+        for c in value.sequence.as_bytes() {
+            if !VALID_AA.contains(c) {
+                return Err(*c as char);
             }
             monoisotopic += c.monoisotopic();
-            sequence.push(Residue::Just(c));
-            let comp = c.composition();
-            carbons += comp.carbon;
-            sulfurs += comp.sulfur;
+            sequence.push(Residue::Just(*c));
         }
 
         Ok(Peptide {
@@ -289,8 +279,6 @@ impl TryFrom<&Digest> for Peptide {
             nterm: None,
             cterm: None,
             missed_cleavages: value.missed_cleavages,
-            carbons,
-            sulfurs,
         })
     }
 }

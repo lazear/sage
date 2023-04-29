@@ -94,13 +94,15 @@ pub struct Enzyme {
 impl Enzyme {
     pub fn new(cleave: &str, skip_suffix: Option<char>, c_terminal: bool) -> Option<Self> {
         assert!(
-            cleave.chars().all(|x| VALID_AA.contains(&x)) || cleave == "$",
+            cleave.chars().all(|x| VALID_AA.contains(&(x as u8))) || cleave == "$",
             "Enzyme cleavage sequence contains non-amino acid characters: {}",
             cleave
         );
 
         assert!(
-            skip_suffix.map(|x| VALID_AA.contains(&x)).unwrap_or(true),
+            skip_suffix
+                .map(|x| VALID_AA.contains(&(x as u8)))
+                .unwrap_or(true),
             "Enzyme cleavage restriction is non-amino acid character: {}",
             skip_suffix.unwrap(),
         );

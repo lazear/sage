@@ -156,6 +156,8 @@ Example:
     "isotope_errors": [-1, 3]
     ```
 
+**NOTE**: Searching with isotope errors is slower than searching with a wider precursor tolerance that encompasses the isotope errors, e.g. `"da": [-3.5, 1.25]`. Using the wider precursor tolerance will generally increase the number of confidently identified PSMs as well.
+
 ## Other Settings
 
 Note on the settings below:

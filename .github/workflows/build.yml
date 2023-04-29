@@ -79,7 +79,7 @@ jobs:
           sage_version=${{ github.ref_name }} 
           staging="sage-$sage_version-${{ matrix.target }}"
           mkdir -p "$staging"
-          cp {README.md,LICENSE} "$staging/"
+          cp {README.md,DOCS.md,LICENSE} "$staging/"
           cp "target/${{ matrix.target }}/release/sage.exe" "$staging/"
           7z a "$staging.zip" "$staging"
           echo "ASSET=$staging.zip" >> $GITHUB_ENV

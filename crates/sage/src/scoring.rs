@@ -19,6 +19,7 @@ struct Score {
     hyperscore: f64,
     ppm_difference: f32,
     precursor_charge: u8,
+    isotope_error: i8,
 }
 
 /// Preliminary score - # of matched peaks for each candidate peptide
@@ -27,6 +28,7 @@ struct PreScore {
     peptide: PeptideIx,
     matched: u16,
     precursor_charge: u8,
+    isotope_error: i8,
 }
 
 /// Store preliminary scores & stats for first pass search for a query spectrum
@@ -195,19 +197,18 @@ impl<'db> Scorer<'db> {
     }
 
     /// Preliminary Score, return # of matched peaks per candidate, sorted high to low
-    fn matched_peaks(
+    fn matched_peaks_with_isotope(
         &self,
         query: &ProcessedSpectrum,
         precursor_mass: f32,
         precursor_charge: u8,
         precursor_tol: Tolerance,
+        isotope_error: i8,
     ) -> InitialHits {
         let candidates = self.db.query(
-            precursor_mass,
+            precursor_mass - isotope_error as f32 * NEUTRON,
             precursor_tol,
             self.fragment_tol,
-            self.min_isotope_err,
-            self.max_isotope_err,
         );
 
         let max_fragment_charge = self.max_fragment_charge(precursor_charge);
@@ -232,6 +233,7 @@ impl<'db> Scorer<'db> {
                     }
                     sc.peptide = frag.peptide_index;
                     sc.matched += 1;
+                    sc.isotope_error = isotope_error;
                     hits.matched_peaks += 1;
                 }
             }
@@ -243,6 +245,40 @@ impl<'db> Scorer<'db> {
         hits.preliminary
             .sort_unstable_by(|a, b| b.matched.cmp(&a.matched));
         hits
+    }
+
+    fn matched_peaks(
+        &self,
+        query: &ProcessedSpectrum,
+        precursor_mass: f32,
+        precursor_charge: u8,
+        precursor_tol: Tolerance,
+    ) -> InitialHits {
+        if self.min_isotope_err != self.max_isotope_err {
+            let mut hits = (self.min_isotope_err..=self.max_isotope_err).fold(
+                InitialHits::default(),
+                |mut hits, isotope| {
+                    hits += self.matched_peaks_with_isotope(
+                        query,
+                        precursor_mass,
+                        precursor_charge,
+                        precursor_tol,
+                        isotope,
+                    );
+                    hits
+                },
+            );
+            hits.preliminary.sort_by(|a, b| b.matched.cmp(&a.matched));
+            hits
+        } else {
+            self.matched_peaks_with_isotope(
+                query,
+                precursor_mass,
+                precursor_charge,
+                precursor_tol,
+                0,
+            )
+        }
     }
 
     fn initial_hits(&self, query: &ProcessedSpectrum, precursor: &Precursor) -> InitialHits {
@@ -258,7 +294,6 @@ impl<'db> Scorer<'db> {
                     .unwrap_or(Tolerance::Da(-2.4, 2.4))
                     * precursor_charge as f32;
                 hits += self.matched_peaks(query, precursor_mass, precursor_charge, precursor_tol);
-
                 hits
             });
             hits.preliminary.sort_by(|a, b| b.matched.cmp(&a.matched));
@@ -324,7 +359,7 @@ impl<'db> Scorer<'db> {
             .iter()
             .filter(|score| score.peptide != PeptideIx::default())
             .take(n_calculate)
-            .map(|pre| self.score_candidate(query, pre.precursor_charge, pre.peptide))
+            .map(|pre| self.score_candidate(query, pre))
             .filter(|s| (s.matched_b + s.matched_y) >= self.min_matched_peaks)
             .collect::<Vec<_>>();
 
@@ -362,20 +397,7 @@ impl<'db> Scorer<'db> {
                 poisson = 1E-325;
             }
 
-            let mut isotope_error = (0.0, (precursor_mass - peptide.monoisotopic).abs());
-            if !self
-                .precursor_tol
-                .contains(precursor_mass, peptide.monoisotopic)
-            {
-                for i in self.min_isotope_err..=self.max_isotope_err {
-                    let delta = (precursor_mass - i as f32 * NEUTRON - peptide.monoisotopic).abs();
-                    if delta <= isotope_error.1 {
-                        isotope_error = (i as f32 * NEUTRON, delta)
-                    }
-                }
-            }
-            let isotope_error = isotope_error.0;
-
+            let isotope_error = score.isotope_error as f32 * NEUTRON;
             let delta_mass = (precursor_mass - peptide.monoisotopic - isotope_error).abs() * 2E6
                 / (precursor_mass - isotope_error + peptide.monoisotopic);
 
@@ -495,19 +517,15 @@ impl<'db> Scorer<'db> {
     }
 
     /// Calculate full hyperscore for a given PSM
-    fn score_candidate(
-        &self,
-        query: &ProcessedSpectrum,
-        precursor_charge: u8,
-        peptide_ix: PeptideIx,
-    ) -> Score {
+    fn score_candidate(&self, query: &ProcessedSpectrum, pre_score: &PreScore) -> Score {
         let mut score = Score {
-            peptide: peptide_ix,
-            precursor_charge,
+            peptide: pre_score.peptide,
+            precursor_charge: pre_score.precursor_charge,
+            isotope_error: pre_score.isotope_error,
             ..Default::default()
         };
-        let peptide = &self.db[peptide_ix];
-        let max_fragment_charge = self.max_fragment_charge(precursor_charge);
+        let peptide = &self.db[score.peptide];
+        let max_fragment_charge = self.max_fragment_charge(score.precursor_charge);
 
         // Regenerate theoretical ions - initial database search might be
         // using only a subset of all possible ions (e.g. no b1/b2/y1/y2)

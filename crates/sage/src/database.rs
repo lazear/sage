@@ -1,7 +1,7 @@
 use crate::enzyme::{Enzyme, EnzymeParameters};
 use crate::fasta::Fasta;
 use crate::ion_series::{IonSeries, Kind};
-use crate::mass::{Tolerance, NEUTRON};
+use crate::mass::Tolerance;
 use crate::peptide::Peptide;
 use dashmap::DashMap;
 use fnv::FnvBuildHasher;
@@ -92,7 +92,7 @@ impl Builder {
         let mut output = HashMap::new();
         if let Some(input) = input {
             for (ch, mass) in input {
-                if crate::mass::VALID_AA.contains(&ch) || "^$[]".contains(ch) {
+                if crate::mass::VALID_AA.contains(&(ch as u8)) || "^$[]".contains(ch) {
                     output.insert(ch, mass);
                 } else {
                     error!(
@@ -359,16 +359,14 @@ impl IndexedDatabase {
         precursor_mass: f32,
         precursor_tol: Tolerance,
         fragment_tol: Tolerance,
-        min_isotope_err: i8,
-        max_isotope_err: i8,
     ) -> IndexedQuery<'_> {
         let (precursor_lo, precursor_hi) = precursor_tol.bounds(precursor_mass);
 
         let (pre_idx_lo, pre_idx_hi) = binary_search_slice(
             &self.peptides,
             |p, bounds| p.monoisotopic.total_cmp(bounds),
-            precursor_lo - (NEUTRON * max_isotope_err as f32).abs(),
-            precursor_hi + (NEUTRON * min_isotope_err as f32).abs(),
+            precursor_lo,
+            precursor_hi,
         );
 
         IndexedQuery {
@@ -376,8 +374,6 @@ impl IndexedDatabase {
             precursor_mass,
             precursor_tol,
             fragment_tol,
-            min_isotope_err,
-            max_isotope_err,
             pre_idx_lo,
             pre_idx_hi,
         }
@@ -421,8 +417,6 @@ pub struct IndexedQuery<'d> {
     precursor_mass: f32,
     precursor_tol: Tolerance,
     fragment_tol: Tolerance,
-    min_isotope_err: i8,
-    max_isotope_err: i8,
     pub pre_idx_lo: usize,
     pub pre_idx_hi: usize,
 }
@@ -464,11 +458,24 @@ impl<'d> IndexedQuery<'d> {
 
             // Finally, filter down our slice into exact matches only
             slice[inner_left..inner_right].iter().filter(move |frag| {
-                let neutral = self.db[frag.peptide_index].monoisotopic;
-                (self.min_isotope_err..=self.max_isotope_err).any(|isotope_err| {
-                    let delta = isotope_err as f32 * NEUTRON;
-                    (neutral >= precursor_lo - delta) && (neutral <= precursor_hi - delta)
-                }) && frag.fragment_mz >= fragment_lo
+                // This looks somewhat complicated, but it's a consequence of
+                // how the `binary_search_slice` function works - it will return
+                // the set of indices that maximally cover the desired range - the exact
+                // `left` and `right` indices may be valid, or just outside of the range.
+                // Anything interior of `left` and `right` is guaranteed to be within the
+                // precursor tolerance, so we just need to check the edge cases
+                //
+                // Previously, a direct lookup to check the mass of the current fragment was
+                // performed, but the pointer indirection + float comparison can slow down
+                // open searches by as much as 2x!!
+                // e.g. used to be `self.db[frag.peptide_index].monoisotopic >= precursor_lo`
+                (frag.peptide_index.0 > self.pre_idx_lo as u32
+                    || (frag.peptide_index.0 == self.pre_idx_lo as u32
+                        && self.db[frag.peptide_index].monoisotopic >= precursor_lo))
+                    && (frag.peptide_index.0 < self.pre_idx_hi as u32
+                        || (frag.peptide_index.0 == self.pre_idx_hi as u32
+                            && self.db[frag.peptide_index].monoisotopic <= precursor_hi))
+                    && frag.fragment_mz >= fragment_lo
                     && frag.fragment_mz <= fragment_hi
             })
         })

@@ -47,7 +47,7 @@ impl RetentionModel {
                 crate::mass::Residue::Just(c) => c,
                 crate::mass::Residue::Mod(c, _) => c,
             };
-            let idx = map[((*c) as u8 - b'A') as usize];
+            let idx = map[(c - b'A') as usize];
             embedding[idx] += 1.0;
             // Embed N- and C-terminal AA's (2 on each end, excluding K/R)
             match aa_idx {
@@ -67,7 +67,7 @@ impl RetentionModel {
         // Create a mapping from amino acid character to vector embedding
         let mut map = [0; 26];
         for (idx, aa) in VALID_AA.iter().enumerate() {
-            map[((*aa as u8) - b'A') as usize] = idx;
+            map[(aa - b'A') as usize] = idx;
         }
 
         let rt = training_set

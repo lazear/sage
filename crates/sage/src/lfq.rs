@@ -1,5 +1,5 @@
 use crate::database::{binary_search_slice, IndexedDatabase, PeptideIx};
-use crate::mass::{Tolerance, NEUTRON};
+use crate::mass::{Composition, Mass, Tolerance, NEUTRON};
 use crate::ml::{matrix::Matrix, retention_alignment::Alignment};
 use crate::scoring::Feature;
 use crate::spectrum::ProcessedSpectrum;
@@ -218,8 +218,15 @@ impl FeatureMap {
                                 .entry((entry.peptide, entry.decoy))
                                 .or_insert_with(|| {
                                     let p = &db[entry.peptide];
-                                    let dist =
-                                        crate::isotopes::peptide_isotopes(p.carbons, p.sulfurs);
+                                    let composition = p
+                                        .sequence
+                                        .iter()
+                                        .map(|r| r.composition())
+                                        .sum::<Composition>();
+                                    let dist = crate::isotopes::peptide_isotopes(
+                                        composition.carbon,
+                                        composition.sulfur,
+                                    );
                                     Grid::new(entry, RT_TOL, dist, alignments.len(), GRID_SIZE)
                                 });
 

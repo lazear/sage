@@ -245,7 +245,7 @@ For additional information about configuration options and output file formats, 
   ],
   "deisotope": false,       // Optional[bool] {default=false}: perform deisotoping and charge state deconvolution
   "chimera": false,         // Optional[bool] {default=false}: search for chimeric/co-fragmenting PSMS
-  "wide_window": false,     // Optional[bool] {default=false}: ignore `precursor_tol` and search in wide-window/DIA mode
+  "wide_window": false,     // Optional[bool] {default=false}: _ignore_ `precursor_tol` and search in wide-window/DIA mode
   "predict_rt": false,    // Optional[bool] {default=true}: use retention time prediction model as an feature for LDA
   "min_peaks": 15,          // Optional[int] {default=15}: only process MS2 spectra with at least N peaks
   "max_peaks": 150,         // Optional[int] {default=150}: take the top N most intense MS2 peaks to search,

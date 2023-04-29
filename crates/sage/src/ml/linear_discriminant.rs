@@ -140,9 +140,9 @@ pub fn score_psms(scores: &mut [Feature]) -> Option<()> {
                 (perc.delta_next).ln_1p(),
                 (perc.delta_best).ln_1p(),
                 (perc.delta_mass as f64).ln_1p(),
-                perc.isotope_error as f64,
-                perc.average_ppm as f64,
-                poisson,
+                (perc.isotope_error as f64),
+                (perc.average_ppm as f64),
+                (poisson),
                 (perc.matched_intensity_pct as f64).ln_1p(),
                 (perc.matched_peaks as f64),
                 (perc.longest_b as f64).ln_1p(),
@@ -162,7 +162,6 @@ pub fn score_psms(scores: &mut [Feature]) -> Option<()> {
         .map(|sc| sc.label == -1)
         .collect::<Vec<_>>();
     let features = Matrix::new(features, scores.len(), FEATURES);
-
     let lda = LinearDiscriminantAnalysis::train(&features, &decoys)?;
     if !lda.eigenvector.iter().all(|f| f.is_finite()) {
         log::error!(
