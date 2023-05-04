@@ -1,5 +1,6 @@
 use std::{collections::HashMap, fmt::Debug};
 
+use fnv::FnvHashSet;
 use itertools::Itertools;
 
 use crate::{
@@ -145,7 +146,13 @@ impl Peptide {
             modified.push(self.clone());
 
             for n in 1..=combinations {
-                for combination in mods.iter().combinations(n).filter(no_duplicates) {
+                'next: for combination in mods.iter().combinations(n).filter(no_duplicates) {
+                    let mut set = FnvHashSet::default();
+                    for (site, _) in &combination {
+                        if !set.insert(*site) {
+                            continue 'next;
+                        }
+                    }
                     let mut peptide = self.clone();
                     peptide.apply_variable_mods(&combination);
                     modified.push(peptide);
@@ -203,7 +210,7 @@ fn no_duplicates(combination: &Vec<&(Site, f32)>) -> bool {
     n <= 1 && c <= 1
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 enum Site {
     PeptideN,
     PeptideC,
@@ -479,6 +486,31 @@ mod test {
         ];
 
         let peptides = var_mod_sequence(&peptide, &variable_mods, 3);
+        assert_eq!(peptides, expected);
+    }
+
+    #[test]
+    fn test_variable_mods_multi() {
+        let variable_mods = [('S', 79.), ('S', 541.)];
+        let peptide = Peptide::try_from(&Digest {
+            sequence: "GGGSGGGS".into(),
+            ..Default::default()
+        })
+        .unwrap();
+
+        let expected = vec![
+            "GGGSGGGS",
+            "GGGS[+79]GGGS",
+            "GGGSGGGS[+79]",
+            "GGGS[+541]GGGS",
+            "GGGSGGGS[+541]",
+            "GGGS[+79]GGGS[+79]",
+            "GGGS[+79]GGGS[+541]",
+            "GGGS[+541]GGGS[+79]",
+            "GGGS[+541]GGGS[+541]",
+        ];
+
+        let peptides = var_mod_sequence(&peptide, &variable_mods, 2);
         assert_eq!(peptides, expected);
     }
 

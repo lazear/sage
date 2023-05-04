@@ -7,6 +7,7 @@ use dashmap::DashMap;
 use fnv::FnvBuildHasher;
 use log::error;
 use rayon::prelude::*;
+use serde::de::Visitor;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -76,7 +77,7 @@ pub struct Builder {
     /// Static modifications to add to matching amino acids
     pub static_mods: Option<HashMap<char, f32>>,
     /// Variable modifications to add to matching amino acids
-    pub variable_mods: Option<HashMap<char, f32>>,
+    pub variable_mods: Option<HashMap<char, ValueOrVec>>,
     /// Limit number of variable modifications on a peptide
     pub max_variable_mods: Option<usize>,
     /// Use this prefix for decoy proteins
@@ -105,6 +106,23 @@ impl Builder {
         output
     }
 
+    fn validate_var_mods(input: Option<HashMap<char, ValueOrVec>>) -> HashMap<char, Vec<f32>> {
+        let mut output = HashMap::new();
+        if let Some(input) = input {
+            for (ch, mass) in input {
+                if crate::mass::VALID_AA.contains(&(ch as u8)) || "^$[]".contains(ch) {
+                    output.insert(ch, mass.data);
+                } else {
+                    error!(
+                        "invalid residue: {}, proceeding without this static mod",
+                        ch
+                    );
+                }
+            }
+        }
+        output
+    }
+
     pub fn make_parameters(self) -> Parameters {
         let bucket_size = self.bucket_size.unwrap_or(8192).next_power_of_two();
         Parameters {
@@ -118,7 +136,7 @@ impl Builder {
             decoy_tag: self.decoy_tag.unwrap_or_else(|| "rev_".into()),
             enzyme: self.enzyme.unwrap_or_default(),
             static_mods: Self::validate_mods(self.static_mods),
-            variable_mods: Self::validate_mods(self.variable_mods),
+            variable_mods: Self::validate_var_mods(self.variable_mods),
             max_variable_mods: self.max_variable_mods.map(|x| x.max(1)).unwrap_or(2),
             generate_decoys: self.generate_decoys.unwrap_or(true),
             fasta: self.fasta.expect("A fasta file must be provided!"),
@@ -127,6 +145,63 @@ impl Builder {
 
     pub fn update_fasta(&mut self, fasta: String) {
         self.fasta = Some(fasta)
+    }
+}
+
+#[derive(Default)]
+pub struct ValueOrVec {
+    data: Vec<f32>,
+}
+
+impl<'de> Deserialize<'de> for ValueOrVec {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_any(ValueOrVec::default())
+    }
+}
+
+impl<'de> Visitor<'de> for ValueOrVec {
+    type Value = ValueOrVec;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("Expected floating point value, or list of floating point values")
+    }
+
+    fn visit_seq<A>(mut self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: serde::de::SeqAccess<'de>,
+    {
+        loop {
+            match seq.next_element::<f32>()? {
+                Some(val) => self.data.push(val),
+                None => break,
+            }
+        }
+        Ok(self)
+    }
+
+    fn visit_f64<E>(mut self, v: f64) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        log::warn!(
+            "Single value variable modifications will be phased out. Use a list of modifications"
+        );
+        self.data.push(v as f32);
+        Ok(self)
+    }
+
+    fn visit_i64<E>(mut self, v: i64) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        log::warn!(
+            "Single value variable modifications will be phased out. Use a list of modifications"
+        );
+        self.data.push(v as f32);
+        Ok(self)
     }
 }
 
@@ -141,7 +216,7 @@ pub struct Parameters {
     ion_kinds: Vec<Kind>,
     min_ion_index: usize,
     static_mods: HashMap<char, f32>,
-    variable_mods: HashMap<char, f32>,
+    variable_mods: HashMap<char, Vec<f32>>,
     max_variable_mods: usize,
     decoy_tag: String,
     generate_decoys: bool,
@@ -161,7 +236,7 @@ impl Parameters {
         let mods = self
             .variable_mods
             .iter()
-            .map(|(a, b)| (*a, *b))
+            .flat_map(|(a, b)| b.iter().map(|b| (*a, *b)))
             .collect::<Vec<_>>();
 
         let target_decoys: DashMap<String, Peptide, fnv::FnvBuildHasher> = DashMap::default();
@@ -294,18 +369,10 @@ impl Parameters {
             .collect::<Vec<_>>();
 
         let mut potential_mods = self
-            .static_mods
+            .variable_mods
             .iter()
-            .map(|(&x, &y)| (x, y))
+            .flat_map(|(a, b)| b.iter().map(|b| (*a, *b)))
             .collect::<Vec<(char, f32)>>();
-        for (resi, mass) in &self.variable_mods {
-            match self.static_mods.get(resi) {
-                Some(mass_) if mass_ == mass => {}
-                _ => {
-                    potential_mods.push((*resi, *mass));
-                }
-            }
-        }
 
         Ok(IndexedDatabase {
             peptides: target_decoys,
@@ -583,7 +650,7 @@ mod test {
             ion_kinds: vec![Kind::B, Kind::Y],
             min_ion_index: 2,
             static_mods: HashMap::default(),
-            variable_mods: [('[', 42.0)].into_iter().collect(),
+            variable_mods: [('[', vec![42.0])].into_iter().collect(),
             max_variable_mods: 2,
             decoy_tag: "rev_".into(),
             generate_decoys: false,
