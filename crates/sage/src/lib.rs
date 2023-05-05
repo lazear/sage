@@ -7,6 +7,7 @@ pub mod isotopes;
 pub mod lfq;
 pub mod mass;
 pub mod ml;
+pub mod modification;
 pub mod mzml;
 pub mod peptide;
 pub mod scoring;

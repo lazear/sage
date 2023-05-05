@@ -1,5 +1,6 @@
 use fnv::FnvHashSet;
 use regex::Regex;
+use std::sync::Arc;
 
 use crate::mass::VALID_AA;
 
@@ -14,6 +15,8 @@ pub struct Digest {
     pub decoy: bool,
     /// Cleaved peptide sequence
     pub sequence: String,
+    /// Protein accession
+    pub protein: Arc<String>,
     /// Missed cleavages
     pub missed_cleavages: u8,
     /// Is this an N-terminal peptide of the protein?
@@ -48,6 +51,7 @@ impl Digest {
 
         Digest {
             decoy: true,
+            protein: self.protein.clone(),
             sequence: sequence.into_iter().collect(),
             missed_cleavages: self.missed_cleavages,
             position: self.position,
@@ -162,7 +166,7 @@ impl EnzymeParameters {
         }
     }
 
-    pub fn digest(&self, sequence: &str) -> Vec<Digest> {
+    pub fn digest(&self, sequence: &str, protein: Arc<String>) -> Vec<Digest> {
         let n = sequence.len();
         let mut digests = Vec::new();
         let sites = self.cleavage_sites(sequence);
@@ -203,6 +207,7 @@ impl EnzymeParameters {
                         missed_cleavages: cleavage - 1,
                         decoy: false,
                         position,
+                        protein: protein.clone(),
                     });
                 }
             }
@@ -225,12 +230,14 @@ mod test {
                 sequence: "MADEEK".into(),
                 missed_cleavages: 0,
                 position: Position::Nterm,
+                protein: Arc::new(String::default()),
             },
             Digest {
                 decoy: false,
                 sequence: "MADEEK".into(),
                 missed_cleavages: 0,
                 position: Position::Nterm,
+                protein: Arc::new(String::default()),
             },
         ];
 
@@ -244,12 +251,14 @@ mod test {
                 sequence: "MADEEK".into(),
                 missed_cleavages: 0,
                 position: Position::Nterm,
+                protein: Arc::new(String::default()),
             },
             Digest {
                 decoy: false,
                 sequence: "MADEEK".into(),
                 missed_cleavages: 0,
                 position: Position::Internal,
+                protein: Arc::new(String::default()),
             },
         ];
 
@@ -278,7 +287,7 @@ mod test {
 
         assert_eq!(
             expected,
-            tryp.digest(sequence)
+            tryp.digest(sequence, Arc::default())
                 .into_iter()
                 .map(|d| (d.sequence, d.position))
                 .collect::<Vec<_>>()
@@ -311,7 +320,7 @@ mod test {
 
         assert_eq!(
             expected,
-            tryp.digest(sequence)
+            tryp.digest(sequence, Arc::default())
                 .into_iter()
                 .map(|d| d.sequence)
                 .collect::<Vec<_>>()
@@ -348,7 +357,7 @@ mod test {
 
         assert_eq!(
             expected,
-            tryp.digest(sequence)
+            tryp.digest(sequence, Arc::default())
                 .into_iter()
                 .map(|d| d.sequence)
                 .collect::<Vec<_>>()
@@ -376,7 +385,7 @@ mod test {
 
         assert_eq!(
             expected,
-            tryp.digest(sequence)
+            tryp.digest(sequence, Arc::default())
                 .into_iter()
                 .map(|d| d.sequence)
                 .collect::<Vec<_>>()
@@ -397,7 +406,7 @@ mod test {
 
         assert_eq!(
             expected,
-            tryp.digest(sequence)
+            tryp.digest(sequence, Arc::default())
                 .into_iter()
                 .map(|d| d.sequence)
                 .collect::<Vec<_>>()
@@ -426,7 +435,7 @@ mod test {
 
         assert_eq!(
             expected,
-            tryp.digest(sequence)
+            tryp.digest(sequence, Arc::default())
                 .into_iter()
                 .map(|d| d.sequence)
                 .collect::<Vec<_>>()
@@ -452,7 +461,7 @@ mod test {
 
         assert_eq!(
             expected,
-            tryp.digest(sequence)
+            tryp.digest(sequence, Arc::default())
                 .into_iter()
                 .map(|d| d.sequence)
                 .collect::<Vec<_>>()
@@ -481,7 +490,7 @@ mod test {
 
         assert_eq!(
             expected,
-            tryp.digest(sequence)
+            tryp.digest(sequence, Arc::default())
                 .into_iter()
                 .map(|d| d.sequence)
                 .collect::<Vec<_>>()
@@ -502,7 +511,7 @@ mod test {
 
         assert_eq!(
             expected,
-            tryp.digest(sequence)
+            tryp.digest(sequence, Arc::default())
                 .into_iter()
                 .map(|d| d.sequence)
                 .collect::<Vec<_>>()
@@ -523,7 +532,7 @@ mod test {
 
         assert_eq!(
             expected,
-            tryp.digest(sequence)
+            tryp.digest(sequence, Arc::default())
                 .into_iter()
                 .map(|d| d.sequence)
                 .collect::<Vec<_>>()

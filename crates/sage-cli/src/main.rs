@@ -5,7 +5,7 @@ use log::info;
 use rayon::prelude::*;
 use sage_cloudpath::CloudPath;
 use sage_core::database::IndexedDatabase;
-use sage_core::mass::{Mass, Tolerance, VALID_AA};
+use sage_core::mass::Tolerance;
 use sage_core::scoring::{Feature, Scorer};
 use sage_core::spectrum::{ProcessedSpectrum, SpectrumProcessor};
 use sage_core::tmt::TmtQuant;
@@ -399,6 +399,7 @@ fn main() -> anyhow::Result<()> {
     let input = Input::from_arguments(matches)?;
 
     let runner = input.build().and_then(Runner::new)?;
+    runner.database.serialize();
 
     runner.run(parallel)?;
 

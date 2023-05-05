@@ -55,14 +55,7 @@ impl AddAssign<InitialHits> for InitialHits {
 pub struct Feature {
     #[serde(skip_serializing)]
     pub peptide_idx: PeptideIx,
-    /// Peptide sequence, including modifications e.g.: NC(+57.021)HK
-    pub peptide: String,
-    /// Peptide length
     pub peptide_len: usize,
-    /// Proteins containing this peptide sequence
-    pub proteins: String,
-    /// Number of proteins assigned to this peptide sequence
-    pub num_proteins: usize,
     /// Spectrum id
     pub spec_id: String,
     /// File identifier
@@ -124,8 +117,6 @@ pub struct Feature {
 
     pub ms2_intensity: f32,
     pub ms1_intensity: f32,
-    // pub ms1_apex: f32,
-    // pub ms1_apex_rt: f32,
 }
 
 /// Stirling's approximation for log factorial
@@ -401,14 +392,11 @@ impl<'db> Scorer<'db> {
             let delta_mass = (precursor_mass - peptide.monoisotopic - isotope_error).abs() * 2E6
                 / (precursor_mass - isotope_error + peptide.monoisotopic);
 
-            let (num_proteins, proteins) = self.db.assign_proteins(peptide);
+            // let (num_proteins, proteins) = self.db.assign_proteins(peptide);
 
             features.push(Feature {
                 // Identifiers
                 peptide_idx: score.peptide,
-                peptide: peptide.to_string(),
-                proteins,
-                num_proteins,
                 spec_id: query.id.clone(),
                 file_id: query.file_id,
                 rank: idx as u32 + 1,

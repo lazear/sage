@@ -42,7 +42,7 @@ impl RetentionModel {
     fn embed(peptide: &Peptide, map: &[usize; 26]) -> [f64; FEATURES] {
         let mut embedding = [0.0; FEATURES];
         let cterm = peptide.sequence.len().saturating_sub(3);
-        for (aa_idx, residue) in peptide.sequence.as_bytes().iter().enumerate() {
+        for (aa_idx, residue) in peptide.sequence.iter().enumerate() {
             let idx = map[(residue - b'A') as usize];
             embedding[idx] += 1.0;
             // Embed N- and C-terminal AA's (2 on each end, excluding K/R)

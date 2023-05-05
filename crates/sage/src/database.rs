@@ -2,17 +2,17 @@ use crate::enzyme::{Enzyme, EnzymeParameters};
 use crate::fasta::Fasta;
 use crate::ion_series::{IonSeries, Kind};
 use crate::mass::Tolerance;
+use crate::modification::{validate_mods, validate_var_mods, ModificationSpecificity};
 use crate::peptide::Peptide;
-use dashmap::DashMap;
-use fnv::{FnvBuildHasher, FnvHashSet};
-use log::error;
+use dashmap::DashSet;
+use fnv::FnvBuildHasher;
+use itertools::Itertools;
 use rayon::prelude::*;
-use serde::de::Visitor;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::hash::Hash;
-use std::sync::Arc;
+use std::io::{BufWriter, Write};
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct EnzymeBuilder {
@@ -76,9 +76,9 @@ pub struct Builder {
     /// 2 will remove b1/b2/y1/y2 ions, etc
     pub min_ion_index: Option<usize>,
     /// Static modifications to add to matching amino acids
-    pub static_mods: Option<HashMap<char, f32>>,
+    pub static_mods: Option<HashMap<String, f32>>,
     /// Variable modifications to add to matching amino acids
-    pub variable_mods: Option<HashMap<char, ValueOrVec>>,
+    pub variable_mods: Option<HashMap<String, crate::modification::ValueOrVec>>,
     /// Limit number of variable modifications on a peptide
     pub max_variable_mods: Option<usize>,
     /// Use this prefix for decoy proteins
@@ -90,40 +90,6 @@ pub struct Builder {
 }
 
 impl Builder {
-    fn validate_mods(input: Option<HashMap<char, f32>>) -> HashMap<char, f32> {
-        let mut output = HashMap::new();
-        if let Some(input) = input {
-            for (ch, mass) in input {
-                if crate::mass::VALID_AA.contains(&(ch as u8)) || "^$[]".contains(ch) {
-                    output.insert(ch, mass);
-                } else {
-                    error!(
-                        "invalid residue: {}, proceeding without this static mod",
-                        ch
-                    );
-                }
-            }
-        }
-        output
-    }
-
-    fn validate_var_mods(input: Option<HashMap<char, ValueOrVec>>) -> HashMap<char, Vec<f32>> {
-        let mut output = HashMap::new();
-        if let Some(input) = input {
-            for (ch, mass) in input {
-                if crate::mass::VALID_AA.contains(&(ch as u8)) || "^$[]".contains(ch) {
-                    output.insert(ch, mass.data);
-                } else {
-                    error!(
-                        "invalid residue: {}, proceeding without this static mod",
-                        ch
-                    );
-                }
-            }
-        }
-        output
-    }
-
     pub fn make_parameters(self) -> Parameters {
         let bucket_size = self.bucket_size.unwrap_or(8192).next_power_of_two();
         Parameters {
@@ -136,8 +102,8 @@ impl Builder {
             min_ion_index: self.min_ion_index.unwrap_or(2),
             decoy_tag: self.decoy_tag.unwrap_or_else(|| "rev_".into()),
             enzyme: self.enzyme.unwrap_or_default(),
-            static_mods: Self::validate_mods(self.static_mods),
-            variable_mods: Self::validate_var_mods(self.variable_mods),
+            static_mods: validate_mods(self.static_mods),
+            variable_mods: validate_var_mods(self.variable_mods),
             max_variable_mods: self.max_variable_mods.map(|x| x.max(1)).unwrap_or(2),
             generate_decoys: self.generate_decoys.unwrap_or(true),
             fasta: self.fasta.expect("A fasta file must be provided!"),
@@ -146,63 +112,6 @@ impl Builder {
 
     pub fn update_fasta(&mut self, fasta: String) {
         self.fasta = Some(fasta)
-    }
-}
-
-#[derive(Default)]
-pub struct ValueOrVec {
-    data: Vec<f32>,
-}
-
-impl<'de> Deserialize<'de> for ValueOrVec {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        deserializer.deserialize_any(ValueOrVec::default())
-    }
-}
-
-impl<'de> Visitor<'de> for ValueOrVec {
-    type Value = ValueOrVec;
-
-    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        formatter.write_str("Expected floating point value, or list of floating point values")
-    }
-
-    fn visit_seq<A>(mut self, mut seq: A) -> Result<Self::Value, A::Error>
-    where
-        A: serde::de::SeqAccess<'de>,
-    {
-        loop {
-            match seq.next_element::<f32>()? {
-                Some(val) => self.data.push(val),
-                None => break,
-            }
-        }
-        Ok(self)
-    }
-
-    fn visit_f64<E>(mut self, v: f64) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        log::warn!(
-            "Single value variable modifications will be phased out. Use a list of modifications"
-        );
-        self.data.push(v as f32);
-        Ok(self)
-    }
-
-    fn visit_i64<E>(mut self, v: i64) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        log::warn!(
-            "Single value variable modifications will be phased out. Use a list of modifications"
-        );
-        self.data.push(v as f32);
-        Ok(self)
     }
 }
 
@@ -216,8 +125,8 @@ pub struct Parameters {
     peptide_max_mass: f32,
     ion_kinds: Vec<Kind>,
     min_ion_index: usize,
-    static_mods: HashMap<char, f32>,
-    variable_mods: HashMap<char, Vec<f32>>,
+    static_mods: HashMap<ModificationSpecificity, f32>,
+    variable_mods: HashMap<ModificationSpecificity, Vec<f32>>,
     max_variable_mods: usize,
     decoy_tag: String,
     generate_decoys: bool,
@@ -225,13 +134,11 @@ pub struct Parameters {
 }
 
 impl Parameters {
-    fn digest(
-        &self,
-        fasta: &Fasta,
-    ) -> (Vec<Peptide>, DashMap<String, Vec<String>, FnvBuildHasher>) {
+    fn digest(&self, fasta: &Fasta) -> Vec<Peptide> {
         let enzyme = self.enzyme.clone().into();
         // Generate all tryptic peptide sequences, including reversed (decoy)
         // and missed cleavages, if applicable.
+        log::trace!("begin digest");
         let digests = fasta.digest(&enzyme);
 
         let mods = self
@@ -240,12 +147,20 @@ impl Parameters {
             .flat_map(|(a, b)| b.iter().map(|b| (*a, *b)))
             .collect::<Vec<_>>();
 
-        let peptide_graph: DashMap<String, Vec<String>, fnv::FnvBuildHasher> = DashMap::default();
+        let targets: DashSet<_, FnvBuildHasher> = DashSet::default();
+        digests
+            .par_iter()
+            .filter(|digest| !digest.decoy)
+            .for_each(|digest| {
+                targets.insert(digest.sequence.clone().into_bytes());
+            });
+
+        log::trace!("begin target_decoy");
         let mut target_decoys = digests
             .into_par_iter()
-            .filter_map(|(digest, proteins)| Peptide::try_from(digest).ok().map(|p| (p, proteins)))
-            .flat_map_iter(|(peptide, proteins)| {
-                let pg = &peptide_graph;
+            .map(Peptide::try_from)
+            .filter_map(Result::ok)
+            .flat_map_iter(|peptide| {
                 peptide
                     .apply(&mods, &self.static_mods, self.max_variable_mods)
                     .into_iter()
@@ -253,40 +168,56 @@ impl Parameters {
                         peptide.monoisotopic >= self.peptide_min_mass
                             && peptide.monoisotopic <= self.peptide_max_mass
                     })
-                    .map(move |peptide| {
-                        pg.entry(peptide.modified_sequence.clone())
-                            .or_insert_with(|| Vec::with_capacity(4))
-                            .extend(proteins.clone());
-                        peptide
+                    .flat_map(|peptide| {
+                        if self.generate_decoys {
+                            vec![peptide.reverse(), peptide].into_iter()
+                        } else {
+                            vec![peptide].into_iter()
+                        }
                     })
+                    .filter(|peptide| !peptide.decoy || !targets.contains(&(peptide.sequence[..])))
             })
             .collect::<Vec<_>>();
 
-        // Sort protein lists alphanumerically, to ensure stability across runs, and for
-        // picked-protein group FDR
-        peptide_graph
-            .par_iter_mut()
-            .for_each(|mut entry| entry.sort_unstable());
-
+        log::trace!("begin sort");
         // NB: Stable sorting here (and only here?) is critical to achieving determinism...
         // but we can get around it by unstable sorting in the following manner
         target_decoys.par_sort_unstable_by(|a, b| {
             a.monoisotopic
                 .total_cmp(&b.monoisotopic)
-                .then_with(|| a.modified_sequence.cmp(&b.modified_sequence))
+                .then_with(|| a.sequence.cmp(&b.sequence))
+                .then_with(|| {
+                    a.modifications
+                        .partial_cmp(&b.modifications)
+                        .unwrap_or(Ordering::Equal)
+                })
+        });
+        log::trace!("begin dedup");
+
+        target_decoys.dedup_by(|remove, keep| {
+            if remove.monoisotopic == keep.monoisotopic
+                && remove.sequence == keep.sequence
+                && remove.modifications == keep.modifications
+            {
+                keep.proteins.extend(remove.proteins.iter().cloned());
+                true
+            } else {
+                false
+            }
         });
 
-        target_decoys.dedup_by(|b, a| {
-            a.monoisotopic == b.monoisotopic && a.modified_sequence == b.modified_sequence
-        });
-        (target_decoys, peptide_graph)
+        target_decoys
+            .par_iter_mut()
+            .for_each(|peptide| peptide.proteins.sort_unstable());
+        target_decoys
     }
 
     // pub fn build(self) -> Result<IndexedDatabase, Box<dyn std::error::Error + Send + Sync + 'static>> {
     pub fn build(self) -> Result<IndexedDatabase, crate::Error> {
         let fasta = crate::read_fasta(&self.fasta, &self.decoy_tag, self.generate_decoys)?;
 
-        let (target_decoys, peptide_graph) = self.digest(&fasta);
+        let target_decoys = self.digest(&fasta);
+        log::trace!("begin fragment generation");
 
         // Finally, perform in silico digest for our target sequences
         // Note that multiple charge states are actually handled by
@@ -320,6 +251,7 @@ impl Parameters {
                     })
             })
             .collect::<Vec<_>>();
+        log::trace!("finish fragment generation");
 
         // Sort all of our theoretical fragments by m/z, from low to high
         fragments.par_sort_unstable_by(|a, b| a.fragment_mz.total_cmp(&b.fragment_mz));
@@ -369,11 +301,11 @@ impl Parameters {
             })
             .collect::<Vec<_>>();
 
-        let mut potential_mods = self
+        let potential_mods = self
             .variable_mods
             .iter()
             .flat_map(|(a, b)| b.iter().map(|b| (*a, *b)))
-            .collect::<Vec<(char, f32)>>();
+            .collect::<Vec<(ModificationSpecificity, f32)>>();
 
         Ok(IndexedDatabase {
             peptides: target_decoys,
@@ -382,8 +314,8 @@ impl Parameters {
             bucket_size: self.bucket_size,
             ion_kinds: self.ion_kinds,
             generate_decoys: self.generate_decoys,
-            peptide_graph,
             potential_mods,
+            decoy_tag: self.decoy_tag,
         })
     }
 }
@@ -411,10 +343,10 @@ pub struct IndexedDatabase {
     pub ion_kinds: Vec<Kind>,
     pub(crate) min_value: Vec<f32>,
     /// Keep a list of potential (AA, mass) modifications for RT prediction
-    pub potential_mods: Vec<(char, f32)>,
+    pub potential_mods: Vec<(ModificationSpecificity, f32)>,
     pub bucket_size: usize,
     pub generate_decoys: bool,
-    peptide_graph: DashMap<String, Vec<String>, FnvBuildHasher>,
+    pub decoy_tag: String,
 }
 
 impl IndexedDatabase {
@@ -456,19 +388,34 @@ impl IndexedDatabase {
     }
 
     pub fn assign_proteins(&self, peptide: &Peptide) -> (usize, String) {
-        match self.peptide_graph.get(&peptide.to_string()) {
-            Some(proteins) => {
-                let n = proteins.len();
-                let proteins = proteins.join(";");
-                (n, proteins)
-            }
-            None => {
-                panic!(
-                    "BUG: peptide sequence {} doesn't appear in peptide => protein graph!",
-                    peptide
-                );
-            }
+        (
+            peptide.proteins.len(),
+            peptide.proteins.iter().map(|s| s.as_str()).join(";"),
+        )
+    }
+
+    pub fn serialize(&self) {
+        let mut wtr = BufWriter::new(std::fs::File::create("fragments.bin").unwrap());
+        for fragment in &self.fragments {
+            let _ = wtr.write(&fragment.fragment_mz.to_le_bytes()).unwrap();
+            let _ = wtr.write(&fragment.peptide_index.0.to_le_bytes()).unwrap();
         }
+        wtr.flush().unwrap();
+
+        let mut wtr = BufWriter::new(std::fs::File::create("peptides.csv").unwrap());
+        writeln!(wtr, "peptide,proteins,monoisotopic,decoy").unwrap();
+        for fragment in &self.peptides {
+            writeln!(
+                wtr,
+                "{},{},{},{}",
+                fragment,
+                fragment.proteins(&self.decoy_tag),
+                fragment.monoisotopic,
+                fragment.decoy
+            )
+            .unwrap();
+        }
+        wtr.flush().unwrap();
     }
 }
 
@@ -588,6 +535,8 @@ where
 
 #[cfg(test)]
 mod test {
+    use std::sync::Arc;
+
     use super::*;
 
     #[test]
@@ -631,8 +580,14 @@ mod test {
         assert_eq!(
             fasta.targets,
             vec![
-                ("sp|AAAAA".into(), "MEWKLEQSMREQALLKAQLTQLK".into()),
-                ("sp|BBBBB".into(), "RMEWKLEQSMREQALLKAQLTQLK".into()),
+                (
+                    Arc::new("sp|AAAAA".to_string()),
+                    "MEWKLEQSMREQALLKAQLTQLK".into()
+                ),
+                (
+                    Arc::new("sp|BBBBB".to_string()),
+                    "RMEWKLEQSMREQALLKAQLTQLK".into()
+                ),
             ]
         );
 
@@ -651,14 +606,16 @@ mod test {
             ion_kinds: vec![Kind::B, Kind::Y],
             min_ion_index: 2,
             static_mods: HashMap::default(),
-            variable_mods: [('[', vec![42.0])].into_iter().collect(),
+            variable_mods: [(ModificationSpecificity::ProteinN(None), vec![42.0])]
+                .into_iter()
+                .collect(),
             max_variable_mods: 2,
             decoy_tag: "rev_".into(),
             generate_decoys: false,
             fasta: "none".into(),
         };
 
-        let (peptides, peptide_graph) = params.digest(&fasta);
+        let peptides = params.digest(&fasta);
 
         let expected = [
             "EQALLK",
@@ -671,17 +628,19 @@ mod test {
         .map(String::from)
         .collect::<Vec<_>>();
 
+        dbg!(&peptides);
+
         let sequences = peptides.iter().map(|p| p.to_string()).collect::<Vec<_>>();
         assert_eq!(expected, sequences);
 
         // All peptides are shared except for the protein N-term mod
-        for peptide in &expected[..4] {
-            assert_eq!(peptide_graph.get(peptide).unwrap().value().len(), 2);
+        for peptide in &peptides[..4] {
+            assert_eq!(peptide.proteins.len(), 2);
         }
         // Ensure that this mod is uniquely called as the first protein
         assert_eq!(
-            peptide_graph.get("[+42]-MEWKLEQSMR").unwrap().value(),
-            &vec!["sp|AAAAA".to_string()]
+            peptides.last().unwrap().proteins,
+            vec!["sp|AAAAA".to_string().into()]
         );
     }
 }

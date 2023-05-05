@@ -1,4 +1,4 @@
-use std::{fmt::Write, iter::Sum, ops::Mul};
+use std::{iter::Sum, ops::Mul};
 
 use serde::{Deserialize, Serialize};
 
@@ -70,7 +70,7 @@ impl Mass for u8 {
         if self.is_ascii_uppercase() {
             MONOISOTOPIC_MASSES[(self - b'A') as usize]
         } else {
-            panic!("invalid AA: {}", self)
+            0.0
         }
     }
     // fn monoisotopic(&self) -> f32 {

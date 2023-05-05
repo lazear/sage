@@ -66,17 +66,16 @@ impl<'p> Iterator for IonSeries<'p> {
     // Dynamic programming solution - memoize cumulative mass of
     // peptide fragment for fast fragment ion generation
     fn next(&mut self) -> Option<Self::Item> {
-        if self.idx == self.peptide.sequence.len() - 1 {
+        if self.idx >= self.peptide.sequence.len() - 1 {
             return None;
         }
-        let r = self.peptide.sequence.as_bytes().get(self.idx)?;
-        let m = self.peptide.modifications.get(self.idx)?;
+        let r = self.peptide.sequence[self.idx];
+        let m = self.peptide.modifications[self.idx];
 
         self.cumulative_mass += match self.kind {
-            Kind::A | Kind::B | Kind::C => r.monoisotopic() + *m,
-            Kind::X | Kind::Y | Kind::Z => -(r.monoisotopic() + *m),
+            Kind::A | Kind::B | Kind::C => r.monoisotopic() + m,
+            Kind::X | Kind::Y | Kind::Z => -(r.monoisotopic() + m),
         };
-        dbg!(&self.cumulative_mass);
         self.idx += 1;
 
         Some(Ion {
@@ -89,7 +88,9 @@ impl<'p> Iterator for IonSeries<'p> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{enzyme::Digest, mass::PROTON, peptide::Peptide};
+    use crate::modification::ModificationSpecificity;
+    use crate::peptide::Peptide;
+    use crate::{enzyme::Digest, mass::PROTON};
 
     fn peptide(s: &str) -> Peptide {
         Peptide::try_from(Digest {
@@ -255,7 +256,7 @@ mod test {
 
     #[test]
     fn nterm_mod() {
-        let static_mods = [('^', 229.01)].into();
+        let static_mods = [(ModificationSpecificity::PeptideN(None), 229.01)].into();
         let peptide = peptide("PEPTIDE").apply(&[], &static_mods, 1).remove(0);
 
         // Charge state 1, b-ions should be TMT tagged
@@ -277,7 +278,7 @@ mod test {
 
     #[test]
     fn cterm_mod() {
-        let static_mods = [('$', 229.01)].into();
+        let static_mods = [(ModificationSpecificity::PeptideC(None), 229.01)].into();
         let peptide = peptide("PEPTIDE").apply(&[], &static_mods, 1).remove(0);
         assert!((peptide.monoisotopic - 1028.37).abs() < 0.001);
 
@@ -301,7 +302,7 @@ mod test {
     #[test]
     fn internal_mod() {
         let peptide = peptide("PEPTIDE");
-        let static_mods = [('I', 29.0)].into();
+        let static_mods = [(ModificationSpecificity::Residue(b'I'), 29.0)].into();
         let peptide = peptide.apply(&[], &static_mods, 1).remove(0);
 
         let expected_b = [

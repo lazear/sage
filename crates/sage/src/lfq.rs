@@ -220,7 +220,6 @@ impl FeatureMap {
                                     let p = &db[entry.peptide];
                                     let composition = p
                                         .sequence
-                                        .as_bytes()
                                         .iter()
                                         .map(|r| r.composition())
                                         .sum::<Composition>();

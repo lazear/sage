@@ -126,10 +126,10 @@ pub fn picked_peptide(db: &IndexedDatabase, features: &mut [Feature]) -> usize {
         let peptide = &db[feat.peptide_idx];
         // Only reverse the peptide sequence if we generated decoys ourselves
         let key = match db.generate_decoys {
-            true => peptide
-                .pseudo_forward()
-                .map(|peptide| peptide.to_string())
-                .unwrap_or_else(|| peptide.to_string()),
+            true => match peptide.decoy {
+                true => peptide.reverse().to_string(),
+                false => peptide.to_string(),
+            },
             false => peptide.to_string(),
         };
 
@@ -156,31 +156,19 @@ pub fn picked_peptide(db: &IndexedDatabase, features: &mut [Feature]) -> usize {
 }
 
 pub fn picked_protein(db: &IndexedDatabase, features: &mut [Feature]) -> usize {
-    let mut map: FnvHashMap<String, Competition<String>> = FnvHashMap::default();
+    let mut map: FnvHashMap<_, Competition<String>> = FnvHashMap::default();
     for feat in features.iter() {
-        let (decoy, proteins) = match feat.label == -1 {
-            false => (false, feat.proteins.clone()),
-            true => match db.generate_decoys {
-                true => {
-                    let peptide = db[feat.peptide_idx]
-                        .pseudo_forward()
-                        .expect("we know this is a decoy");
-                    let proteins = db.assign_proteins(&peptide).1;
-                    (true, proteins)
-                }
-                false => (true, feat.proteins.clone()),
-            },
-        };
-
-        let entry = map.entry(proteins).or_default();
+        let decoy = db[feat.peptide_idx].decoy;
+        let entry = map.entry(&db[feat.peptide_idx].proteins).or_default();
+        let proteins = db[feat.peptide_idx].proteins(&db.decoy_tag);
         match decoy {
             true => {
                 entry.reverse = entry.reverse.max(feat.discriminant_score);
-                entry.reverse_ix = Some(feat.proteins.clone());
+                entry.reverse_ix = Some(proteins);
             }
             false => {
                 entry.forward = entry.forward.max(feat.discriminant_score);
-                entry.foward_ix = Some(feat.proteins.clone());
+                entry.foward_ix = Some(proteins);
             }
         }
     }
@@ -188,7 +176,8 @@ pub fn picked_protein(db: &IndexedDatabase, features: &mut [Feature]) -> usize {
     let (scores, passing) = Competition::assign_q_value(map, 0.01);
 
     features.par_iter_mut().for_each(|feat| {
-        feat.protein_q = scores[&feat.proteins];
+        let proteins = db[feat.peptide_idx].proteins(&db.decoy_tag);
+        feat.protein_q = scores[&proteins];
     });
 
     passing

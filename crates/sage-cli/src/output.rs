@@ -8,9 +8,17 @@ use crate::Runner;
 impl Runner {
     pub fn serialize_feature(&self, feature: &Feature, filenames: &[String]) -> csv::ByteRecord {
         let mut record = csv::ByteRecord::new();
-        record.push_field(feature.peptide.as_str().as_bytes());
-        record.push_field(feature.proteins.as_str().as_bytes());
-        record.push_field(itoa::Buffer::new().format(feature.num_proteins).as_bytes());
+        let peptide = &self.database[feature.peptide_idx];
+        record.push_field(peptide.to_string().as_bytes());
+        record.push_field(peptide.proteins(&self.database.decoy_tag).as_bytes());
+        record.push_field(
+            itoa::Buffer::new()
+                .format(peptide.proteins.len())
+                .as_bytes(),
+        );
+        // record.push_field(feature.peptide.as_str().as_bytes());
+        // record.push_field(feature.proteins.as_str().as_bytes());
+        // record.push_field(itoa::Buffer::new().format(feature.num_proteins).as_bytes());
         record.push_field(filenames[feature.file_id].as_bytes());
         record.push_field(feature.spec_id.as_bytes());
         record.push_field(itoa::Buffer::new().format(feature.rank).as_bytes());
@@ -147,6 +155,7 @@ impl Runner {
             .unwrap_or(&feature.spec_id);
 
         let mut record = csv::ByteRecord::new();
+        let peptide = &self.database[feature.peptide_idx];
         record.push_field(itoa::Buffer::new().format(idx).as_bytes());
         record.push_field(itoa::Buffer::new().format(feature.label).as_bytes());
         record.push_field(scannr.as_bytes());
@@ -240,8 +249,8 @@ impl Runner {
                 .format((-feature.poisson).ln_1p())
                 .as_bytes(),
         );
-        record.push_field(feature.peptide.as_str().as_bytes());
-        record.push_field(feature.proteins.as_str().as_bytes());
+        record.push_field(peptide.to_string().as_bytes());
+        record.push_field(peptide.proteins(&self.database.decoy_tag).as_bytes());
         record
     }
 
