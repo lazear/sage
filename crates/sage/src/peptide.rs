@@ -1,17 +1,18 @@
-use std::{collections::HashMap, fmt::Debug};
+use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
-use fnv::FnvHashSet;
+use fnv::{FnvHashSet, FnvHasher};
 use itertools::Itertools;
 
 use crate::{
     enzyme::{Digest, Position},
-    mass::{Mass, Residue, H2O, VALID_AA},
+    mass::{Mass, H2O, VALID_AA},
 };
 
 #[derive(Clone, PartialEq, PartialOrd)]
 pub struct Peptide {
     pub decoy: bool,
-    pub sequence: Vec<Residue>,
+    pub sequence: Arc<String>,
+    pub modifications: Vec<f32>,
     /// Modification on peptide C-terminus
     pub nterm: Option<f32>,
     /// Modification on peptide C-terminus
@@ -22,13 +23,15 @@ pub struct Peptide {
     pub missed_cleavages: u8,
     /// Where is this peptide located in the protein?
     pub position: Position,
+
+    pub modified_sequence: String,
 }
 
 impl Debug for Peptide {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Peptide")
             .field("decoy", &self.decoy)
-            .field("sequence", &self.to_string())
+            .field("sequence", &self.modified_sequence)
             .field("nterm", &self.nterm)
             .field("cterm", &self.cterm)
             .field("monoisotopic", &self.monoisotopic)
@@ -80,14 +83,11 @@ impl Peptide {
             '[' => self.set_nterm_protein_mod(mass),
             ']' => self.set_cterm_protein_mod(mass),
             _ => {
-                for resi in self.sequence.iter_mut() {
+                for (idx, resi) in self.sequence.as_bytes().iter().enumerate() {
                     // Don't overwrite an already modified amino acid!
-                    match resi {
-                        Residue::Just(c) if *c == residue as u8 => {
-                            self.monoisotopic += mass;
-                            *resi = Residue::Mod(residue as u8, mass);
-                        }
-                        _ => {}
+                    if residue as u8 == *resi && self.modifications[idx] == 0.0 {
+                        self.modifications[idx] = mass;
+                        self.monoisotopic += mass;
                     }
                 }
             }
@@ -103,8 +103,8 @@ impl Peptide {
                 Site::ProteinN => self.set_nterm_protein_mod(*mass),
                 Site::ProteinC => self.set_cterm_protein_mod(*mass),
                 Site::Sequence(index) => {
-                    if let Residue::Just(c) = self.sequence[*index as usize] {
-                        self.sequence[*index as usize] = Residue::Mod(c, *mass);
+                    if self.modifications[*index as usize] == 0.0 {
+                        self.modifications[*index as usize] = *mass;
                         self.monoisotopic += mass;
                     }
                 }
@@ -112,12 +112,23 @@ impl Peptide {
         }
     }
 
-    fn modification_sites(&self, residue: char, mass: f32) -> ModificationSites {
-        ModificationSites {
-            peptide: self,
-            index: 0,
-            residue,
-            mass,
+    fn push_resi(&self, acc: &mut Vec<(Site, f32)>, residue: char, mass: f32) {
+        match (residue, self.position) {
+            ('^', _) => acc.push((Site::PeptideN, mass)),
+            ('$', _) => acc.push((Site::PeptideC, mass)),
+            ('[', Position::Nterm | Position::Full) => acc.push((Site::ProteinN, mass)),
+            (']', Position::Cterm | Position::Full) => acc.push((Site::ProteinC, mass)),
+            _ => {
+                acc.extend(self.sequence.as_bytes().iter().enumerate().filter_map(
+                    |(idx, resi)| {
+                        if *resi == residue as u8 {
+                            Some((Site::Sequence(idx as u32), mass))
+                        } else {
+                            None
+                        }
+                    },
+                ));
+            }
         }
     }
 
@@ -132,15 +143,13 @@ impl Peptide {
             for (resi, mass) in static_mods {
                 self.static_mod(*resi, *mass);
             }
+            self.modified_sequence = self.to_string();
             vec![self]
         } else {
-            // Create list of all possible variable modifications
-            let mods = variable_mods
-                .iter()
-                .fold(vec![], |mut acc, (residue, mass)| {
-                    acc.extend(self.modification_sites(*residue, *mass));
-                    acc
-                });
+            let mut mods = Vec::new();
+            for (residue, mass) in variable_mods.iter() {
+                self.push_resi(&mut mods, *residue, *mass);
+            }
 
             let mut modified = Vec::new();
             modified.push(self.clone());
@@ -164,6 +173,8 @@ impl Peptide {
                 for (&residue, &mass) in static_mods {
                     peptide.static_mod(residue, mass);
                 }
+
+                peptide.modified_sequence = peptide.to_string();
             }
 
             modified
@@ -176,22 +187,26 @@ impl Peptide {
             let mut fwd = self.clone();
             if fwd.sequence.len() > 2 {
                 let n = fwd.sequence.len().saturating_sub(1);
-                fwd.sequence[1..n].reverse();
+                let mut s = fwd.sequence.to_string();
+                unsafe { s.as_bytes_mut()[1..n].reverse() }
+                fwd.sequence = Arc::new(s);
+                fwd.modifications[1..n].reverse();
+                fwd.modified_sequence = fwd.to_string();
             }
             return Some(fwd);
         }
         None
     }
 
-    pub fn ambiguous(&self, other: &Peptide) -> bool {
-        self.sequence.len() == other.sequence.len()
-            && self.monoisotopic == other.monoisotopic
-            && self
-                .sequence
-                .iter()
-                .zip(other.sequence.iter())
-                .all(|(l, r)| l.monoisotopic() == r.monoisotopic())
-    }
+    // pub fn ambiguous(&self, other: &Peptide) -> bool {
+    //     self.sequence.len() == other.sequence.len()
+    //         && self.monoisotopic == other.monoisotopic
+    //         && self
+    //             .sequence
+    //             .iter()
+    //             .zip(other.sequence.iter())
+    //             .all(|(l, r)| l.monoisotopic() == r.monoisotopic())
+    // }
 }
 
 fn no_duplicates(combination: &Vec<&(Site, f32)>) -> bool {
@@ -219,69 +234,26 @@ enum Site {
     Sequence(u32),
 }
 
-struct ModificationSites<'a> {
-    peptide: &'a Peptide,
-    index: usize,
-    residue: char,
-    mass: f32,
-}
-
-impl<'a> Iterator for ModificationSites<'a> {
-    type Item = (Site, f32);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match (self.residue, self.index, self.peptide.position) {
-            ('^', 0, _) => {
-                self.index = self.peptide.sequence.len();
-                return Some((Site::PeptideN, self.mass));
-            }
-            ('[', 0, Position::Nterm) | ('[', 0, Position::Full) => {
-                self.index = self.peptide.sequence.len();
-                return Some((Site::ProteinN, self.mass));
-            }
-            ('$', 0, _) => {
-                self.index = self.peptide.sequence.len();
-                return Some((Site::PeptideC, self.mass));
-            }
-            (']', 0, Position::Cterm) | (']', 0, Position::Full) => {
-                self.index = self.peptide.sequence.len();
-                return Some((Site::ProteinC, self.mass));
-            }
-            _ => {}
-        };
-        while self.index < self.peptide.sequence.len() {
-            let idx = self.index;
-            self.index += 1;
-            match self.peptide.sequence[idx] {
-                Residue::Just(r) if r == self.residue as u8 => {
-                    return Some((Site::Sequence(idx as u32), self.mass))
-                }
-                _ => continue,
-            }
-        }
-        None
-    }
-}
-
-impl TryFrom<&Digest> for Peptide {
+impl TryFrom<Digest> for Peptide {
     type Error = char;
 
-    fn try_from(value: &Digest) -> Result<Self, Self::Error> {
-        let mut sequence = Vec::with_capacity(value.sequence.len());
+    fn try_from(value: Digest) -> Result<Self, Self::Error> {
         let mut monoisotopic = H2O;
 
         for c in value.sequence.as_bytes() {
-            if !VALID_AA.contains(c) {
+            let mono = c.monoisotopic();
+            if mono == 0.0 {
                 return Err(*c as char);
             }
-            monoisotopic += c.monoisotopic();
-            sequence.push(Residue::Just(*c));
+            monoisotopic += mono;
         }
 
         Ok(Peptide {
             decoy: value.decoy,
             position: value.position,
-            sequence,
+            modified_sequence: value.sequence.clone(),
+            modifications: vec![0.0; value.sequence.len()],
+            sequence: Arc::new(value.sequence),
             monoisotopic,
             nterm: None,
             cterm: None,
@@ -293,26 +265,17 @@ impl TryFrom<&Digest> for Peptide {
 impl std::fmt::Display for Peptide {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(m) = self.nterm {
-            if m.is_sign_positive() {
-                write!(f, "[+{}]-", m)?;
+            write!(f, "[{:+}]-", m)?;
+        }
+        for (c, m) in self.sequence.chars().zip(self.modifications.iter()) {
+            if *m != 0.0 {
+                write!(f, "{}[{:+}]", c, m)?;
             } else {
-                write!(f, "[{}]-", m)?;
+                write!(f, "{}", c)?;
             }
         }
-        f.write_str(
-            &self
-                .sequence
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join(""),
-        )?;
         if let Some(m) = self.cterm {
-            if m.is_sign_positive() {
-                write!(f, "-[+{}]", m)?;
-            } else {
-                write!(f, "-[{}]", m)?;
-            }
+            write!(f, "-[{:+}]", m)?;
         }
         Ok(())
     }
@@ -346,7 +309,7 @@ mod test {
 
         let peptides = tryp
             .digest(sequence)
-            .iter()
+            .into_iter()
             .map(Peptide::try_from)
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
@@ -403,7 +366,7 @@ mod test {
     #[test]
     fn test_variable_mods() {
         let variable_mods = [('M', 16.0f32), ('C', 57.)];
-        let peptide = Peptide::try_from(&Digest {
+        let peptide = Peptide::try_from(Digest {
             sequence: "GCMGCMG".into(),
             ..Default::default()
         })
@@ -430,7 +393,7 @@ mod test {
     #[test]
     fn test_variable_mods_no_effeect() {
         let variable_mods = [('M', 16.0f32), ('C', 57.)];
-        let peptide = Peptide::try_from(&Digest {
+        let peptide = Peptide::try_from(Digest {
             sequence: "AAAAAAAA".into(),
             ..Default::default()
         })
@@ -444,7 +407,7 @@ mod test {
     #[test]
     fn test_variable_mods_nterm() {
         let variable_mods = [('^', 42.), ('M', 16.)];
-        let peptide = Peptide::try_from(&Digest {
+        let peptide = Peptide::try_from(Digest {
             sequence: "GCMGCMG".into(),
             ..Default::default()
         })
@@ -468,7 +431,7 @@ mod test {
     #[test]
     fn test_variable_mods_cterm() {
         let variable_mods = [('$', 42.), ('M', 16.)];
-        let peptide = Peptide::try_from(&Digest {
+        let peptide = Peptide::try_from(Digest {
             sequence: "GCMGCMG".into(),
             ..Default::default()
         })
@@ -492,7 +455,7 @@ mod test {
     #[test]
     fn test_variable_mods_multi() {
         let variable_mods = [('S', 79.), ('S', 541.)];
-        let peptide = Peptide::try_from(&Digest {
+        let peptide = Peptide::try_from(Digest {
             sequence: "GGGSGGGS".into(),
             ..Default::default()
         })
@@ -526,8 +489,8 @@ mod test {
 
         let fwd = "MADEEKLPPGWEKRMSRSSGRVYYFNHITNASQWERPSGN";
         for digest in trypsin.digest(fwd) {
-            let mut fwd = Peptide::try_from(&digest).unwrap();
-            let mut rev = Peptide::try_from(&digest.reverse()).unwrap();
+            let mut fwd = Peptide::try_from(digest.clone()).unwrap();
+            let mut rev = Peptide::try_from(digest.reverse()).unwrap();
 
             assert_eq!(fwd.decoy, false);
             assert_eq!(rev.decoy, true);
@@ -548,7 +511,7 @@ mod test {
 
     #[test]
     fn apply_mods() {
-        let peptide = Peptide::try_from(&Digest {
+        let peptide = Peptide::try_from(Digest {
             sequence: "AACAACAA".into(),
             ..Default::default()
         })
@@ -578,29 +541,29 @@ mod test {
     #[test]
     fn modification_sites() {
         use Site::*;
-        let peptide = Peptide::try_from(&Digest {
+        let peptide = Peptide::try_from(Digest {
             sequence: "AACAACAA".into(),
             ..Default::default()
         })
         .unwrap();
 
-        let mods = peptide.modification_sites('C', 16.0);
-        assert_eq!(
-            mods.collect::<Vec<_>>(),
-            vec![(Sequence(2), 16.0), (Sequence(5), 16.0)]
-        );
+        let mut mods = vec![];
+        peptide.push_resi(&mut mods, 'C', 16.0);
+        assert_eq!(mods, vec![(Sequence(2), 16.0), (Sequence(5), 16.0)]);
+        mods.clear();
 
-        let mods = peptide.modification_sites('$', 16.0);
-        assert_eq!(mods.collect::<Vec<_>>(), vec![(PeptideC, 16.0)]);
+        peptide.push_resi(&mut mods, '$', 16.0);
+        assert_eq!(mods, vec![(PeptideC, 16.0)]);
+        mods.clear();
 
-        let mods = peptide.modification_sites('^', 16.0);
-        assert_eq!(mods.collect::<Vec<_>>(), vec![(PeptideN, 16.0)]);
+        peptide.push_resi(&mut mods, '^', 16.0);
+        assert_eq!(mods, vec![(PeptideN, 16.0)]);
+        mods.clear();
 
-        let mods = [('^', 12.0), ('$', 200.0), ('C', 57.0), ('A', 43.0)];
-        let mods = mods.iter().fold(vec![], |mut acc, m| {
-            acc.extend(peptide.modification_sites(m.0, m.1));
-            acc
-        });
+        let mut mods = vec![];
+        for (residue, mass) in [('^', 12.0), ('$', 200.0), ('C', 57.0), ('A', 43.0)] {
+            peptide.push_resi(&mut mods, residue, mass);
+        }
 
         assert_eq!(
             mods,

@@ -1,5 +1,7 @@
 use sage_core::database::Builder;
+use sage_core::enzyme::Digest;
 use sage_core::mass::Tolerance;
+use sage_core::peptide::Peptide;
 use sage_core::scoring::Scorer;
 use sage_core::spectrum::SpectrumProcessor;
 
@@ -9,6 +11,17 @@ fn integration() -> anyhow::Result<()> {
     builder.update_fasta("../../tests/Q99536.fasta".into());
 
     let database = builder.make_parameters().build()?;
+    let pep = Peptide::try_from(Digest {
+        sequence: "LQSRPAAPPAPGPGQLTLR".into(),
+        decoy: false,
+        missed_cleavages: 0,
+        position: sage_core::enzyme::Position::Internal,
+    })
+    .unwrap();
+    assert_eq!(
+        database.assign_proteins(&pep),
+        (1, "sp|Q99536|VAT1_HUMAN".into())
+    );
 
     let spectra = sage_core::read_mzml("../../tests/LQSRPAAPPAPGPGQLTLR.mzML", None)?;
     assert_eq!(spectra.len(), 1);

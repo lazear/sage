@@ -4,14 +4,15 @@ use crate::ion_series::{IonSeries, Kind};
 use crate::mass::Tolerance;
 use crate::peptide::Peptide;
 use dashmap::DashMap;
-use fnv::FnvBuildHasher;
+use fnv::{FnvBuildHasher, FnvHashSet};
 use log::error;
 use rayon::prelude::*;
 use serde::de::Visitor;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
+use std::sync::Arc;
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct EnzymeBuilder {
@@ -239,31 +240,26 @@ impl Parameters {
             .flat_map(|(a, b)| b.iter().map(|b| (*a, *b)))
             .collect::<Vec<_>>();
 
-        let target_decoys: DashMap<String, Peptide, fnv::FnvBuildHasher> = DashMap::default();
         let peptide_graph: DashMap<String, Vec<String>, fnv::FnvBuildHasher> = DashMap::default();
-        digests.into_par_iter().for_each(|(digest, proteins)| {
-            if let Ok(peptide) = Peptide::try_from(&digest) {
-                for peptide in peptide
+        let mut target_decoys = digests
+            .into_par_iter()
+            .filter_map(|(digest, proteins)| Peptide::try_from(digest).ok().map(|p| (p, proteins)))
+            .flat_map_iter(|(peptide, proteins)| {
+                let pg = &peptide_graph;
+                peptide
                     .apply(&mods, &self.static_mods, self.max_variable_mods)
                     .into_iter()
                     .filter(|peptide| {
                         peptide.monoisotopic >= self.peptide_min_mass
                             && peptide.monoisotopic <= self.peptide_max_mass
                     })
-                {
-                    let sequence = peptide.to_string();
-                    peptide_graph
-                        .entry(sequence.clone())
-                        .or_default()
-                        .extend(proteins.clone());
-                    target_decoys.insert(sequence, peptide);
-                }
-            }
-        });
-
-        let mut target_decoys = target_decoys
-            .into_par_iter()
-            .map(|(_, v)| v)
+                    .map(move |peptide| {
+                        pg.entry(peptide.modified_sequence.clone())
+                            .or_insert_with(|| Vec::with_capacity(4))
+                            .extend(proteins.clone());
+                        peptide
+                    })
+            })
             .collect::<Vec<_>>();
 
         // Sort protein lists alphanumerically, to ensure stability across runs, and for
@@ -273,16 +269,21 @@ impl Parameters {
             .for_each(|mut entry| entry.sort_unstable());
 
         // NB: Stable sorting here (and only here?) is critical to achieving determinism...
-        // not totally sure why... Probably has to do with using PeptideIxs
-        // as keys for scoring vectors
-        target_decoys.par_sort_by(|a, b| a.monoisotopic.total_cmp(&b.monoisotopic));
+        // but we can get around it by unstable sorting in the following manner
+        target_decoys.par_sort_unstable_by(|a, b| {
+            a.monoisotopic
+                .total_cmp(&b.monoisotopic)
+                .then_with(|| a.modified_sequence.cmp(&b.modified_sequence))
+        });
 
+        target_decoys.dedup_by(|b, a| {
+            a.monoisotopic == b.monoisotopic && a.modified_sequence == b.modified_sequence
+        });
         (target_decoys, peptide_graph)
     }
 
     // pub fn build(self) -> Result<IndexedDatabase, Box<dyn std::error::Error + Send + Sync + 'static>> {
     pub fn build(self) -> Result<IndexedDatabase, crate::Error> {
-        // let fasta = Fasta::open(&self.fasta, self.decoy_tag.clone(), self.generate_decoys)?;
         let fasta = crate::read_fasta(&self.fasta, &self.decoy_tag, self.generate_decoys)?;
 
         let (target_decoys, peptide_graph) = self.digest(&fasta);

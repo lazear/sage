@@ -69,12 +69,14 @@ impl<'p> Iterator for IonSeries<'p> {
         if self.idx == self.peptide.sequence.len() - 1 {
             return None;
         }
-        let r = self.peptide.sequence.get(self.idx)?;
+        let r = self.peptide.sequence.as_bytes().get(self.idx)?;
+        let m = self.peptide.modifications.get(self.idx)?;
 
         self.cumulative_mass += match self.kind {
-            Kind::A | Kind::B | Kind::C => r.monoisotopic(),
-            Kind::X | Kind::Y | Kind::Z => -r.monoisotopic(),
+            Kind::A | Kind::B | Kind::C => r.monoisotopic() + *m,
+            Kind::X | Kind::Y | Kind::Z => -(r.monoisotopic() + *m),
         };
+        dbg!(&self.cumulative_mass);
         self.idx += 1;
 
         Some(Ion {
@@ -90,7 +92,7 @@ mod test {
     use crate::{enzyme::Digest, mass::PROTON, peptide::Peptide};
 
     fn peptide(s: &str) -> Peptide {
-        Peptide::try_from(&Digest {
+        Peptide::try_from(Digest {
             sequence: s.into(),
             ..Default::default()
         })
@@ -253,8 +255,8 @@ mod test {
 
     #[test]
     fn nterm_mod() {
-        let mut peptide = peptide("PEPTIDE");
-        peptide.static_mod('^', 229.01);
+        let static_mods = [('^', 229.01)].into();
+        let peptide = peptide("PEPTIDE").apply(&[], &static_mods, 1).remove(0);
 
         // Charge state 1, b-ions should be TMT tagged
         let expected_b = [
@@ -275,9 +277,9 @@ mod test {
 
     #[test]
     fn cterm_mod() {
-        let mut peptide = peptide("PEPTIDE");
-        peptide.static_mod('$', 229.01);
-        assert!((peptide.monoisotopic - 1028.3699).abs() < 0.001);
+        let static_mods = [('$', 229.01)].into();
+        let peptide = peptide("PEPTIDE").apply(&[], &static_mods, 1).remove(0);
+        assert!((peptide.monoisotopic - 1028.37).abs() < 0.001);
 
         // b-ions should not be tagged
         let expected_b = [
@@ -291,6 +293,34 @@ mod test {
         .into_iter()
         .map(|x| x + 229.01)
         .collect::<Vec<_>>();
+
+        check_within(ions!(&peptide, Kind::B, 1.0), &expected_b);
+        check_within(ions!(&peptide, Kind::Y, 1.0), &expected_y);
+    }
+
+    #[test]
+    fn internal_mod() {
+        let peptide = peptide("PEPTIDE");
+        let static_mods = [('I', 29.0)].into();
+        let peptide = peptide.apply(&[], &static_mods, 1).remove(0);
+
+        let expected_b = [
+            98.06004,
+            227.10263,
+            324.155_4,
+            425.203_06,
+            538.287_2 + 29.0,
+            653.314_1 + 29.0,
+        ];
+
+        let expected_y = vec![
+            703.31447 + 29.0,
+            574.27188 + 29.0,
+            477.21912 + 29.0,
+            376.17144 + 29.0,
+            263.08737,
+            148.06043,
+        ];
 
         check_within(ions!(&peptide, Kind::B, 1.0), &expected_b);
         check_within(ions!(&peptide, Kind::Y, 1.0), &expected_y);
