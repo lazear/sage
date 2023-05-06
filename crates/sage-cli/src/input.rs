@@ -1,3 +1,4 @@
+use anyhow::Context;
 use clap::ArgMatches;
 use sage_cloudpath::CloudPath;
 use sage_core::{
@@ -154,7 +155,8 @@ impl Input {
         let path = matches
             .get_one::<String>("parameters")
             .expect("required parameters");
-        let mut input = Input::load(path)?;
+        let mut input = Input::load(path)
+            .with_context(|| format!("Failed to read parameters from `{path}`"))?;
 
         // Handle JSON configuration overrides
         if let Some(output_directory) = matches.get_one::<String>("output_directory") {
