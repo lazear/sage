@@ -1,4 +1,5 @@
-use clap::{value_parser, Arg, Command};
+use anyhow::Context;
+use clap::{value_parser, Arg, Command, ValueHint};
 use input::{Input, Search};
 use log::info;
 use rayon::prelude::*;
@@ -61,7 +62,12 @@ impl FromIterator<SageResults> for SageResults {
 impl Runner {
     pub fn new(parameters: Search) -> anyhow::Result<Self> {
         let start = Instant::now();
-        let database = parameters.database.clone().build()?;
+        let database = parameters.database.clone().build().with_context(|| {
+            format!(
+                "Failed to build database from `{}`",
+                parameters.database.fasta
+            )
+        })?;
         info!(
             "generated {} fragments in {}ms",
             database.size(),
@@ -329,30 +335,48 @@ fn main() -> anyhow::Result<()> {
         .arg(
             Arg::new("parameters")
                 .required(true)
-                .help("Path to configuration parameters (JSON file)"),
+                .value_parser(clap::builder::NonEmptyStringValueParser::new())
+                .help("Path to configuration parameters (JSON file)")
+                .value_hint(ValueHint::FilePath),
         )
-        .arg(Arg::new("mzml_paths").num_args(1..).help(
-            "Paths to mzML files to process. Overrides mzML files listed in the \
+        .arg(
+            Arg::new("mzml_paths")
+                .num_args(1..)
+                .value_parser(clap::builder::NonEmptyStringValueParser::new())
+                .help(
+                    "Paths to mzML files to process. Overrides mzML files listed in the \
                      configuration file.",
-        ))
-        .arg(Arg::new("fasta").short('f').long("fasta").help(
-            "Path to FASTA database. Overrides the FASTA file \
+                )
+                .value_hint(ValueHint::FilePath),
+        )
+        .arg(
+            Arg::new("fasta")
+                .short('f')
+                .long("fasta")
+                .value_parser(clap::builder::NonEmptyStringValueParser::new())
+                .help(
+                    "Path to FASTA database. Overrides the FASTA file \
                      specified in the configuration file.",
-        ))
+                )
+                .value_hint(ValueHint::FilePath),
+        )
         .arg(
             Arg::new("output_directory")
                 .short('o')
                 .long("output_directory")
+                .value_parser(clap::builder::NonEmptyStringValueParser::new())
                 .help(
                     "Path where search and quant results will be written. \
                      Overrides the directory specified in the configuration file.",
-                ),
+                )
+                .value_hint(ValueHint::DirPath),
         )
         .arg(
             Arg::new("batch-size")
                 .long("batch-size")
-                .value_parser(value_parser!(usize))
-                .help("Number of files to load and search in parallel (default = # of CPUs/2)"),
+                .value_parser(value_parser!(u16).range(1..))
+                .help("Number of files to load and search in parallel (default = # of CPUs/2)")
+                .value_hint(ValueHint::Other),
         )
         .arg(
             Arg::new("write-pin")
@@ -369,9 +393,9 @@ fn main() -> anyhow::Result<()> {
         .get_matches();
 
     let parallel = matches
-        .get_one::<usize>("batch-size")
+        .get_one::<u16>("batch-size")
         .copied()
-        .unwrap_or(num_cpus::get() / 2);
+        .unwrap_or_else(|| num_cpus::get() as u16 / 2) as usize;
     let input = Input::from_arguments(matches)?;
 
     let runner = input.build().and_then(Runner::new)?;

@@ -1,3 +1,4 @@
+use anyhow::{ensure, Context};
 use clap::ArgMatches;
 use sage_cloudpath::CloudPath;
 use sage_core::{
@@ -154,7 +155,8 @@ impl Input {
         let path = matches
             .get_one::<String>("parameters")
             .expect("required parameters");
-        let mut input = Input::load(path)?;
+        let mut input = Input::load(path)
+            .with_context(|| format!("Failed to read parameters from `{path}`"))?;
 
         // Handle JSON configuration overrides
         if let Some(output_directory) = matches.get_one::<String>("output_directory") {
@@ -170,6 +172,17 @@ impl Input {
         if let Some(write_pin) = matches.get_one::<bool>("write-pin").copied() {
             input.write_pin = Some(write_pin);
         }
+
+        // avoid to later panic if these parameters are not set (but doesn't check if files exist)
+
+        ensure!(
+            input.database.fasta.is_some(),
+            "`database.fasta` must be set. For more information try '--help'"
+        );
+        ensure!(
+            input.mzml_paths.is_some(),
+            "`mzml_paths` must be set. For more information try '--help'"
+        );
 
         Ok(input)
     }

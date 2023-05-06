@@ -1,5 +1,6 @@
 use async_compression::tokio::bufread::GzipDecoder;
 use async_compression::tokio::write::GzipEncoder;
+use aws_sdk_s3::types::DisplayErrorContext;
 use http::Uri;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -242,6 +243,13 @@ where
 {
     let path = path.as_ref().parse::<CloudPath>()?;
 
+    // return an error in case we are trying to read from a bucket without a key
+    if let CloudPath::S3 { bucket: _, key } = &path {
+        if key.is_empty() {
+            return Err(Error::InvalidUri);
+        }
+    }
+
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -263,9 +271,19 @@ pub enum Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::InvalidUri => f.write_str("invalid URI"),
-            Error::S3(x) => x.fmt(f),
-            Error::IO(x) => x.fmt(f),
+            Error::InvalidUri => write!(f, "Invalid URI"),
+            Error::S3(x) => {
+                write!(f, "S3 error: ")?;
+                match x {
+                    // display a more informative error message than simply `unhandled error`
+                    aws_sdk_s3::Error::Unhandled(unhandled) => {
+                        write!(f, "{}", DisplayErrorContext(unhandled))
+                    }
+                    // other error kinds should already be more informative
+                    _ => x.fmt(f),
+                }
+            }
+            Error::IO(x) => write!(f, "IO error: {x}"),
         }
     }
 }
@@ -274,6 +292,7 @@ impl std::error::Error for Error {}
 
 #[cfg(test)]
 mod test {
+    use super::read_and_execute;
     use super::CloudPath;
 
     #[test]
@@ -324,5 +343,10 @@ mod test {
                 .unwrap(),
             c
         );
+    }
+
+    #[test]
+    fn invalid_file_cloudpath() {
+        assert!(read_and_execute("s3://my-bucket", |_| async move { Ok(()) }).is_err())
     }
 }
