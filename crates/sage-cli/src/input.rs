@@ -177,10 +177,7 @@ impl Input {
         }
 
         // avoid to later panic if these parameters are not set (but doesn't check if files exist)
-        ensure!(
-            input.output_directory.is_some(),
-            "`output_directory` must be set. For more information try '--help'"
-        );
+
         ensure!(
             input.database.fasta.is_some(),
             "`database.fasta` must be set. For more information try '--help'"
