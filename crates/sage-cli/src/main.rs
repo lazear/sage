@@ -335,12 +335,14 @@ fn main() -> anyhow::Result<()> {
         .arg(
             Arg::new("parameters")
                 .required(true)
+                .value_parser(clap::builder::NonEmptyStringValueParser::new())
                 .help("Path to configuration parameters (JSON file)")
                 .value_hint(ValueHint::FilePath),
         )
         .arg(
             Arg::new("mzml_paths")
                 .num_args(1..)
+                .value_parser(clap::builder::NonEmptyStringValueParser::new())
                 .help(
                     "Paths to mzML files to process. Overrides mzML files listed in the \
                      configuration file.",
@@ -351,6 +353,7 @@ fn main() -> anyhow::Result<()> {
             Arg::new("fasta")
                 .short('f')
                 .long("fasta")
+                .value_parser(clap::builder::NonEmptyStringValueParser::new())
                 .help(
                     "Path to FASTA database. Overrides the FASTA file \
                      specified in the configuration file.",
@@ -361,6 +364,7 @@ fn main() -> anyhow::Result<()> {
             Arg::new("output_directory")
                 .short('o')
                 .long("output_directory")
+                .value_parser(clap::builder::NonEmptyStringValueParser::new())
                 .help(
                     "Path where search and quant results will be written. \
                      Overrides the directory specified in the configuration file.",
@@ -370,7 +374,7 @@ fn main() -> anyhow::Result<()> {
         .arg(
             Arg::new("batch-size")
                 .long("batch-size")
-                .value_parser(value_parser!(usize))
+                .value_parser(value_parser!(u16).range(1..))
                 .help("Number of files to load and search in parallel (default = # of CPUs/2)")
                 .value_hint(ValueHint::Other),
         )
