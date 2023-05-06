@@ -1,4 +1,5 @@
-use clap::{value_parser, Arg, Command};
+use anyhow::Context;
+use clap::{value_parser, Arg, Command, ValueHint};
 use input::{Input, Search};
 use log::info;
 use rayon::prelude::*;
@@ -61,7 +62,12 @@ impl FromIterator<SageResults> for SageResults {
 impl Runner {
     pub fn new(parameters: Search) -> anyhow::Result<Self> {
         let start = Instant::now();
-        let database = parameters.database.clone().build()?;
+        let database = parameters.database.clone().build().with_context(|| {
+            format!(
+                "Failed to build database from `{}`",
+                parameters.database.fasta
+            )
+        })?;
         info!(
             "generated {} fragments in {}ms",
             database.size(),
@@ -336,7 +342,7 @@ fn main() -> anyhow::Result<()> {
             Arg::new("mzml_paths")
                 .num_args(1..)
                 .help(
-            "Paths to mzML files to process. Overrides mzML files listed in the \
+                    "Paths to mzML files to process. Overrides mzML files listed in the \
                      configuration file.",
                 )
                 .value_hint(ValueHint::FilePath),
@@ -346,7 +352,7 @@ fn main() -> anyhow::Result<()> {
                 .short('f')
                 .long("fasta")
                 .help(
-            "Path to FASTA database. Overrides the FASTA file \
+                    "Path to FASTA database. Overrides the FASTA file \
                      specified in the configuration file.",
                 )
                 .value_hint(ValueHint::FilePath),
