@@ -1,4 +1,4 @@
-use anyhow::Context;
+use anyhow::{ensure, Context};
 use clap::ArgMatches;
 use sage_cloudpath::CloudPath;
 use sage_core::{
@@ -175,6 +175,20 @@ impl Input {
         if let Some(write_pin) = matches.get_one::<bool>("write-pin").copied() {
             input.write_pin = Some(write_pin);
         }
+
+        // avoid to later panic if these parameters are not set (but doesn't check if files exist)
+        ensure!(
+            input.output_directory.is_some(),
+            "`output_directory` must be set. For more information try '--help'"
+        );
+        ensure!(
+            input.database.fasta.is_some(),
+            "`database.fasta` must be set. For more information try '--help'"
+        );
+        ensure!(
+            input.mzml_paths.is_some(),
+            "`mzml_paths` must be set. For more information try '--help'"
+        );
 
         Ok(input)
     }
