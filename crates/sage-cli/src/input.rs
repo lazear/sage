@@ -160,12 +160,15 @@ impl Input {
 
         // Handle JSON configuration overrides
         if let Some(output_directory) = matches.get_one::<String>("output_directory") {
+            log::trace!("overriding `output_directory` parameter.");
             input.output_directory = Some(output_directory.into());
         }
         if let Some(fasta) = matches.get_one::<String>("fasta") {
+            log::trace!("overriding `database.fasta` parameter.");
             input.database.fasta = Some(fasta.into());
         }
         if let Some(mzml_paths) = matches.get_many::<String>("mzml_paths") {
+            log::trace!("overriding `mzml_paths` parameter.");
             input.mzml_paths = Some(mzml_paths.into_iter().map(|p| p.into()).collect());
         }
 
