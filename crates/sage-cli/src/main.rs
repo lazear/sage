@@ -329,16 +329,28 @@ fn main() -> anyhow::Result<()> {
         .arg(
             Arg::new("parameters")
                 .required(true)
-                .help("Path to configuration parameters (JSON file)"),
+                .help("Path to configuration parameters (JSON file)")
+                .value_hint(ValueHint::FilePath),
         )
-        .arg(Arg::new("mzml_paths").num_args(1..).help(
+        .arg(
+            Arg::new("mzml_paths")
+                .num_args(1..)
+                .help(
             "Paths to mzML files to process. Overrides mzML files listed in the \
                      configuration file.",
-        ))
-        .arg(Arg::new("fasta").short('f').long("fasta").help(
+                )
+                .value_hint(ValueHint::FilePath),
+        )
+        .arg(
+            Arg::new("fasta")
+                .short('f')
+                .long("fasta")
+                .help(
             "Path to FASTA database. Overrides the FASTA file \
                      specified in the configuration file.",
-        ))
+                )
+                .value_hint(ValueHint::FilePath),
+        )
         .arg(
             Arg::new("output_directory")
                 .short('o')
@@ -346,13 +358,15 @@ fn main() -> anyhow::Result<()> {
                 .help(
                     "Path where search and quant results will be written. \
                      Overrides the directory specified in the configuration file.",
-                ),
+                )
+                .value_hint(ValueHint::DirPath),
         )
         .arg(
             Arg::new("batch-size")
                 .long("batch-size")
                 .value_parser(value_parser!(usize))
-                .help("Number of files to load and search in parallel (default = # of CPUs/2)"),
+                .help("Number of files to load and search in parallel (default = # of CPUs/2)")
+                .value_hint(ValueHint::Other),
         )
         .arg(
             Arg::new("write-pin")
