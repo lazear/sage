@@ -219,7 +219,7 @@ For additional information about configuration options and output file formats, 
       "level": 3,           // Optional[int] {default=3}, MS-level to perform TMT quantification on
       "sn": false           // Optional[bool] {default=false}, use Signal/Noise instead of intensity for TMT quant. Requires noise values in mzML
     },
-    "lfq": true             // Optional[bool] {default=null}, perform label-free quantification
+    "lfq": true,            // Optional[bool] {default=null}, perform label-free quantification
     "lfq_settings": {
       "peak_scoring": "Hybrid", // See DOCS.md for details - recommend that you do not change this setting
       "integration": "Sum",   // Optional["Sum" | "Apex"], use sum of MS1 traces in peak, or MS1 intensity at peak apex
