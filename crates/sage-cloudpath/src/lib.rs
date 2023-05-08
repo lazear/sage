@@ -1,5 +1,6 @@
 use async_compression::tokio::bufread::GzipDecoder;
 use async_compression::tokio::write::GzipEncoder;
+use aws_sdk_s3::types::DisplayErrorContext;
 use http::Uri;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -243,13 +244,10 @@ where
     let path = path.as_ref().parse::<CloudPath>()?;
 
     // return an error in case we are trying to read from a bucket without a key
-    match &path {
-        CloudPath::S3 { bucket: _, key } => {
-            if key.is_empty() {
-                return Err(Error::InvalidUri);
-            }
+    if let CloudPath::S3 { bucket: _, key } = &path {
+        if key.is_empty() {
+            return Err(Error::InvalidUri);
         }
-        _ => {}
     }
 
     let rt = tokio::runtime::Builder::new_current_thread()
@@ -279,8 +277,9 @@ impl std::fmt::Display for Error {
                 match x {
                     // display a more informative error message than simply `unhandled error`
                     aws_sdk_s3::Error::Unhandled(unhandled) => {
-                        writeln!(f, "{}", std::error::Error::source(unhandled).unwrap())
+                        write!(f, "{}", DisplayErrorContext(unhandled))
                     }
+                    // other error kinds should already be more informative
                     _ => x.fmt(f),
                 }
             }
