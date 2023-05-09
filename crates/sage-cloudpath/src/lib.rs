@@ -1,6 +1,5 @@
 use async_compression::tokio::bufread::GzipDecoder;
 use async_compression::tokio::write::GzipEncoder;
-use aws_sdk_s3::types::DisplayErrorContext;
 use http::Uri;
 use std::path::PathBuf;
 use std::str::FromStr;
