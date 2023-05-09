@@ -20,6 +20,35 @@ struct Runner {
     start: Instant,
 }
 
+#[derive(Debug)]
+#[non_exhaustive]
+enum RunnerError {
+    ChunkProcessingError {
+        chunk_idx: usize,
+        source: Vec<RunnerError>,
+    },
+    FileProcessingError {
+        source: anyhow::Error,
+    },
+}
+
+impl std::fmt::Display for RunnerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RunnerError::ChunkProcessingError { chunk_idx, source } => {
+                writeln!(f, "Processing chunk {chunk_idx} failed")?;
+                for file_error in source {
+                    writeln!(f, "\t{file_error}")?;
+                }
+                Ok(())
+            }
+            RunnerError::FileProcessingError { source } => write!(f, "{source:#}"),
+        }
+    }
+}
+
+impl std::error::Error for RunnerError {}
+
 #[derive(Default)]
 struct SageResults {
     ms1: Vec<ProcessedSpectrum>,
@@ -138,7 +167,7 @@ impl Runner {
         chunk: &[String],
         chunk_idx: usize,
         batch_size: usize,
-    ) -> SageResults {
+    ) -> anyhow::Result<SageResults> {
         // Read all of the spectra at once - this can help prevent memory over-consumption issues
         info!(
             "processing files {} .. {} ",
@@ -154,31 +183,37 @@ impl Runner {
             .sn
             .then_some(self.parameters.quant.tmt_settings.level);
 
-        let spectra = chunk
+        let (valids, errors): (Vec<_>, Vec<_>) = chunk
             .par_iter()
-            .map(|path| sage_core::read_mzml(path, sn))
-            .collect::<Vec<_>>();
+            .map(|path| {
+                sage_core::read_mzml(path, sn)
+                    .with_context(|| format!("Failed to process `{path}`"))
+            })
+            .partition(Result::is_ok);
+
+        if !errors.is_empty() {
+            let errors: Vec<_> = errors
+                .into_iter()
+                .map(Result::unwrap_err)
+                .map(|err| RunnerError::FileProcessingError { source: err })
+                .collect();
+
+            anyhow::bail!(RunnerError::ChunkProcessingError {
+                chunk_idx,
+                source: errors
+            });
+        }
+
+        let spectra: Vec<_> = valids.into_iter().map(Result::unwrap).collect();
+
         let io_time = Instant::now() - start;
 
-        let count: usize = spectra
-            .iter()
-            .filter_map(|x| x.as_ref().map(|x| x.len()).ok())
-            .sum();
+        let count: usize = spectra.iter().map(|x| x.as_slice().len()).sum();
 
         let start = Instant::now();
         let results = spectra
             .into_par_iter()
             .enumerate()
-            .filter_map(|(idx, spectra)| match spectra {
-                Ok(spectra) => {
-                    log::trace!(" - {}: read {} spectra", chunk[idx], spectra.len());
-                    Some((idx, spectra))
-                }
-                Err(e) => {
-                    log::error!("error while processing {}: {}", chunk[idx], e);
-                    None
-                }
-            })
             .map(|(idx, spectra)| {
                 let sp = SpectrumProcessor::new(
                     self.parameters.max_peaks,
@@ -202,16 +237,18 @@ impl Runner {
             search_time.as_millis(),
             count
         );
-        results
+        Ok(results)
     }
 
-    pub fn batch_files(&self, scorer: &Scorer, batch_size: usize) -> SageResults {
-        self.parameters
+    pub fn batch_files(&self, scorer: &Scorer, batch_size: usize) -> anyhow::Result<SageResults> {
+        let outputs: anyhow::Result<SageResults> = self
+            .parameters
             .mzml_paths
             .chunks(batch_size)
             .enumerate()
             .map(|(chunk_idx, chunk)| self.process_chunk(scorer, chunk, chunk_idx, batch_size))
-            .collect::<SageResults>()
+            .collect();
+        outputs
     }
 
     pub fn run(mut self, parallel: usize) -> anyhow::Result<()> {
@@ -229,8 +266,10 @@ impl Runner {
             wide_window: self.parameters.wide_window,
         };
 
-        //Collect all results into a single container
-        let mut outputs = self.batch_files(&scorer, parallel);
+        // Collect all results into a single container
+        let mut outputs = self
+            .batch_files(&scorer, parallel)
+            .context("Failed to process mzML files")?;
 
         let alignments = if self.parameters.predict_rt {
             // Poisson probability is usually the best single feature for refining FDR.
@@ -374,7 +413,7 @@ fn main() -> anyhow::Result<()> {
         .arg(
             Arg::new("batch-size")
                 .long("batch-size")
-                .value_parser(value_parser!(u16).range(1..))
+                .value_parser(value_parser!(u16).range(1..)) // value_parse range not implemented for usize
                 .help("Number of files to load and search in parallel (default = # of CPUs/2)")
                 .value_hint(ValueHint::Other),
         )
@@ -392,10 +431,12 @@ fn main() -> anyhow::Result<()> {
         )
         .get_matches();
 
+    // get batch-size value first, or default value, as u16 then casted back to usize
     let parallel = matches
-        .get_one::<usize>("batch-size")
+        .get_one::<u16>("batch-size")
         .copied()
-        .unwrap_or(num_cpus::get() / 2);
+        .unwrap_or_else(|| num_cpus::get() as u16 / 2) as usize;
+
     let input = Input::from_arguments(matches)?;
 
     let runner = input.build().and_then(Runner::new)?;

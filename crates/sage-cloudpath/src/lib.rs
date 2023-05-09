@@ -243,13 +243,6 @@ where
 {
     let path = path.as_ref().parse::<CloudPath>()?;
 
-    // return an error in case we are trying to read from a bucket without a key
-    if let CloudPath::S3 { bucket: _, key } = &path {
-        if key.is_empty() {
-            return Err(Error::InvalidUri);
-        }
-    }
-
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -273,17 +266,23 @@ impl std::fmt::Display for Error {
         match self {
             Error::InvalidUri => write!(f, "Invalid URI"),
             Error::S3(x) => {
-                write!(f, "S3 error: ")?;
+                write!(f, "S3 error")?;
+
                 match x {
                     // display a more informative error message than simply `unhandled error`
                     aws_sdk_s3::Error::Unhandled(unhandled) => {
-                        write!(f, "{}", DisplayErrorContext(unhandled))
+                        let mut stack = std::error::Error::source(&unhandled);
+                        while let Some(source) = stack {
+                            write!(f, " - {}", source)?;
+                            stack = std::error::Error::source(source);
+                        }
+                        Ok(())
                     }
                     // other error kinds should already be more informative
                     _ => x.fmt(f),
                 }
             }
-            Error::IO(x) => write!(f, "IO error: {x}"),
+            Error::IO(x) => write!(f, "IO error - {x}"),
         }
     }
 }
