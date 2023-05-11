@@ -180,7 +180,7 @@ impl Input {
             "`database.fasta` must be set. For more information try '--help'"
         );
         ensure!(
-            input.mzml_paths.is_some(),
+            input.mzml_paths.as_ref().map(|p| p.len()).unwrap_or_default() > 0,
             "`mzml_paths` must be set. For more information try '--help'"
         );
 
