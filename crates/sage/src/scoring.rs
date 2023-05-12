@@ -1,10 +1,9 @@
-use std::ops::AddAssign;
-
 use crate::database::{IndexedDatabase, PeptideIx};
 use crate::ion_series::{IonSeries, Kind};
 use crate::mass::{Tolerance, NEUTRON, PROTON};
 use crate::spectrum::{Precursor, ProcessedSpectrum};
 use serde::Serialize;
+use std::ops::AddAssign;
 
 /// Structure to hold temporary scores
 #[derive(Copy, Clone, Default, Debug)]
@@ -46,7 +45,8 @@ impl AddAssign<InitialHits> for InitialHits {
         self.scored_candidates += rhs.scored_candidates;
         // Add the non-zero matches into the accumulator
         self.preliminary
-            .extend(rhs.preliminary.into_iter().take(rhs.scored_candidates));
+            .extend(rhs.preliminary.into_iter().take_while(|p| p.matched > 0))
+        //     .extend(&rhs.preliminary[..rhs.scored_candidates]);
     }
 }
 
@@ -454,7 +454,7 @@ impl<'db> Scorer<'db> {
         for frag in fragments {
             for charge in 1..max_fragment_charge {
                 // Experimental peaks are multipled by charge, therefore theoretical are divided
-                if let Some(peak) = crate::spectrum::select_closest_peak(
+                if let Some(peak) = crate::spectrum::select_most_intense_peak(
                     &query.peaks,
                     frag.monoisotopic_mass / charge as f32,
                     self.fragment_tol,
@@ -532,7 +532,7 @@ impl<'db> Scorer<'db> {
                 // Experimental peaks are multipled by charge, therefore theoretical are divided
                 let mz = frag.monoisotopic_mass / charge as f32;
                 if let Some(peak) =
-                    crate::spectrum::select_closest_peak(&query.peaks, mz, self.fragment_tol)
+                    crate::spectrum::select_most_intense_peak(&query.peaks, mz, self.fragment_tol)
                 {
                     score.ppm_difference +=
                         peak.intensity * (mz - peak.mass).abs() * 2E6 / (mz + peak.mass);

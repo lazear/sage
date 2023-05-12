@@ -10,15 +10,16 @@ impl Runner {
         let mut record = csv::ByteRecord::new();
         let peptide = &self.database[feature.peptide_idx];
         record.push_field(peptide.to_string().as_bytes());
-        record.push_field(peptide.proteins(&self.database.decoy_tag).as_bytes());
+        record.push_field(
+            peptide
+                .proteins(&self.database.decoy_tag, self.database.generate_decoys)
+                .as_bytes(),
+        );
         record.push_field(
             itoa::Buffer::new()
                 .format(peptide.proteins.len())
                 .as_bytes(),
         );
-        // record.push_field(feature.peptide.as_str().as_bytes());
-        // record.push_field(feature.proteins.as_str().as_bytes());
-        // record.push_field(itoa::Buffer::new().format(feature.num_proteins).as_bytes());
         record.push_field(filenames[feature.file_id].as_bytes());
         record.push_field(feature.spec_id.as_bytes());
         record.push_field(itoa::Buffer::new().format(feature.rank).as_bytes());
@@ -123,7 +124,6 @@ impl Runner {
             "protein_q",
             "ms1_intensity",
             "ms2_intensity",
-            // "ms1_apex_intensity",
         ]);
 
         wtr.write_byte_record(&headers)?;
@@ -159,7 +159,6 @@ impl Runner {
         record.push_field(itoa::Buffer::new().format(idx).as_bytes());
         record.push_field(itoa::Buffer::new().format(feature.label).as_bytes());
         record.push_field(scannr.as_bytes());
-        // record.push_field(feature.spec_id.as_bytes());
         record.push_field(ryu::Buffer::new().format(feature.expmass).as_bytes());
         record.push_field(ryu::Buffer::new().format(feature.calcmass).as_bytes());
         record.push_field(filenames[feature.file_id].as_bytes());
@@ -250,7 +249,11 @@ impl Runner {
                 .as_bytes(),
         );
         record.push_field(peptide.to_string().as_bytes());
-        record.push_field(peptide.proteins(&self.database.decoy_tag).as_bytes());
+        record.push_field(
+            peptide
+                .proteins(&self.database.decoy_tag, self.database.generate_decoys)
+                .as_bytes(),
+        );
         record
     }
 
@@ -388,9 +391,8 @@ impl Runner {
                 let mut record = csv::ByteRecord::new();
                 record.push_field(self.database[peptide_ix].to_string().as_bytes());
                 record.push_field(
-                    self.database
-                        .assign_proteins(&self.database[peptide_ix])
-                        .1
+                    self.database[peptide_ix]
+                        .proteins(&self.database.decoy_tag, self.database.generate_decoys)
                         .as_bytes(),
                 );
                 record.push_field(ryu::Buffer::new().format(peak.q_value).as_bytes());

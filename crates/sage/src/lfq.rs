@@ -1,5 +1,5 @@
 use crate::database::{binary_search_slice, IndexedDatabase, PeptideIx};
-use crate::mass::{Composition, Mass, Tolerance, NEUTRON};
+use crate::mass::{composition, Composition, Tolerance, NEUTRON};
 use crate::ml::{matrix::Matrix, retention_alignment::Alignment};
 use crate::scoring::Feature;
 use crate::spectrum::ProcessedSpectrum;
@@ -221,7 +221,7 @@ impl FeatureMap {
                                     let composition = p
                                         .sequence
                                         .iter()
-                                        .map(|r| r.composition())
+                                        .map(|r| composition(*r))
                                         .sum::<Composition>();
                                     let dist = crate::isotopes::peptide_isotopes(
                                         composition.carbon,

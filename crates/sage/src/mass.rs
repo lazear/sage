@@ -49,11 +49,6 @@ impl Mul<f32> for Tolerance {
     }
 }
 
-pub trait Mass {
-    fn monoisotopic(&self) -> f32;
-    fn composition(&self) -> Composition;
-}
-
 pub const VALID_AA: [u8; 22] = [
     b'A', b'C', b'D', b'E', b'F', b'G', b'H', b'I', b'K', b'L', b'M', b'N', b'P', b'Q', b'R', b'S',
     b'T', b'V', b'W', b'Y', b'U', b'O',
@@ -65,68 +60,39 @@ pub const MONOISOTOPIC_MASSES: [f32; 26] = [
     101.04768, 150.95363, 99.06841, 186.07932, 0.0, 163.06332, 0.0,
 ];
 
-impl Mass for u8 {
-    fn monoisotopic(&self) -> f32 {
-        if self.is_ascii_uppercase() {
-            MONOISOTOPIC_MASSES[(self - b'A') as usize]
-        } else {
-            0.0
-        }
+pub const fn monoisotopic(aa: u8) -> f32 {
+    if aa.is_ascii_uppercase() {
+        MONOISOTOPIC_MASSES[(aa - b'A') as usize]
+    } else {
+        0.0
     }
-    // fn monoisotopic(&self) -> f32 {
-    //     match self {
-    //         b'A' => 71.03711,
-    //         b'R' => 156.1011,
-    //         b'N' => 114.04293,
-    //         b'D' => 115.02694,
-    //         b'C' => 103.00919,
-    //         b'E' => 129.04259,
-    //         b'Q' => 128.05858,
-    //         b'G' => 57.02146,
-    //         b'H' => 137.05891,
-    //         b'I' => 113.08406,
-    //         b'L' => 113.08406,
-    //         b'K' => 128.09496,
-    //         b'M' => 131.0405,
-    //         b'F' => 147.0684,
-    //         b'P' => 97.05276,
-    //         b'S' => 87.03203,
-    //         b'T' => 101.04768,
-    //         b'W' => 186.07931,
-    //         b'Y' => 163.06333,
-    //         b'V' => 99.06841,
-    //         b'U' => 150.95363,
-    //         b'O' => 237.14773,
-    //         _ => unreachable!("BUG: invalid amino acid {}", *self as char),
-    //     }
-    // }
+}
 
-    fn composition(&self) -> Composition {
-        match self {
-            b'A' => Composition::new(3, 2, 0),
-            b'R' => Composition::new(6, 2, 0),
-            b'N' => Composition::new(4, 3, 0),
-            b'D' => Composition::new(4, 4, 0),
-            b'C' => Composition::new(3, 2, 1),
-            b'E' => Composition::new(5, 4, 0),
-            b'Q' => Composition::new(5, 3, 0),
-            b'G' => Composition::new(2, 2, 0),
-            b'H' => Composition::new(6, 2, 0),
-            b'I' => Composition::new(6, 2, 0),
-            b'L' => Composition::new(6, 2, 0),
-            b'K' => Composition::new(6, 2, 0),
-            b'M' => Composition::new(5, 2, 1),
-            b'F' => Composition::new(9, 2, 0),
-            b'P' => Composition::new(5, 2, 0),
-            b'S' => Composition::new(3, 3, 0),
-            b'T' => Composition::new(4, 3, 0),
-            b'W' => Composition::new(11, 2, 0),
-            b'Y' => Composition::new(9, 3, 0),
-            b'V' => Composition::new(5, 2, 0),
-            b'U' => Composition::new(3, 2, 0),
-            b'O' => Composition::new(12, 3, 0),
-            _ => unreachable!("BUG: invalid amino acid {}", *self as char),
-        }
+pub const fn composition(aa: u8) -> Composition {
+    match aa {
+        b'A' => Composition::new(3, 2, 0),
+        b'R' => Composition::new(6, 2, 0),
+        b'N' => Composition::new(4, 3, 0),
+        b'D' => Composition::new(4, 4, 0),
+        b'C' => Composition::new(3, 2, 1),
+        b'E' => Composition::new(5, 4, 0),
+        b'Q' => Composition::new(5, 3, 0),
+        b'G' => Composition::new(2, 2, 0),
+        b'H' => Composition::new(6, 2, 0),
+        b'I' => Composition::new(6, 2, 0),
+        b'L' => Composition::new(6, 2, 0),
+        b'K' => Composition::new(6, 2, 0),
+        b'M' => Composition::new(5, 2, 1),
+        b'F' => Composition::new(9, 2, 0),
+        b'P' => Composition::new(5, 2, 0),
+        b'S' => Composition::new(3, 3, 0),
+        b'T' => Composition::new(4, 3, 0),
+        b'W' => Composition::new(11, 2, 0),
+        b'Y' => Composition::new(9, 3, 0),
+        b'V' => Composition::new(5, 2, 0),
+        b'U' => Composition::new(3, 2, 0),
+        b'O' => Composition::new(12, 3, 0),
+        _ => Composition::new(0, 0, 0),
     }
 }
 
@@ -155,12 +121,14 @@ impl Sum for Composition {
 
 #[cfg(test)]
 mod test {
-    use super::{Mass, Tolerance, VALID_AA};
+    use crate::mass::monoisotopic;
+
+    use super::{Tolerance, VALID_AA};
 
     #[test]
     fn smoke() {
         for ch in VALID_AA {
-            assert!(ch.monoisotopic() > 0.0);
+            assert!(monoisotopic(ch) > 0.0);
         }
     }
 

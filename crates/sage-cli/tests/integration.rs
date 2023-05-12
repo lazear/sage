@@ -17,12 +17,6 @@ fn integration() -> anyhow::Result<()> {
     })
     .unwrap();
 
-    dbg!(&pep);
-    // assert_eq!(
-    //     database.assign_proteins(&pep),
-    //     (1, "sp|Q99536|VAT1_HUMAN".into())
-    // );
-
     let spectra = sage_core::read_mzml("../../tests/LQSRPAAPPAPGPGQLTLR.mzML", None)?;
     assert_eq!(spectra.len(), 1);
 

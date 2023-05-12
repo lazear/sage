@@ -69,8 +69,9 @@ impl Runner {
             )
         })?;
         info!(
-            "generated {} fragments in {}ms",
-            database.size(),
+            "generated {} fragments, {} peptides in {}ms",
+            database.fragments.len(),
+            database.peptides.len(),
             (Instant::now() - start).as_millis()
         );
         Ok(Self {
@@ -399,7 +400,6 @@ fn main() -> anyhow::Result<()> {
     let input = Input::from_arguments(matches)?;
 
     let runner = input.build().and_then(Runner::new)?;
-    runner.database.serialize();
 
     runner.run(parallel)?;
 

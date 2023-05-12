@@ -1,14 +1,15 @@
+use std::cmp::Ordering;
 use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
 use crate::modification::ModificationSpecificity;
 use crate::{
     enzyme::{Digest, Position},
-    mass::{Mass, H2O},
+    mass::{monoisotopic, H2O},
 };
 use fnv::FnvHashSet;
 use itertools::Itertools;
 
-#[derive(Clone, PartialEq, PartialOrd)]
+#[derive(Clone, PartialEq)]
 pub struct Peptide {
     pub decoy: bool,
     pub sequence: Arc<Box<[u8]>>,
@@ -28,12 +29,37 @@ pub struct Peptide {
     pub proteins: Vec<Arc<String>>,
 }
 
+impl Peptide {
+    pub fn initial_sort(&self, other: &Self) -> std::cmp::Ordering {
+        self.sequence
+            .cmp(&other.sequence)
+            .then_with(|| {
+                self.modifications
+                    .partial_cmp(&other.modifications)
+                    .unwrap_or(Ordering::Equal)
+            })
+            .then_with(|| {
+                self.nterm
+                    .partial_cmp(&other.nterm)
+                    .unwrap_or(Ordering::Equal)
+            })
+            .then_with(|| {
+                self.cterm
+                    .partial_cmp(&other.nterm)
+                    .unwrap_or(Ordering::Equal)
+            })
+    }
+}
+
 impl Debug for Peptide {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Peptide")
             .field("proteins", &self.proteins)
             .field("decoy", &self.decoy)
-            .field("sequence", &self.sequence)
+            .field(
+                "sequence",
+                &std::str::from_utf8(&self.sequence).unwrap_or("error"),
+            )
             .field("nterm", &self.nterm)
             .field("cterm", &self.cterm)
             .field("monoisotopic", &self.monoisotopic)
@@ -51,36 +77,76 @@ impl Peptide {
         }
     }
 
-    pub fn proteins(&self, decoy_tag: &str) -> String {
+    pub fn proteins(&self, decoy_tag: &str, generate_decoys: bool) -> String {
         if self.decoy {
             self.proteins
                 .iter()
-                .map(|s| format!("{}{}", decoy_tag, s))
+                .map(|s| {
+                    if generate_decoys {
+                        format!("{}{}", decoy_tag, s)
+                    } else {
+                        s.to_string()
+                    }
+                })
                 .join(";")
         } else {
             self.proteins.iter().join(";")
         }
     }
 
+    pub fn modification_count(&self, target: ModificationSpecificity, mass: f32) -> usize {
+        match target {
+            ModificationSpecificity::PeptideN(r) | ModificationSpecificity::ProteinN(r) => {
+                if r.map(|resi| resi == *self.sequence.first().unwrap_or(&0))
+                    .unwrap_or(true)
+                    && self.nterm.unwrap_or_default() == mass
+                {
+                    1
+                } else {
+                    0
+                }
+            }
+            ModificationSpecificity::PeptideC(r) | ModificationSpecificity::ProteinC(r) => {
+                if r.map(|resi| resi == *self.sequence.last().unwrap_or(&0))
+                    .unwrap_or(true)
+                    && self.cterm.unwrap_or_default() == mass
+                {
+                    1
+                } else {
+                    0
+                }
+            }
+            ModificationSpecificity::Residue(resi) => self
+                .sequence
+                .iter()
+                .zip(self.modifications.iter())
+                .filter(|(&r, &m)| resi == r && mass == m)
+                .count(),
+        }
+    }
+
+    fn modification_mass(&self) -> f32 {
+        self.modifications.iter().sum::<f32>()
+            + self.nterm.unwrap_or(0.0)
+            + self.cterm.unwrap_or(0.0)
+    }
+
     /// Apply all variable mods in `sites` to self
-    fn apply_site(&mut self, site: Site, mass: f32) {
+    fn apply_site(&mut self, site: Site, mass: f32, additive: bool) {
         match site {
             Site::Nterm => {
-                if self.nterm.is_none() {
-                    self.nterm = Some(mass);
-                    self.monoisotopic += mass;
+                if additive || self.nterm.is_none() {
+                    self.nterm = self.nterm.or(Some(0.0)).map(|x| x + mass);
                 }
             }
             Site::Cterm => {
-                if self.cterm.is_none() {
-                    self.cterm = Some(mass);
-                    self.monoisotopic += mass;
+                if additive || self.cterm.is_none() {
+                    self.cterm = self.cterm.or(Some(0.0)).map(|x| x + mass);
                 }
             }
             Site::Sequence(index) => {
-                if self.modifications[index as usize] == 0.0 {
-                    self.modifications[index as usize] = mass;
-                    self.monoisotopic += mass;
+                if additive || self.modifications[index as usize] == 0.0 {
+                    self.modifications[index as usize] += mass;
                 }
             }
         }
@@ -142,39 +208,50 @@ impl Peptide {
 
     fn static_mods(&mut self, target: ModificationSpecificity, mass: f32) {
         match (target, self.position) {
-            (ModificationSpecificity::PeptideN(resi), _)
-                if resi
-                    .map(|r| r == *self.sequence.first().unwrap_or(&0))
-                    .unwrap_or(true) =>
-            {
-                self.apply_site(Site::Nterm, mass)
+            (ModificationSpecificity::PeptideN(None), _) => {
+                self.apply_site(Site::Nterm, mass, true)
             }
-            (ModificationSpecificity::PeptideC(resi), _)
-                if resi
-                    .map(|r| r == *self.sequence.last().unwrap_or(&0))
-                    .unwrap_or(true) =>
+            (ModificationSpecificity::PeptideN(Some(resi)), _)
+                if resi == *self.sequence.first().unwrap_or(&0) =>
             {
-                self.apply_site(Site::Cterm, mass)
+                self.apply_site(Site::Sequence(0), mass, true)
             }
-            (ModificationSpecificity::ProteinN(resi), Position::Nterm | Position::Full)
-                if resi
-                    .map(|r| r == *self.sequence.first().unwrap_or(&0))
-                    .unwrap_or(true) =>
-            {
-                self.apply_site(Site::Nterm, mass)
+            (ModificationSpecificity::PeptideC(None), _) => {
+                self.apply_site(Site::Cterm, mass, true)
             }
-            (ModificationSpecificity::ProteinC(resi), Position::Cterm | Position::Full)
-                if resi
-                    .map(|r| r == *self.sequence.last().unwrap_or(&0))
-                    .unwrap_or(true) =>
+            (ModificationSpecificity::PeptideC(Some(resi)), _)
+                if resi == *self.sequence.last().unwrap_or(&0) =>
             {
-                self.apply_site(Site::Cterm, mass)
+                self.apply_site(
+                    Site::Sequence(self.sequence.len().saturating_sub(1) as u32),
+                    mass,
+                    true,
+                )
+            }
+            (ModificationSpecificity::ProteinN(None), Position::Nterm | Position::Full) => {
+                self.apply_site(Site::Nterm, mass, true)
+            }
+            (ModificationSpecificity::ProteinN(Some(resi)), Position::Nterm | Position::Full)
+                if resi == *self.sequence.first().unwrap_or(&0) =>
+            {
+                self.apply_site(Site::Sequence(0), mass, true)
+            }
+            (ModificationSpecificity::ProteinC(None), Position::Cterm | Position::Full) => {
+                self.apply_site(Site::Cterm, mass, true)
+            }
+            (ModificationSpecificity::ProteinC(Some(resi)), Position::Cterm | Position::Full)
+                if resi == *self.sequence.last().unwrap_or(&0) =>
+            {
+                self.apply_site(
+                    Site::Sequence(self.sequence.len().saturating_sub(1) as u32),
+                    mass,
+                    true,
+                )
             }
             (ModificationSpecificity::Residue(resi), _) => {
                 for (idx, residue) in self.sequence.iter().enumerate() {
                     if resi == *residue && self.modifications[idx] == 0.0 {
                         self.modifications[idx] = mass;
-                        self.monoisotopic += mass;
                     }
                 }
             }
@@ -193,6 +270,7 @@ impl Peptide {
             for (target, mass) in static_mods {
                 self.static_mods(*target, *mass);
             }
+            self.monoisotopic += self.modification_mass();
             vec![self]
         } else {
             let mut mods = Vec::new();
@@ -213,7 +291,7 @@ impl Peptide {
                     }
                     let mut peptide = self.clone();
                     for (site, mass) in combination {
-                        peptide.apply_site(*site, *mass);
+                        peptide.apply_site(*site, *mass, false);
                     }
                     modified.push(peptide);
                 }
@@ -224,27 +302,12 @@ impl Peptide {
                 for (target, mass) in static_mods {
                     peptide.static_mods(*target, *mass);
                 }
+                peptide.monoisotopic += peptide.modification_mass();
             }
 
             modified
         }
     }
-
-    /// If `self` is a decoy peptide, un-reverse it
-    // pub fn pseudo_forward(&self) -> Option<Peptide> {
-    //     if self.decoy {
-    //         let mut fwd = self.clone();
-    //         if fwd.sequence.len() > 2 {
-    //             let n = fwd.sequence.len().saturating_sub(1);
-    //             let mut s = (*fwd.sequence).clone();
-    //             s[1..n].reverse();
-    //             fwd.sequence = Arc::new(s);
-    //             fwd.modifications[1..n].reverse();
-    //         }
-    //         return Some(fwd);
-    //     }
-    //     None
-    // }
 
     pub fn reverse(&self) -> Peptide {
         let mut pep = self.clone();
@@ -290,18 +353,18 @@ impl TryFrom<Digest> for Peptide {
     type Error = PeptideError;
 
     fn try_from(value: Digest) -> Result<Self, Self::Error> {
-        let mut monoisotopic = H2O;
+        let mut mass = H2O;
         // This is an important invariant to enforce, that ensures safety
         // while reversing peptide sequences
         if !value.sequence.is_ascii() {
             return Err(PeptideError::InvalidSequence(value.sequence));
         }
         for c in value.sequence.as_bytes() {
-            let mono = c.monoisotopic();
+            let mono = monoisotopic(*c);
             if mono == 0.0 {
                 return Err(PeptideError::InvalidSequence(value.sequence));
             }
-            monoisotopic += mono;
+            mass += mono;
         }
 
         Ok(Peptide {
@@ -310,7 +373,7 @@ impl TryFrom<Digest> for Peptide {
             // modified_sequence: value.sequence.clone(),
             modifications: vec![0.0; value.sequence.len()],
             sequence: Arc::new(value.sequence.into_bytes().into_boxed_slice()),
-            monoisotopic,
+            monoisotopic: mass,
             nterm: None,
             cterm: None,
             missed_cleavages: value.missed_cleavages,

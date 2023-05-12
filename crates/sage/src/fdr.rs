@@ -125,11 +125,8 @@ pub fn picked_peptide(db: &IndexedDatabase, features: &mut [Feature]) -> usize {
     for feat in features.iter() {
         let peptide = &db[feat.peptide_idx];
         // Only reverse the peptide sequence if we generated decoys ourselves
-        let key = match db.generate_decoys {
-            true => match peptide.decoy {
-                true => peptide.reverse().to_string(),
-                false => peptide.to_string(),
-            },
+        let key = match db.generate_decoys && peptide.decoy {
+            true => peptide.reverse().to_string(),
             false => peptide.to_string(),
         };
 
@@ -160,7 +157,7 @@ pub fn picked_protein(db: &IndexedDatabase, features: &mut [Feature]) -> usize {
     for feat in features.iter() {
         let decoy = db[feat.peptide_idx].decoy;
         let entry = map.entry(&db[feat.peptide_idx].proteins).or_default();
-        let proteins = db[feat.peptide_idx].proteins(&db.decoy_tag);
+        let proteins = db[feat.peptide_idx].proteins(&db.decoy_tag, db.generate_decoys);
         match decoy {
             true => {
                 entry.reverse = entry.reverse.max(feat.discriminant_score);
@@ -176,7 +173,7 @@ pub fn picked_protein(db: &IndexedDatabase, features: &mut [Feature]) -> usize {
     let (scores, passing) = Competition::assign_q_value(map, 0.01);
 
     features.par_iter_mut().for_each(|feat| {
-        let proteins = db[feat.peptide_idx].proteins(&db.decoy_tag);
+        let proteins = db[feat.peptide_idx].proteins(&db.decoy_tag, db.generate_decoys);
         feat.protein_q = scores[&proteins];
     });
 

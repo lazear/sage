@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::mass::Mass;
+use crate::mass::monoisotopic;
 use crate::peptide::Peptide;
 
 #[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Deserialize, Serialize)]
@@ -73,8 +73,8 @@ impl<'p> Iterator for IonSeries<'p> {
         let m = self.peptide.modifications[self.idx];
 
         self.cumulative_mass += match self.kind {
-            Kind::A | Kind::B | Kind::C => r.monoisotopic() + m,
-            Kind::X | Kind::Y | Kind::Z => -(r.monoisotopic() + m),
+            Kind::A | Kind::B | Kind::C => monoisotopic(r) + m,
+            Kind::X | Kind::Y | Kind::Z => -(monoisotopic(r) + m),
         };
         self.idx += 1;
 

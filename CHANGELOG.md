@@ -7,8 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Added
 - Better error reporting thanks to @Elendol
+- Added support for multiple variable mods for the same amino acid
+- Added support for N/C-terminal modifications specific to an individual amino acid
+
+New syntax:
+```json
+"variable_mods": {
+    "M": [15.9949],
+    "^Q": -17.026549,
+    "^E": -18.010565,
+    "[": 42.010565
+}
+```
+
+Either a single floating point number (-18.0) or a list of floating point numbers ([-18.0, -15.2]) can be supplied as modifications. Support for single values will eventually be phased out to simplify the parser.
+
 ### Changed
 - Changed "_fdr" columns to "_q" (e.g. "spectrum_q") in "results.sage.tsv" file
+- Changed internal data representation of `Peptide` struct to allow for sharing of sequences (using `Arc`) among modified peptides
+- Fragment index creation should now be faster
 
 ## [0.12.0]
 ### Added

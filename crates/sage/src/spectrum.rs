@@ -62,12 +62,14 @@ pub struct ProcessedSpectrum {
     pub total_intensity: f32,
 }
 
-/// Linear search for most intense peak
+/// Binary search followed by linear search to select the most intense peak within `tolerance` window
 pub fn select_most_intense_peak(peaks: &[Peak], mz: f32, tolerance: Tolerance) -> Option<&Peak> {
     let (lo, hi) = tolerance.bounds(mz);
+    let (i, j) = binary_search_slice(peaks, |peak, query| peak.mass.total_cmp(query), lo, hi);
+
     let mut best_peak = None;
     let mut max_int = 0.0;
-    for peak in peaks
+    for peak in peaks[i..j]
         .iter()
         .filter(|peak| peak.mass >= lo && peak.mass <= hi)
     {
@@ -230,7 +232,11 @@ impl SpectrumProcessor {
 
         if should_deisotope {
             let mut peaks = deisotope(&spectrum.mz, &spectrum.intensity, charge, 10.0);
-            peaks.sort_by(|a, b| b.intensity.total_cmp(&a.intensity));
+            peaks.sort_unstable_by(|a, b| {
+                b.intensity
+                    .total_cmp(&a.intensity)
+                    .then_with(|| a.mz.total_cmp(&b.mz))
+            });
 
             peaks
                 .into_iter()
@@ -260,7 +266,11 @@ impl SpectrumProcessor {
                     Peak { mass, intensity }
                 })
                 .collect::<Vec<_>>();
-            peaks.sort_by(|a, b| b.intensity.total_cmp(&a.intensity));
+            peaks.sort_unstable_by(|a, b| {
+                b.intensity
+                    .total_cmp(&a.intensity)
+                    .then_with(|| a.mass.total_cmp(&b.mass))
+            });
             peaks.truncate(self.take_top_n);
             peaks
         }

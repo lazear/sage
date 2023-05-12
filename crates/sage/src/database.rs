@@ -6,13 +6,11 @@ use crate::modification::{validate_mods, validate_var_mods, ModificationSpecific
 use crate::peptide::Peptide;
 use dashmap::DashSet;
 use fnv::FnvBuildHasher;
-use itertools::Itertools;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::hash::Hash;
-use std::io::{BufWriter, Write};
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct EnzymeBuilder {
@@ -135,10 +133,10 @@ pub struct Parameters {
 
 impl Parameters {
     fn digest(&self, fasta: &Fasta) -> Vec<Peptide> {
+        log::trace!("digesting fasta");
         let enzyme = self.enzyme.clone().into();
         // Generate all tryptic peptide sequences, including reversed (decoy)
         // and missed cleavages, if applicable.
-        log::trace!("begin digest");
         let digests = fasta.digest(&enzyme);
 
         let mods = self
@@ -155,7 +153,7 @@ impl Parameters {
                 targets.insert(digest.sequence.clone().into_bytes());
             });
 
-        log::trace!("begin target_decoy");
+        log::trace!("modifying peptides");
         let mut target_decoys = digests
             .into_par_iter()
             .map(Peptide::try_from)
@@ -179,25 +177,19 @@ impl Parameters {
             })
             .collect::<Vec<_>>();
 
-        log::trace!("begin sort");
-        // NB: Stable sorting here (and only here?) is critical to achieving determinism...
-        // but we can get around it by unstable sorting in the following manner
+        log::trace!("sorting and deduplicating peptides");
+
+        // This is equivalent to a stable sort
         target_decoys.par_sort_unstable_by(|a, b| {
             a.monoisotopic
                 .total_cmp(&b.monoisotopic)
-                .then_with(|| a.sequence.cmp(&b.sequence))
-                .then_with(|| {
-                    a.modifications
-                        .partial_cmp(&b.modifications)
-                        .unwrap_or(Ordering::Equal)
-                })
+                .then_with(|| a.initial_sort(b))
         });
-        log::trace!("begin dedup");
-
         target_decoys.dedup_by(|remove, keep| {
-            if remove.monoisotopic == keep.monoisotopic
-                && remove.sequence == keep.sequence
+            if remove.sequence == keep.sequence
                 && remove.modifications == keep.modifications
+                && remove.nterm == keep.nterm
+                && remove.cterm == keep.cterm
             {
                 keep.proteins.extend(remove.proteins.iter().cloned());
                 true
@@ -209,6 +201,7 @@ impl Parameters {
         target_decoys
             .par_iter_mut()
             .for_each(|peptide| peptide.proteins.sort_unstable());
+
         target_decoys
     }
 
@@ -217,7 +210,7 @@ impl Parameters {
         let fasta = crate::read_fasta(&self.fasta, &self.decoy_tag, self.generate_decoys)?;
 
         let target_decoys = self.digest(&fasta);
-        log::trace!("begin fragment generation");
+        log::trace!("generating fragments");
 
         // Finally, perform in silico digest for our target sequences
         // Note that multiple charge states are actually handled by
@@ -251,7 +244,7 @@ impl Parameters {
                     })
             })
             .collect::<Vec<_>>();
-        log::trace!("finish fragment generation");
+        log::trace!("finalizing index");
 
         // Sort all of our theoretical fragments by m/z, from low to high
         fragments.par_sort_unstable_by(|a, b| a.fragment_mz.total_cmp(&b.fragment_mz));
@@ -387,29 +380,23 @@ impl IndexedDatabase {
         &self.min_value
     }
 
-    pub fn assign_proteins(&self, peptide: &Peptide) -> (usize, String) {
-        (
-            peptide.proteins.len(),
-            peptide.proteins.iter().map(|s| s.as_str()).join(";"),
-        )
-    }
-
     pub fn serialize(&self) {
-        let mut wtr = BufWriter::new(std::fs::File::create("fragments.bin").unwrap());
+        use std::io::Write;
+        let mut wtr = std::io::BufWriter::new(std::fs::File::create("fragments.bin").unwrap());
         for fragment in &self.fragments {
             let _ = wtr.write(&fragment.fragment_mz.to_le_bytes()).unwrap();
             let _ = wtr.write(&fragment.peptide_index.0.to_le_bytes()).unwrap();
         }
         wtr.flush().unwrap();
 
-        let mut wtr = BufWriter::new(std::fs::File::create("peptides.csv").unwrap());
+        let mut wtr = std::io::BufWriter::new(std::fs::File::create("peptides.csv").unwrap());
         writeln!(wtr, "peptide,proteins,monoisotopic,decoy").unwrap();
         for fragment in &self.peptides {
             writeln!(
                 wtr,
                 "{},{},{},{}",
                 fragment,
-                fragment.proteins(&self.decoy_tag),
+                fragment.proteins(&self.decoy_tag, self.generate_decoys),
                 fragment.monoisotopic,
                 fragment.decoy
             )
@@ -627,8 +614,6 @@ mod test {
         .into_iter()
         .map(String::from)
         .collect::<Vec<_>>();
-
-        dbg!(&peptides);
 
         let sequences = peptides.iter().map(|p| p.to_string()).collect::<Vec<_>>();
         assert_eq!(expected, sequences);
