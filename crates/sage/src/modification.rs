@@ -189,9 +189,6 @@ impl<'de> Visitor<'de> for ValueOrVec {
     where
         E: serde::de::Error,
     {
-        log::warn!(
-            "Single value variable modifications will be phased out. Use a list of modifications"
-        );
         self.data.push(v as f32);
         Ok(self)
     }
@@ -200,9 +197,6 @@ impl<'de> Visitor<'de> for ValueOrVec {
     where
         E: serde::de::Error,
     {
-        log::warn!(
-            "Single value variable modifications will be phased out. Use a list of modifications"
-        );
         self.data.push(v as f32);
         Ok(self)
     }

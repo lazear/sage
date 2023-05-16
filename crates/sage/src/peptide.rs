@@ -132,20 +132,20 @@ impl Peptide {
     }
 
     /// Apply all variable mods in `sites` to self
-    fn apply_site(&mut self, site: Site, mass: f32, additive: bool) {
+    fn apply_site(&mut self, site: Site, mass: f32) {
         match site {
             Site::Nterm => {
-                if additive || self.nterm.is_none() {
+                if self.nterm.is_none() {
                     self.nterm = self.nterm.or(Some(0.0)).map(|x| x + mass);
                 }
             }
             Site::Cterm => {
-                if additive || self.cterm.is_none() {
+                if self.cterm.is_none() {
                     self.cterm = self.cterm.or(Some(0.0)).map(|x| x + mass);
                 }
             }
             Site::Sequence(index) => {
-                if additive || self.modifications[index as usize] == 0.0 {
+                if self.modifications[index as usize] == 0.0 {
                     self.modifications[index as usize] += mass;
                 }
             }
@@ -208,36 +208,31 @@ impl Peptide {
 
     fn static_mods(&mut self, target: ModificationSpecificity, mass: f32) {
         match (target, self.position) {
-            (ModificationSpecificity::PeptideN(None), _) => {
-                self.apply_site(Site::Nterm, mass, true)
-            }
+            (ModificationSpecificity::PeptideN(None), _) => self.apply_site(Site::Nterm, mass),
             (ModificationSpecificity::PeptideN(Some(resi)), _)
                 if resi == *self.sequence.first().unwrap_or(&0) =>
             {
-                self.apply_site(Site::Sequence(0), mass, true)
+                self.apply_site(Site::Sequence(0), mass)
             }
-            (ModificationSpecificity::PeptideC(None), _) => {
-                self.apply_site(Site::Cterm, mass, true)
-            }
+            (ModificationSpecificity::PeptideC(None), _) => self.apply_site(Site::Cterm, mass),
             (ModificationSpecificity::PeptideC(Some(resi)), _)
                 if resi == *self.sequence.last().unwrap_or(&0) =>
             {
                 self.apply_site(
                     Site::Sequence(self.sequence.len().saturating_sub(1) as u32),
                     mass,
-                    true,
                 )
             }
             (ModificationSpecificity::ProteinN(None), Position::Nterm | Position::Full) => {
-                self.apply_site(Site::Nterm, mass, true)
+                self.apply_site(Site::Nterm, mass)
             }
             (ModificationSpecificity::ProteinN(Some(resi)), Position::Nterm | Position::Full)
                 if resi == *self.sequence.first().unwrap_or(&0) =>
             {
-                self.apply_site(Site::Sequence(0), mass, true)
+                self.apply_site(Site::Sequence(0), mass)
             }
             (ModificationSpecificity::ProteinC(None), Position::Cterm | Position::Full) => {
-                self.apply_site(Site::Cterm, mass, true)
+                self.apply_site(Site::Cterm, mass)
             }
             (ModificationSpecificity::ProteinC(Some(resi)), Position::Cterm | Position::Full)
                 if resi == *self.sequence.last().unwrap_or(&0) =>
@@ -245,7 +240,6 @@ impl Peptide {
                 self.apply_site(
                     Site::Sequence(self.sequence.len().saturating_sub(1) as u32),
                     mass,
-                    true,
                 )
             }
             (ModificationSpecificity::Residue(resi), _) => {
@@ -291,7 +285,7 @@ impl Peptide {
                     }
                     let mut peptide = self.clone();
                     for (site, mass) in combination {
-                        peptide.apply_site(*site, *mass, false);
+                        peptide.apply_site(*site, *mass);
                     }
                     modified.push(peptide);
                 }

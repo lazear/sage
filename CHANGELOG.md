@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [v0.13.0]
 ### Added
 - Better error reporting thanks to @Elendol
 - Added support for multiple variable mods for the same amino acid
@@ -20,7 +20,7 @@ New syntax:
 }
 ```
 
-Either a single floating point number (-18.0) or a list of floating point numbers ([-18.0, -15.2]) can be supplied as modifications. Support for single values will eventually be phased out to simplify the parser.
+Either a single floating point number (-18.0) or a list of floating point numbers ([-18.0, -15.2]) can be supplied as modifications. Support for single values may eventually be phased out to simplify the parser.
 
 ### Changed
 - Changed "_fdr" columns to "_q" (e.g. "spectrum_q") in "results.sage.tsv" file

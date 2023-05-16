@@ -70,19 +70,26 @@ Example:
 
 #### Variable Modifications
 
-- **variable_mods**: Dictionary with characters as keys and floats as values. Represents variable modifications applied to amino acids or termini (default: {}).
+- **max_variable_mods**: Integer. Limit k-combinations of variable modifications (default: 2).
+- **variable_mods**: Dictionary with characters as keys and list of floats (or single floats) as values. Represents variable modifications applied to amino acids or termini (default: {}).
   - Example: Apply a variable modification of 15.9949 to methionine, 49.2022 to the C-terminus of the peptide, 42.0 to the N-terminus of the protein, and 111.0 to the C-terminus of the protein.
-    ```json
+    ```jsonc
     "database": {
       "variable_mods": {
-        "M": 15.9949,
-        "$": 49.2022,
-        "[": 42.0,
-        "]": 111.0
+        "M": [15.9949], 
+        "^Q": [-17.026549],
+        "^E": [-18.010565], // Applied to N-terminal glutamic acid
+        "$": [49.2022],     // Applied to peptide C-terminus
+        "[": 42.0,          // Applied to protein N-terminus
+        "]": 111.0          // Applied to protein C-terminus
       }
     }
     ```
-- **max_variable_mods**: Integer. Limit k-combinations of variable modifications (default: 2).
+  - Syntax:
+    "^X": Modification to be applied to amino acid X if it appears at the N-terminus of a peptide
+    "$X": Modification to be applied to amino acid X if it appears at the C-terminus of a peptide
+    "[X": Modification to be applied to amino acid X if it appears at the N-terminus of a protein
+    "]X": Modification to be applied to amino acid X if it appears at the C-terminus of a protein
 
 ### Decoys
 
