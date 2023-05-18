@@ -57,14 +57,14 @@ impl Estimator {
     /// distribution, using kernel density estimation
     pub fn fit(scores: &[f64], decoys: &[bool]) -> Self {
         let d = scores
-            .iter()
+            .par_iter()
             .zip(decoys)
             .filter(|&(_, d)| *d)
             .map(|(s, _)| *s)
             .collect::<Vec<_>>();
 
         let t = scores
-            .iter()
+            .par_iter()
             .zip(decoys)
             .filter(|&(_, d)| !*d)
             .map(|(s, _)| *s)
