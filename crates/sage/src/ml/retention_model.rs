@@ -91,7 +91,7 @@ impl RetentionModel {
         let b = f_t.dot(&rt);
 
         for i in 0..cov.cols {
-            cov[(i, i)] += 1.0;
+            cov[(i, i)] += 0.1;
         }
 
         let beta = Gauss::solve(cov, b)?;
