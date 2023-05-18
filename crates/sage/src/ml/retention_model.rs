@@ -87,12 +87,8 @@ impl RetentionModel {
         let features = Matrix::new(features, rows, FEATURES);
 
         let f_t = features.transpose();
-        let mut cov = f_t.dot(&features);
+        let cov = f_t.dot(&features);
         let b = f_t.dot(&rt);
-
-        for i in 0..cov.cols {
-            cov[(i, i)] += 0.1;
-        }
 
         let beta = Gauss::solve(cov, b)?;
 

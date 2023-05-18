@@ -129,10 +129,18 @@ pub fn global_alignment(features: &mut [Feature], n_files: usize) -> Vec<Alignme
             let sx2 = rt
                 .col(file_id)
                 .filter(|rt| rt.is_finite())
-                .fold(0.0f64, |sum, x| sum + (x - x_mean).powi(2));
+                .fold(1E-8f64, |sum, x| sum + (x - x_mean).powi(2));
 
-            let slope = ssxy / sx2;
-            let intercept = y_mean - slope * x_mean;
+            let mut slope = ssxy / sx2;
+            let mut intercept = y_mean - slope * x_mean;
+
+            if !slope.is_finite() {
+                slope = 1.0;
+            }
+
+            if !intercept.is_finite() {
+                intercept = 0.0;
+            }
 
             log::info!(
                 "aligning file #{file}: y = {m:.4}x + {b:.4}",
@@ -159,11 +167,6 @@ pub fn global_alignment(features: &mut [Feature], n_files: usize) -> Vec<Alignme
         // - Divide by maximum RT of this run
         // - Multiply by regression parameters
         feature.aligned_rt = (feature.rt / a.max_rt) * a.slope + a.intercept;
-        // let mean_rt = peptide_rt
-        //     .get(&feature.peptide_idx)
-        //     .copied()
-        //     .unwrap_or(feature.aligned_rt as f64);
-        // feature.delta_rt_align = mean_rt as f32 - feature.aligned_rt;
     });
 
     alignments

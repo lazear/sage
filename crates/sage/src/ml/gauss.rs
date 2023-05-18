@@ -24,9 +24,9 @@ impl Matrix {
 }
 
 impl Gauss {
-    pub fn solve(left: Matrix, right: Matrix) -> Option<Matrix> {
+    pub fn solve_inner(left: Matrix, right: Matrix, eps: f64) -> Option<Matrix> {
         let mut g = Gauss { left, right };
-        g.fill_zero();
+        g.fill_zero(eps);
         g.echelon();
         g.reduce();
         g.backfill();
@@ -38,6 +38,17 @@ impl Gauss {
             false => None,
         }
     }
+
+    pub fn solve(left: Matrix, right: Matrix) -> Option<Matrix> {
+        let mut eps = 1E-8;
+        while eps <= 1.0 {
+            if let Some(mat) = Gauss::solve_inner(left.clone(), right.clone(), eps) {
+                return Some(mat);
+            }
+            eps *= 10.0;
+        }
+        None
+    }
     /// This SO answer details how to handle covariance matrices with zeros on
     /// diagonals, which can ruin solving
     /// https://stackoverflow.com/a/35958102
@@ -45,10 +56,9 @@ impl Gauss {
     ///  where eps is prefedefined small constant, and I is identity matrix.
     ///  Consequently you never have a zero values on the diagonal,
     ///  and it is easy to prove that for reasonable epsilon, this will be inversible"
-    fn fill_zero(&mut self) {
+    fn fill_zero(&mut self, eps: f64) {
         for i in 0..self.left.cols {
-            // I'm no mathematician, so hopefully this is a reasonable epsilon :)
-            self.left[(i, i)] += 1.0E-8;
+            self.left[(i, i)] += eps;
         }
     }
 
@@ -60,11 +70,11 @@ impl Gauss {
                 let x = self.left[(i, j)];
                 if i == j {
                     if x != 1.0 && x != 0.0 {
-                        log::warn!("Finding solution to linear system failed: left side of matrix [{},{}] = {}", i, j, x);
+                        log::debug!("Finding solution to linear system failed: left side of matrix [{},{}] = {}", i, j, x);
                         return false;
                     }
                 } else if x > 1E-8 {
-                    log::warn!("Finding solution to linear system failed: left side of matrix [{},{}] = {}", i, j, x);
+                    log::debug!("Finding solution to linear system failed: left side of matrix [{},{}] = {}", i, j, x);
                     return false;
                 }
             }
