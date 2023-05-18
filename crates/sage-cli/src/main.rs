@@ -158,28 +158,26 @@ impl Runner {
         let spectra = chunk
             .par_iter()
             .map(|path| sage_core::read_mzml(path, sn))
-            .collect::<Vec<_>>();
-        let io_time = Instant::now() - start;
-
-        let count: usize = spectra
-            .iter()
-            .filter_map(|x| x.as_ref().map(|x| x.len()).ok())
-            .sum();
-
-        let start = Instant::now();
-        let results = spectra
-            .into_par_iter()
             .enumerate()
             .filter_map(|(idx, spectra)| match spectra {
                 Ok(spectra) => {
                     log::trace!(" - {}: read {} spectra", chunk[idx], spectra.len());
-                    Some((idx, spectra))
+                    Some(spectra)
                 }
                 Err(e) => {
                     log::error!("error while processing {}: {}", chunk[idx], e);
                     None
                 }
             })
+            .collect::<Vec<_>>();
+        let io_time = Instant::now() - start;
+
+        let count: usize = spectra.iter().map(|x| x.len()).sum();
+
+        let start = Instant::now();
+        let results = spectra
+            .into_par_iter()
+            .enumerate()
             .map(|(idx, spectra)| {
                 let sp = SpectrumProcessor::new(
                     self.parameters.max_peaks,

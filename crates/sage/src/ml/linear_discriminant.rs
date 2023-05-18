@@ -124,7 +124,7 @@ pub fn score_psms(scores: &mut [Feature]) -> Option<()> {
 
     let features = scores
         .into_par_iter()
-        .flat_map(|perc| {
+        .flat_map_iter(|perc| {
             let poisson = match (-perc.poisson).ln_1p() {
                 x if x.is_finite() => x,
                 _ => 3.5,

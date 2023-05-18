@@ -80,15 +80,19 @@ impl RetentionModel {
         let features = training_set
             .par_iter()
             .filter(|feat| feat.label == 1 && feat.spectrum_q <= 0.01)
-            .flat_map(|psm| Self::embed(&db[psm.peptide_idx], &map))
+            .flat_map_iter(|psm| Self::embed(&db[psm.peptide_idx], &map))
             .collect::<Vec<_>>();
 
         let rows = features.len() / FEATURES;
         let features = Matrix::new(features, rows, FEATURES);
 
         let f_t = features.transpose();
-        let cov = f_t.dot(&features);
+        let mut cov = f_t.dot(&features);
         let b = f_t.dot(&rt);
+
+        for i in 0..cov.cols {
+            cov[(i, i)] += 1.0;
+        }
 
         let beta = Gauss::solve(cov, b)?;
 
