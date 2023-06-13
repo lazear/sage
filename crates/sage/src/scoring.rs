@@ -458,6 +458,7 @@ impl<'db> Scorer<'db> {
                     &query.peaks,
                     frag.monoisotopic_mass / charge as f32,
                     self.fragment_tol,
+                    None,
                 ) {
                     to_remove.push(*peak);
                 }
@@ -531,9 +532,12 @@ impl<'db> Scorer<'db> {
             for charge in 1..max_fragment_charge {
                 // Experimental peaks are multipled by charge, therefore theoretical are divided
                 let mz = frag.monoisotopic_mass / charge as f32;
-                if let Some(peak) =
-                    crate::spectrum::select_most_intense_peak(&query.peaks, mz, self.fragment_tol)
-                {
+                if let Some(peak) = crate::spectrum::select_most_intense_peak(
+                    &query.peaks,
+                    mz,
+                    self.fragment_tol,
+                    None,
+                ) {
                     score.ppm_difference +=
                         peak.intensity * (mz - peak.mass).abs() * 2E6 / (mz + peak.mass);
 

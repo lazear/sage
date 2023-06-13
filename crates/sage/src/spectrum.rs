@@ -63,8 +63,24 @@ pub struct ProcessedSpectrum {
 }
 
 /// Binary search followed by linear search to select the most intense peak within `tolerance` window
-pub fn select_most_intense_peak(peaks: &[Peak], mz: f32, tolerance: Tolerance) -> Option<&Peak> {
-    let (lo, hi) = tolerance.bounds(mz);
+/// * `offset` - this parameter allows for a static adjustment to the lower and upper bounds of the search window.
+///     Sage subtracts a proton (and assumes z=1) for all experimental peaks, and stores all fragments as monoisotopic
+///     masses. This simplifies downstream calculations at multiple charge states, but it also subtly changes tolerance
+///     bounds. For most applications this is completely OK to ignore - however, for exact similarity of TMT reporter ion
+///     measurements with ProteomeDiscoverer, FragPipe, etc, we need to account for this minor difference (which has an impact
+///     perhaps 0.01% of the time)
+pub fn select_most_intense_peak(
+    peaks: &[Peak],
+    center: f32,
+    tolerance: Tolerance,
+    offset: Option<f32>,
+) -> Option<&Peak> {
+    let (lo, hi) = tolerance.bounds(center);
+    let (lo, hi) = (
+        lo + offset.unwrap_or_default(),
+        hi + offset.unwrap_or_default(),
+    );
+
     let (i, j) = binary_search_slice(peaks, |peak, query| peak.mass.total_cmp(query), lo, hi);
 
     let mut best_peak = None;
@@ -75,26 +91,6 @@ pub fn select_most_intense_peak(peaks: &[Peak], mz: f32, tolerance: Tolerance) -
     {
         if peak.intensity >= max_int {
             max_int = peak.intensity;
-            best_peak = Some(peak);
-        }
-    }
-    best_peak
-}
-
-/// Binary search followed by linear search to select the closest peak to `mz` within `tolerance` window
-pub fn select_closest_peak(peaks: &[Peak], mz: f32, tolerance: Tolerance) -> Option<&Peak> {
-    let (lo, hi) = tolerance.bounds(mz);
-    let (i, j) = binary_search_slice(peaks, |peak, query| peak.mass.total_cmp(query), lo, hi);
-
-    let mut best_peak = None;
-    let mut min_eps = f32::MAX;
-    for peak in peaks[i..j]
-        .iter()
-        .filter(|peak| peak.mass >= lo && peak.mass <= hi)
-    {
-        let eps = (peak.mass - mz).abs();
-        if eps <= min_eps {
-            min_eps = eps;
             best_peak = Some(peak);
         }
     }
@@ -283,8 +279,8 @@ impl SpectrumProcessor {
                 .mz
                 .iter()
                 .zip(spectrum.intensity.iter())
-                .map(|(mz, &intensity)| {
-                    let mass = (mz - PROTON) * 1.0;
+                .map(|(&mass, &intensity)| {
+                    let mass = (mass - PROTON) * 1.0;
                     Peak { mass, intensity }
                 })
                 .collect::<Vec<_>>(),

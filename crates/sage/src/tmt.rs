@@ -197,7 +197,9 @@ pub fn find_reporter_ions<'a>(
 ) -> Vec<Option<&'a Peak>> {
     labels
         .iter()
-        .map(|label| spectrum::select_closest_peak(peaks, label - PROTON, label_tolerance))
+        .map(|&label| {
+            spectrum::select_most_intense_peak(peaks, label, label_tolerance, Some(-PROTON))
+        })
         .collect()
 }
 
