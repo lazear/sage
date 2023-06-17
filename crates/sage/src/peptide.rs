@@ -12,7 +12,7 @@ use itertools::Itertools;
 #[derive(Clone, PartialEq)]
 pub struct Peptide {
     pub decoy: bool,
-    pub sequence: Arc<Box<[u8]>>,
+    pub sequence: Arc<[u8]>,
     pub modifications: Vec<f32>,
     /// Modification on peptide C-terminus
     pub nterm: Option<f32>,
@@ -25,7 +25,6 @@ pub struct Peptide {
     /// Where is this peptide located in the protein?
     pub position: Position,
 
-    // pub modified_sequence: String,
     pub proteins: Vec<Arc<String>>,
 }
 
@@ -308,9 +307,9 @@ impl Peptide {
         pep.decoy = !self.decoy;
         let n = pep.sequence.len().saturating_sub(1);
         if n > 1 {
-            let mut s = (*pep.sequence).clone();
+            let mut s = Vec::from(pep.sequence.as_ref());
             s[1..n].reverse();
-            pep.sequence = Arc::new(s);
+            pep.sequence = Arc::from(s.into_boxed_slice());
             pep.modifications[1..n].reverse();
         }
         pep
@@ -364,9 +363,8 @@ impl TryFrom<Digest> for Peptide {
         Ok(Peptide {
             decoy: value.decoy,
             position: value.position,
-            // modified_sequence: value.sequence.clone(),
             modifications: vec![0.0; value.sequence.len()],
-            sequence: Arc::new(value.sequence.into_bytes().into_boxed_slice()),
+            sequence: Arc::from(value.sequence.into_bytes().into_boxed_slice()),
             monoisotopic: mass,
             nterm: None,
             cterm: None,
