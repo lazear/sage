@@ -12,6 +12,7 @@ use super::gauss::Gauss;
 use super::matrix::Matrix;
 use rayon::prelude::*;
 
+use crate::mass::Tolerance;
 use crate::scoring::Feature;
 
 // Declare, so that we have compile time checking of matrix dimensions
@@ -22,7 +23,7 @@ const FEATURE_NAMES: [&str; FEATURES] = [
     "ln1p(hyperscore)",
     "ln1p(delta_next)",
     "ln1p(delta_best)",
-    "ln1p(delta_mass)",
+    "delta_mass_model",
     "isotope_error",
     "average_ppm",
     "ln1p(-poisson)",
@@ -119,8 +120,30 @@ impl LinearDiscriminantAnalysis {
     }
 }
 
-pub fn score_psms(scores: &mut [Feature]) -> Option<()> {
+pub fn score_psms(scores: &mut [Feature], precursor_tol: Tolerance) -> Option<()> {
     log::trace!("fitting linear discriminant model...");
+    let decoys = scores
+        .par_iter()
+        .map(|sc| sc.label == -1)
+        .collect::<Vec<_>>();
+
+    let mass_error = match precursor_tol {
+        Tolerance::Ppm(_, _) => |feat: &Feature| feat.delta_mass as f64,
+        Tolerance::Da(_, _) => |feat: &Feature| (feat.expmass - feat.calcmass) as f64,
+    };
+
+    let (bw_adjust, bin_size) = match precursor_tol {
+        Tolerance::Ppm(lo, hi) => (2.0f64, (hi - lo).max(100.0)),
+        Tolerance::Da(lo, hi) => (0.1f64, (hi - lo).max(1000.0)),
+    };
+
+    let delta_mass = scores.par_iter().map(mass_error).collect::<Vec<_>>();
+
+    let mass_model = super::kde::Builder::default()
+        .monotonic(false)
+        .bw_adjust(move |x| x * bw_adjust)
+        .bins(bin_size.ceil().abs() as usize)
+        .build(&delta_mass, &decoys);
 
     let features = scores
         .into_par_iter()
@@ -139,7 +162,7 @@ pub fn score_psms(scores: &mut [Feature]) -> Option<()> {
                 (perc.hyperscore).ln_1p(),
                 (perc.delta_next).ln_1p(),
                 (perc.delta_best).ln_1p(),
-                (perc.delta_mass as f64).ln_1p(),
+                mass_model.posterior_error(mass_error(perc)),
                 (perc.isotope_error as f64),
                 (perc.average_ppm as f64),
                 (poisson),
@@ -157,10 +180,6 @@ pub fn score_psms(scores: &mut [Feature]) -> Option<()> {
         })
         .collect::<Vec<_>>();
 
-    let decoys = scores
-        .par_iter()
-        .map(|sc| sc.label == -1)
-        .collect::<Vec<_>>();
     let features = Matrix::new(features, scores.len(), FEATURES);
     let lda = LinearDiscriminantAnalysis::train(&features, &decoys)?;
     if !lda.eigenvector.iter().all(|f| f.is_finite()) {
@@ -179,7 +198,7 @@ pub fn score_psms(scores: &mut [Feature]) -> Option<()> {
     let discriminants = lda.score(&features);
 
     log::trace!("- fitting non-parametric model for posterior error probabilities");
-    let kde = super::kde::Estimator::fit(&discriminants, &decoys);
+    let kde = super::kde::Builder::default().build(&discriminants, &decoys);
 
     scores
         .par_iter_mut()

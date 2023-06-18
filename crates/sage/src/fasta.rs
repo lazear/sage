@@ -59,7 +59,7 @@ impl Fasta {
             .par_iter()
             .flat_map_iter(|(protein, sequence)| {
                 enzyme
-                    .digest(sequence, protein.clone())
+                    .digest(&sequence.replace("I", "L"), protein.clone())
                     .into_iter()
                     .filter_map(|mut digest| {
                         if protein.contains(&self.decoy_tag) {

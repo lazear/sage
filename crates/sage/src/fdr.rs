@@ -53,7 +53,7 @@ impl<Ix: Default + Send> Competition<Ix> {
             .values()
             .map(|score| (score.score() as f64, score.is_decoy()))
             .unzip();
-        Estimator::fit(&scores, &decoys)
+        crate::ml::kde::Builder::default().build(&scores, &decoys)
     }
 
     fn assign_q_value<K, B>(
