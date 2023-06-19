@@ -126,17 +126,6 @@ impl Builder {
                 *x = acc.max(*x);
                 *x
             });
-        } else {
-            let mut writer = std::fs::File::create("mass_profile.json").unwrap();
-            serde_json::to_writer_pretty(
-                &mut writer,
-                &serde_json::json!({
-                    "bins": &bins,
-                    "min_score": min_score,
-                    "score_step": score_step
-                }),
-            )
-            .unwrap();
         }
 
         Estimator {

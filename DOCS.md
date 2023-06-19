@@ -237,9 +237,9 @@ The "results.sage.tsv" file contains the following columns (headers):
 - `poisson`: Probability of matching exactly N peaks across all candidates (Pr(x=k)).
 - `sage_discriminant_score`: Combined score from linear discriminant analysis, used for FDR (False Discovery Rate) calculation.
 - `posterior_error`: Posterior error probability for this PSM / local FDR.
-- `spectrum_fdr`: Assigned spectrum-level q-value.
-- `peptide_fdr`: Assigned peptide-level q-value.
-- `protein_fdr`: Assigned protein-level q-value.
+- `spectrum_q`: Assigned spectrum-level q-value.
+- `peptide_q`: Assigned peptide-level q-value.
+- `protein_q`: Assigned protein-level q-value.
 - `ms1_intensity`: Intensity of the MS1 precursor ion
 - `ms2_intensity`: Total intensity of MS2 spectrum
 

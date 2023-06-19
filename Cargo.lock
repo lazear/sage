@@ -1450,7 +1450,7 @@ checksum = "4501abdff3ae82a1c1b477a17252eb69cee9e66eb915c1abaa4f44d873df9f09"
 
 [[package]]
 name = "sage-cli"
-version = "0.13.1"
+version = "0.13.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -1485,7 +1485,7 @@ dependencies = [
 
 [[package]]
 name = "sage-core"
-version = "0.13.1"
+version = "0.13.2"
 dependencies = [
  "async-compression",
  "base64 0.13.1",
