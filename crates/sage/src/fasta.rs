@@ -59,7 +59,7 @@ impl Fasta {
             .par_iter()
             .flat_map_iter(|(protein, sequence)| {
                 enzyme
-                    .digest(&sequence.replace("I", "L"), protein.clone())
+                    .digest(sequence, protein.clone())
                     .into_iter()
                     .filter_map(|mut digest| {
                         if protein.contains(&self.decoy_tag) {
@@ -76,45 +76,4 @@ impl Fasta {
             })
             .collect()
     }
-
-    // pub fn digest(
-    //     &self,
-    //     enzyme: &EnzymeParameters,
-    // ) -> DashMap<Digest, Vec<String>, BuildHasherDefault<fnv::FnvHasher>> {
-    //     let targets: DashMap<Digest, Vec<String>, BuildHasherDefault<fnv::FnvHasher>> =
-    //         DashMap::default();
-    //     let decoys: DashMap<Digest, Vec<String>, BuildHasherDefault<fnv::FnvHasher>> =
-    //         DashMap::default();
-
-    //     self.targets.into_par_iter().for_each(|(acc, seq)| {
-    //         for mut digest in enzyme.digest(&seq) {
-    //             if self.generate_decoys {
-    //                 decoys
-    //                     .entry(digest.reverse())
-    //                     .or_default()
-    //                     .push(format!("{}{}", self.decoy_tag, acc));
-    //                 targets.entry(digest).or_default().push(acc.clone());
-    //             } else if acc.contains(&self.decoy_tag) {
-    //                 digest.decoy = true;
-    //                 decoys.entry(digest).or_default().push(acc.clone());
-    //             } else {
-    //                 targets.entry(digest).or_default().push(acc.clone());
-    //             }
-    //         }
-    //     });
-
-    //     // Overwrite any decoys that have the same sequence as a target
-    //     targets.into_par_iter().for_each(|(k, v)| {
-    //         // If we don't remove existing decoy entries, we will end up with
-    //         // target PSMs having `decoy=true` and `label=1`, because HashMap::insert
-    //         // does not modify the existing entry (and we define digests to be equal
-    //         // ignoring decoy status)
-    //         if decoys.contains_key(&k) {
-    //             decoys.remove(&k);
-    //         }
-    //         decoys.insert(k, v);
-    //     });
-
-    //     decoys
-    // }
 }
