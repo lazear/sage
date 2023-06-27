@@ -88,7 +88,7 @@ pub struct EnzymeParameters {
 
 pub struct Enzyme {
     // Skip cleaving if the site is followed matching this AA
-    skip_suffix: Option<char>,
+    pub(crate) skip_suffix: Option<char>,
     // Regex for matching cleavage sites
     regex: Regex,
     // Cleave at c-terminal?
