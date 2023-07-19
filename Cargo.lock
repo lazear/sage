@@ -1450,7 +1450,7 @@ checksum = "4501abdff3ae82a1c1b477a17252eb69cee9e66eb915c1abaa4f44d873df9f09"
 
 [[package]]
 name = "sage-cli"
-version = "0.13.3"
+version = "0.13.4"
 dependencies = [
  "anyhow",
  "clap",
@@ -1485,7 +1485,7 @@ dependencies = [
 
 [[package]]
 name = "sage-core"
-version = "0.13.3"
+version = "0.13.4"
 dependencies = [
  "async-compression",
  "base64 0.13.1",
@@ -1749,7 +1749,19 @@ dependencies = [
  "mio",
  "pin-project-lite",
  "socket2",
+ "tokio-macros",
  "winapi",
+]
+
+[[package]]
+name = "tokio-macros"
+version = "1.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d266c00fde287f55d3f1c3e96c500c362a2b8c695076ec180f27918820bc6df8"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

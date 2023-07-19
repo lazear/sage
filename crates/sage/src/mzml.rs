@@ -62,32 +62,32 @@ enum Dtype {
 }
 
 // MUST supply only one of the following
-const ZLIB_COMPRESSION: &str = "MS:1000574";
-const NO_COMPRESSION: &str = "MS:1000576";
+const ZLIB_COMPRESSION: &[u8] = b"MS:1000574";
+const NO_COMPRESSION: &[u8] = b"MS:1000576";
 
 // MUST supply only one of the following
-const INTENSITY_ARRAY: &str = "MS:1000515";
-const MZ_ARRAY: &str = "MS:1000514";
-const NOISE_ARRAY: &str = "MS:1002744";
+const INTENSITY_ARRAY: &[u8] = b"MS:1000515";
+const MZ_ARRAY: &[u8] = b"MS:1000514";
+const NOISE_ARRAY: &[u8] = b"MS:1002744";
 
 // MUST supply only one of the following
-const FLOAT_64: &str = "MS:1000523";
-const FLOAT_32: &str = "MS:1000521";
+const FLOAT_64: &[u8] = b"MS:1000523";
+const FLOAT_32: &[u8] = b"MS:1000521";
 
-const MS_LEVEL: &str = "MS:1000511";
-const PROFILE: &str = "MS:1000128";
-const CENTROID: &str = "MS:1000127";
-const TOTAL_ION_CURRENT: &str = "MS:1000285";
+const MS_LEVEL: &[u8] = b"MS:1000511";
+const PROFILE: &[u8] = b"MS:1000128";
+const CENTROID: &[u8] = b"MS:1000127";
+const TOTAL_ION_CURRENT: &[u8] = b"MS:1000285";
 
-const SCAN_START_TIME: &str = "MS:1000016";
-const ION_INJECTION_TIME: &str = "MS:1000927";
+const SCAN_START_TIME: &[u8] = b"MS:1000016";
+const ION_INJECTION_TIME: &[u8] = b"MS:1000927";
 
-const SELECTED_ION_MZ: &str = "MS:1000744";
-const SELECTED_ION_INT: &str = "MS:1000042";
-const SELECTED_ION_CHARGE: &str = "MS:1000041";
+const SELECTED_ION_MZ: &[u8] = b"MS:1000744";
+const SELECTED_ION_INT: &[u8] = b"MS:1000042";
+const SELECTED_ION_CHARGE: &[u8] = b"MS:1000041";
 
-const ISO_WINDOW_LOWER: &str = "MS:1000828";
-const ISO_WINDOW_UPPER: &str = "MS:1000829";
+const ISO_WINDOW_LOWER: &[u8] = b"MS:1000828";
+const ISO_WINDOW_UPPER: &[u8] = b"MS:1000829";
 
 #[derive(Default)]
 pub struct MzMLReader {
@@ -139,9 +139,19 @@ impl MzMLReader {
         macro_rules! extract {
             ($ev:expr, $key:expr) => {
                 $ev.try_get_attribute($key)?
-                    .ok_or_else(|| MzMLError::Malformed)?
+                    .ok_or(MzMLError::Malformed)?
                     .value
             };
+        }
+
+        macro_rules! extract_value {
+            ($ev:expr) => {{
+                let s = $ev
+                    .try_get_attribute(b"value")?
+                    .ok_or(MzMLError::Malformed)?
+                    .value;
+                std::str::from_utf8(&s)?.parse()?
+            }};
         }
 
         loop {
@@ -176,8 +186,7 @@ impl MzMLReader {
                 Ok(Event::Empty(ref ev)) => match (state, ev.name().into_inner()) {
                     (Some(State::BinaryDataArray), b"cvParam") => {
                         let accession = extract!(ev, b"accession");
-                        let accession = std::str::from_utf8(&accession)?;
-                        match accession {
+                        match accession.as_ref() {
                             ZLIB_COMPRESSION => compression = true,
                             NO_COMPRESSION => compression = false,
                             FLOAT_64 => binary_dtype = Dtype::F64,
@@ -193,11 +202,9 @@ impl MzMLReader {
                     }
                     (Some(State::Spectrum), b"cvParam") => {
                         let accession = extract!(ev, b"accession");
-                        let accession = std::str::from_utf8(&accession)?;
-                        match accession {
+                        match accession.as_ref() {
                             MS_LEVEL => {
-                                let level = extract!(ev, b"value");
-                                let level = std::str::from_utf8(&level)?.parse::<u8>()?;
+                                let level = extract_value!(ev);
                                 if let Some(filter) = self.ms_level {
                                     if level != filter {
                                         spectrum = Spectrum::default();
@@ -209,8 +216,7 @@ impl MzMLReader {
                             PROFILE => spectrum.representation = Representation::Profile,
                             CENTROID => spectrum.representation = Representation::Centroid,
                             TOTAL_ION_CURRENT => {
-                                let value = extract!(ev, b"value");
-                                let value = std::str::from_utf8(&value)?.parse::<f32>()?;
+                                let value = extract_value!(ev);
                                 if value == 0.0 {
                                     // No ion current, break out of current state
                                     spectrum = Spectrum::default();
@@ -224,48 +230,35 @@ impl MzMLReader {
                     }
                     (Some(State::Precursor), b"cvParam") => {
                         let accession = extract!(ev, b"accession");
-                        let accession = std::str::from_utf8(&accession)?;
-                        let value = extract!(ev, b"value");
-                        let value = std::str::from_utf8(&value)?;
-                        match accession {
-                            ISO_WINDOW_LOWER => {
-                                iso_window_lo = Some(value.parse()?);
-                            }
-                            ISO_WINDOW_UPPER => {
-                                iso_window_hi = Some(value.parse()?);
-                            }
+                        match accession.as_ref() {
+                            ISO_WINDOW_LOWER => iso_window_lo = Some(extract_value!(ev)),
+                            ISO_WINDOW_UPPER => iso_window_hi = Some(extract_value!(ev)),
                             _ => {}
                         }
                     }
                     (Some(State::SelectedIon), b"cvParam") => {
                         let accession = extract!(ev, b"accession");
-                        let accession = std::str::from_utf8(&accession)?;
-                        let value = extract!(ev, b"value");
-                        let value = std::str::from_utf8(&value)?;
-                        match accession {
+                        match accession.as_ref() {
                             SELECTED_ION_CHARGE => {
-                                precursor.charge = Some(value.parse()?);
+                                precursor.charge = Some(extract_value!(ev));
                             }
                             SELECTED_ION_MZ => {
-                                precursor.mz = value.parse()?;
+                                precursor.mz = extract_value!(ev);
                             }
                             SELECTED_ION_INT => {
-                                precursor.intensity = Some(value.parse()?);
+                                precursor.intensity = Some(extract_value!(ev));
                             }
                             _ => {}
                         }
                     }
                     (Some(State::Scan), b"cvParam") => {
                         let accession = extract!(ev, b"accession");
-                        let accession = std::str::from_utf8(&accession)?;
-                        let value = extract!(ev, b"value");
-                        let value = std::str::from_utf8(&value)?;
-                        match accession {
+                        match accession.as_ref() {
                             SCAN_START_TIME => {
-                                spectrum.scan_start_time = value.parse()?;
+                                spectrum.scan_start_time = extract_value!(ev);
                             }
                             ION_INJECTION_TIME => {
-                                spectrum.ion_injection_time = value.parse()?;
+                                spectrum.ion_injection_time = extract_value!(ev);
                             }
                             _ => {}
                         }
@@ -449,5 +442,96 @@ impl From<std::num::ParseIntError> for MzMLError {
 impl From<base64::DecodeError> for MzMLError {
     fn from(_: base64::DecodeError) -> Self {
         Self::Malformed
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{mass::Tolerance, mzml::Representation};
+
+    use super::{MzMLError, MzMLReader};
+
+    #[tokio::test]
+    async fn parse_spectrum_issue_78() -> Result<(), MzMLError> {
+        let s = r#"
+        <spectrum id="spectrum=2442" index="286" defaultArrayLength="102" dataProcessingRef="dp_sp_1">
+            <cvParam cvRef="MS" accession="MS:1000127" name="centroid spectrum" />
+            <cvParam cvRef="MS" accession="MS:1000511" name="ms level" value="2" />
+            <cvParam cvRef="MS" accession="MS:1000294" name="mass spectrum" />
+            <cvParam cvRef="MS" accession="MS:1000130" name="positive scan" />
+            <cvParam cvRef="MS" accession="MS:1000504" name="base peak m/z" value="638.352905273437955"/>
+            <cvParam cvRef="MS" accession="MS:1000505" name="base peak intensity" value="113.885513305664006"/>
+            <cvParam cvRef="MS" accession="MS:1000285" name="total ion current" value="793.395202636718977"/>
+            <cvParam cvRef="MS" accession="MS:1000528" name="lowest observed m/z" value="147.290603637695"/>
+            <cvParam cvRef="MS" accession="MS:1000527" name="highest observed m/z" value="769.255798339843977"/>
+            <userParam name="filter string" type="xsd:string" value="ITMS + c NSI d w Full ms2 457.72@cid35.00 [115.00-930.00]"/>
+            <userParam name="preset scan configuration" type="xsd:string" value="2"/>
+            <scanList count="1">
+                <cvParam cvRef="MS" accession="MS:1000795" name="no combination" />
+                <scan >
+                    <cvParam cvRef="MS" accession="MS:1000016" name="scan start time" value="1503.96166992188" unitAccession="UO:0000010" unitName="second" unitCvRef="UO" />
+                    <userParam name="[Thermo Trailer Extra]Monoisotopic M/Z:" type="xsd:double" value="457.723968505858977"/>
+                    <scanWindowList count="1">
+                        <scanWindow>
+                            <cvParam cvRef="MS" accession="MS:1000501" name="scan window lower limit" value="115" unitAccession="MS:1000040" unitName="m/z" unitCvRef="MS" />
+                            <cvParam cvRef="MS" accession="MS:1000500" name="scan window upper limit" value="930" unitAccession="MS:1000040" unitName="m/z" unitCvRef="MS" />
+                        </scanWindow>
+                    </scanWindowList>
+                </scan>
+            </scanList>
+            <precursorList count="1">
+                <precursor>
+                    <isolationWindow>
+                        <cvParam cvRef="MS" accession="MS:1000827" name="isolation window target m/z" value="457.723968505859" unitAccession="MS:1000040" unitName="m/z" unitCvRef="MS" />
+                        <cvParam cvRef="MS" accession="MS:1000828" name="isolation window lower offset" value="1.5" unitAccession="MS:1000040" unitName="m/z" unitCvRef="MS" />
+                        <cvParam cvRef="MS" accession="MS:1000829" name="isolation window upper offset" value="0.75" unitAccession="MS:1000040" unitName="m/z" unitCvRef="MS" />
+                    </isolationWindow>
+                    <selectedIonList count="1">
+                        <selectedIon>
+                            <cvParam cvRef="MS" accession="MS:1000744" name="selected ion m/z" value="457.723968505859" unitAccession="MS:1000040" unitName="m/z" unitCvRef="MS" />
+                            <cvParam cvRef="MS" accession="MS:1000041" name="charge state" value="2" />
+                        </selectedIon>
+                    </selectedIonList>
+                    <activation>
+                        <cvParam cvRef="MS" accession="MS:1000133" name="collision-induced dissociation" />
+                        <cvParam cvRef="MS" accession="MS:1000045" name="collision energy" value="35.0"/>
+                    </activation>
+                </precursor>
+            </precursorList>
+            <binaryDataArrayList count="2">
+                <binaryDataArray encodedLength="1088">
+                    <cvParam cvRef="MS" accession="MS:1000514" name="m/z array" unitAccession="MS:1000040" unitName="m/z" unitCvRef="MS" />
+                    <cvParam cvRef="MS" accession="MS:1000523" name="64-bit float" />
+                    <cvParam cvRef="MS" accession="MS:1000576" name="no compression" />
+                    <binary>AAAAoExpYkAAAACA3MpkQAAAAACph2VAAAAAAE4wZkAAAACAlMdmQAAAAECZAmdAAAAAwP9jaEAAAADgj4ZoQAAAAGC7HWlAAAAAAOXFaUAAAADg+4dqQAAAAMC1pmpAAAAA4IGFa0AAAACAaUZsQAAAACBzYW1AAAAAANCjbUAAAACAQ6duQAAAAIDsxG5AAAAAQKIlb0AAAACA5z9vQAAAAIDuw29AAAAAAJQicEAAAAAg9UZwQAAAAKCeVHBAAAAAIInEcEAAAACAcs5wQAAAAOA6BHFAAAAAADoOcUAAAAAgfcRxQAAAAOA68nFAAAAAoPExckAAAADATKVyQAAAAMC10nJAAAAAwBJHc0AAAAAA7FNzQAAAAIAYkXNAAAAAgJzRc0AAAABgE2R0QAAAAMCrc3RAAAAAgE+zdEAAAAAAhMR0QAAAAIC64XRAAAAA4Cf/dEAAAADgy3B1QAAAAMCVgnVAAAAAoDugdUAAAACAX/Z1QAAAAAAAB3ZAAAAAgO4XdkAAAABAqEJ2QAAAAIDp8nZAAAAAIAgRd0AAAACggzR3QAAAAODwT3dAAAAAIHJsd0AAAAAA4YJ3QAAAAGC91ndAAAAAAL3id0AAAADg0xZ4QAAAAOA5NXhAAAAAYDaPeEAAAACgK7p4QAAAACCm0XhAAAAA4GHkeEAAAADgyPJ4QAAAAOB5/3hAAAAAoFtNeUAAAADA8H15QAAAAGAHtXlAAAAAoD7HeUAAAAAAEtR5QAAAAGCx5XlAAAAA4NEJekAAAAAgtVN6QAAAACDCX3pAAAAAIAqmekAAAACg4OR6QAAAAGDymnxAAAAAICV/fUAAAAAgd6Z9QAAAAKDYA4BAAAAAoCoVgEAAAACA/kOAQAAAAKCpYoBAAAAA4MycgEAAAADA3DyBQAAAAKCbrIFAAAAAoPC6gUAAAADgV22CQAAAACABY4NAAAAAQE+qg0AAAADA0vKDQAAAAEDz+oNAAAAAoIxrhEAAAADg6euEQAAAAIAuDIVAAAAAoOwjhUAAAACgZUuFQAAAAADdm4VAAAAAoCzrh0AAAABgYvWHQAAAAOALCohA</binary>
+                </binaryDataArray>
+                <binaryDataArray encodedLength="544">
+                    <cvParam cvRef="MS" accession="MS:1000515" name="intensity array" unitAccession="MS:1000131" unitName="number of detector counts" unitCvRef="MS"/>
+                    <cvParam cvRef="MS" accession="MS:1000521" name="32-bit float" />
+                    <cvParam cvRef="MS" accession="MS:1000576" name="no compression" />
+                    <binary>3FlbQDg/ZUB8w3FAV2fMQMiOnkCXfP4/T2I2QC6qskAnhOZA/NU2QCc2QEAI1UhAQcAbQRrziUBmHq5AXutSQWZDbkAZGWdAzt6lQYNptUDSFDNBoY4IQAYaQEDeT7Q/16HGP9GtXUCITrQ/Rxu0Pzhc6j9mpjZAX1X8P7tPQ0AqxS5BZTzZPye+m0B7Sa5AfPsPQRr/W0CYwBRBwDh3QMAmtD/nq6E/bJHGPxJ9UUDsy/dAoCYMQRM2a0BkAR9Boo5pQMV0VEArYu5A4kaMQAyTI0BQPRJAML3TQCKVCED85+tArObGP1BVP0EtJuVAdyKAQFjctkFQa2NBixMTQXyyjUFX8eo/IHelQTdFcEFo1zZAhagsQAO53EBIugRB0M+gQfhBgkH0MsJAbGlIQZXg+EHe6CZBsbA2QHMHOECtW6BAjE2oQUpZckBasZ1AtKl3QEZYIUHkip1AQX7TQPqF60GNuaE/USk2QGLF40Im65ZAmXqlQBGuSUC70KBAAneMQeK3aEB87MVA5NigQE/Wb0BO475A</binary>
+                </binaryDataArray>
+            </binaryDataArrayList>
+        </spectrum>
+        "#;
+        let mut spectra = MzMLReader::default().parse(s.as_bytes()).await?;
+
+        assert_eq!(spectra.len(), 1);
+        let s = spectra.pop().unwrap();
+
+        assert_eq!(s.id, "spectrum=2442");
+        assert_eq!(s.ms_level, 2);
+        assert_eq!(s.representation, Representation::Centroid);
+        assert_eq!(s.precursors.len(), 1);
+        assert_eq!(s.precursors[0].charge, Some(2));
+        assert!((s.precursors[0].mz - 457.723968) < 0.0001);
+        assert_eq!(
+            s.precursors[0].isolation_window,
+            Some(Tolerance::Da(-1.5, 0.75))
+        );
+        assert!((s.scan_start_time - 1503.96166992188) < 0.0001);
+        assert_eq!(s.ion_injection_time, 0.0);
+        assert_eq!(s.intensity.len(), s.mz.len());
+        Ok(())
     }
 }
