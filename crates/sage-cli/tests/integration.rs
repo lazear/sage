@@ -35,10 +35,11 @@ fn integration() -> anyhow::Result<()> {
         min_fragment_mass: 0.0,
         max_fragment_mass: 1500.0,
         chimera: false,
+        report_psms: 1,
         wide_window: false,
     };
 
-    let psm = scorer.score(&processed, 1);
+    let psm = scorer.score(&processed);
     assert_eq!(psm.len(), 1);
     assert_eq!(psm[0].matched_peaks, 21);
 

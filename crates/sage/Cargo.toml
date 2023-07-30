@@ -25,3 +25,7 @@ serde_json = "1.0"
 quick-xml = { version = "0.25", features = ["async-tokio"] }
 
 sage-cloudpath = { path = "../sage-cloudpath" }
+
+[dev-dependencies]
+quickcheck = "1"
+quickcheck_macros = "1"

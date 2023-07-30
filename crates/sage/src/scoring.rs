@@ -1,4 +1,5 @@
 use crate::database::{IndexedDatabase, PeptideIx};
+use crate::heap::bounded_min_heapify;
 use crate::ion_series::{IonSeries, Kind};
 use crate::mass::{Tolerance, NEUTRON, PROTON};
 use crate::spectrum::{Precursor, ProcessedSpectrum};
@@ -22,10 +23,10 @@ struct Score {
 }
 
 /// Preliminary score - # of matched peaks for each candidate peptide
-#[derive(Copy, Clone, Default, Debug)]
+#[derive(Copy, Clone, Default, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct PreScore {
-    peptide: PeptideIx,
     matched: u16,
+    peptide: PeptideIx,
     precursor_charge: u8,
     isotope_error: i8,
 }
@@ -43,10 +44,8 @@ impl AddAssign<InitialHits> for InitialHits {
     fn add_assign(&mut self, rhs: InitialHits) {
         self.matched_peaks += rhs.matched_peaks;
         self.scored_candidates += rhs.scored_candidates;
-        // Add the non-zero matches into the accumulator
-        self.preliminary
-            .extend(rhs.preliminary.into_iter().take_while(|p| p.matched > 0))
-        //     .extend(&rhs.preliminary[..rhs.scored_candidates]);
+
+        self.preliminary.extend(rhs.preliminary);
     }
 }
 
@@ -156,8 +155,8 @@ pub struct Scorer<'db> {
     pub max_fragment_charge: Option<u8>,
     pub min_fragment_mass: f32,
     pub max_fragment_mass: f32,
-    // factorial: [f64; 32],
     pub chimera: bool,
+    pub report_psms: usize,
 
     // Rather than use a fixed precursor tolerance, dynamically alter
     // the precursor tolerance window based on MS2 isolation window and charge
@@ -165,14 +164,14 @@ pub struct Scorer<'db> {
 }
 
 impl<'db> Scorer<'db> {
-    pub fn score(&self, query: &ProcessedSpectrum, report_psms: usize) -> Vec<Feature> {
+    pub fn score(&self, query: &ProcessedSpectrum) -> Vec<Feature> {
         assert_eq!(
             query.level, 2,
             "internal bug, trying to score a non-MS2 scan!"
         );
         match self.chimera {
-            true => self.score_chimera_fast(query, report_psms),
-            false => self.score_standard(query, report_psms),
+            true => self.score_chimera_fast(query),
+            false => self.score_standard(query),
         }
     }
 
@@ -187,7 +186,30 @@ impl<'db> Scorer<'db> {
         )
     }
 
-    /// Preliminary Score, return # of matched peaks per candidate, sorted high to low
+    /// Perform a k-select and truncation of an [`InitialHits`] list.
+    ///
+    /// Determine how many candidates to actually calculate hyperscore for.
+    /// Hyperscore is relatively computationally expensive, so we don't want
+    /// to calculate it for every possible candidate (100s - 10,000s depending on search)
+    /// when we are only going to report a few PSMs. But we also want to calculate
+    /// it for enough candidates that we don't accidentally miss the best hit!
+    ///
+    /// Given that hyperscore is dominated by the number of matched peaks, it seems
+    /// reasonable to assume that the highest hyperscore will belong to one of the
+    /// top 50 candidates sorted by # of matched peaks.
+    fn trim_hits(&self, hits: &mut InitialHits) {
+        let k = 50.clamp(
+            (self.report_psms * 2).min(hits.preliminary.len()),
+            hits.preliminary.len(),
+        );
+        bounded_min_heapify(&mut hits.preliminary, k);
+        hits.preliminary.truncate(k);
+    }
+
+    /// Preliminary Score, return # of matched peaks per candidate
+    /// Returned hits are guaranteed to be the top-K hits (see above comment)
+    /// from among all potential candidates, but the returned vector is not
+    /// in sorted order.
     fn matched_peaks_with_isotope(
         &self,
         query: &ProcessedSpectrum,
@@ -232,9 +254,7 @@ impl<'db> Scorer<'db> {
         if hits.matched_peaks == 0 {
             return hits;
         }
-        // Sort the preliminary scoring vector from high to low number of matched peaks
-        hits.preliminary
-            .sort_unstable_by(|a, b| b.matched.cmp(&a.matched));
+        self.trim_hits(&mut hits);
         hits
     }
 
@@ -259,7 +279,7 @@ impl<'db> Scorer<'db> {
                     hits
                 },
             );
-            hits.preliminary.sort_by(|a, b| b.matched.cmp(&a.matched));
+            self.trim_hits(&mut hits);
             hits
         } else {
             self.matched_peaks_with_isotope(
@@ -287,7 +307,7 @@ impl<'db> Scorer<'db> {
                 hits += self.matched_peaks(query, precursor_mass, precursor_charge, precursor_tol);
                 hits
             });
-            hits.preliminary.sort_by(|a, b| b.matched.cmp(&a.matched));
+            self.trim_hits(&mut hits);
             hits
         } else if let Some(charge) = precursor.charge {
             // Charge state is already annotated for this precusor, only search once
@@ -302,23 +322,20 @@ impl<'db> Scorer<'db> {
                     self.matched_peaks(query, precursor_mass, precursor_charge, self.precursor_tol);
                 hits
             });
-
-            // We have merged results from multiple initial searches,
-            // which are now concatenated and need to be sorted again
-            hits.preliminary.sort_by(|a, b| b.matched.cmp(&a.matched));
+            self.trim_hits(&mut hits);
             hits
         }
     }
 
     /// Score a single [`ProcessedSpectrum`] against the database
-    pub fn score_standard(&self, query: &ProcessedSpectrum, report_psms: usize) -> Vec<Feature> {
+    pub fn score_standard(&self, query: &ProcessedSpectrum) -> Vec<Feature> {
         let precursor = query.precursors.get(0).unwrap_or_else(|| {
             panic!("missing MS1 precursor for {}", query.id);
         });
 
         let hits = self.initial_hits(query, precursor);
-        let mut features = Vec::with_capacity(report_psms);
-        self.build_features(query, precursor, &hits, report_psms, &mut features);
+        let mut features = Vec::with_capacity(self.report_psms);
+        self.build_features(query, precursor, &hits, self.report_psms, &mut features);
         features
     }
 
@@ -332,24 +349,10 @@ impl<'db> Scorer<'db> {
         report_psms: usize,
         features: &mut Vec<Feature>,
     ) {
-        // Determine how many candidates to actually calculate hyperscore for.
-        // Hyperscore is relatively computationally expensive, so we don't want
-        // to calculate it for every possible candidate (100s - 10,000s depending on search)
-        // when we are only going to report a few PSMs. But we also want to calculate
-        // it for enough candidates that we don't accidentally miss the best hit!
-        //
-        // Given that hyperscore is dominated by the number of matched peaks, it seems
-        // reasonable to assume that the highest hyperscore will belong to one of the
-        // top 50 candidates sorted by # of matched peaks.
-        let n_calculate = 50.clamp(
-            (report_psms * 2).min(hits.preliminary.len()),
-            hits.preliminary.len(),
-        );
         let mut score_vector = hits
             .preliminary
             .iter()
             .filter(|score| score.peptide != PeptideIx::default())
-            .take(n_calculate)
             .map(|pre| self.score_candidate(query, pre))
             .filter(|s| (s.matched_b + s.matched_y) >= self.min_matched_peaks)
             .collect::<Vec<_>>();
@@ -475,11 +478,7 @@ impl<'db> Scorer<'db> {
 
     /// Return multiple PSMs for each spectra - first is the best match, second PSM is the best match
     /// after all theoretical peaks assigned to the best match are removed, etc
-    pub fn score_chimera_fast(
-        &self,
-        query: &ProcessedSpectrum,
-        report_psms: usize,
-    ) -> Vec<Feature> {
+    pub fn score_chimera_fast(&self, query: &ProcessedSpectrum) -> Vec<Feature> {
         let precursor = query.precursors.get(0).unwrap_or_else(|| {
             panic!("missing MS1 precursor for {}", query.id);
         });
@@ -487,10 +486,10 @@ impl<'db> Scorer<'db> {
         let mut query = query.clone();
         let hits = self.initial_hits(&query, precursor);
 
-        let mut candidates: Vec<Feature> = Vec::with_capacity(report_psms);
+        let mut candidates: Vec<Feature> = Vec::with_capacity(self.report_psms);
 
         let mut prev = 0;
-        while candidates.len() < report_psms {
+        while candidates.len() < self.report_psms {
             self.build_features(&query, precursor, &hits, 1, &mut candidates);
             if candidates.len() > prev {
                 if let Some(feat) = candidates.get_mut(prev) {

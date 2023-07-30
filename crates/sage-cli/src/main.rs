@@ -110,7 +110,7 @@ impl Runner {
         let features: Vec<_> = spectra
             .par_iter()
             .filter(|spec| spec.peaks.len() >= self.parameters.min_peaks && spec.level == 2)
-            .flat_map(|spec| scorer.score(spec, self.parameters.report_psms))
+            .flat_map(|spec| scorer.score(spec))
             .collect();
 
         let quant = self
@@ -227,6 +227,7 @@ impl Runner {
             min_fragment_mass: self.parameters.database.fragment_min_mz,
             max_fragment_mass: self.parameters.database.fragment_max_mz,
             chimera: self.parameters.chimera,
+            report_psms: self.parameters.report_psms,
             wide_window: self.parameters.wide_window,
         };
 
