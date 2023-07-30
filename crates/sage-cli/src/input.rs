@@ -193,7 +193,7 @@ impl Input {
     }
 
     pub fn load<S: AsRef<str>>(path: S) -> anyhow::Result<Self> {
-        sage_core::read_json(path).map_err(anyhow::Error::from)
+        sage_cloudpath::util::read_json(path).map_err(anyhow::Error::from)
     }
 
     fn check_tolerances(tolerance: &Tolerance) {

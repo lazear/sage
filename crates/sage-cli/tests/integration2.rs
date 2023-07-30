@@ -7,11 +7,11 @@ fn mk_database(path: &str) -> IndexedDatabase {
     let builder = Builder {
         bucket_size: Some(BUCKET_SIZE),
         fasta: Some(path.into()),
-        generate_decoys: Some(false),
         ..Default::default()
     };
+    let fasta = sage_cloudpath::util::read_fasta(path, "rev_", false).unwrap();
 
-    builder.make_parameters().build().unwrap()
+    builder.make_parameters().build(fasta)
 }
 
 #[test]

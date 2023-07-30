@@ -6,6 +6,9 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWriteExt, BufReader};
 
+pub mod mzml;
+pub mod util;
+
 static S3_CLIENT: once_cell::sync::OnceCell<aws_sdk_s3::Client> = once_cell::sync::OnceCell::new();
 
 async fn s3_client() -> &'static aws_sdk_s3::Client {

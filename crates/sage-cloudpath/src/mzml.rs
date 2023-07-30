@@ -1,41 +1,9 @@
-use crate::mass::Tolerance;
-use crate::spectrum::Precursor;
 use async_compression::tokio::bufread::ZlibDecoder;
 use quick_xml::events::Event;
 use quick_xml::Reader;
+use sage_core::spectrum::{Precursor, Representation};
+use sage_core::{mass::Tolerance, spectrum::RawSpectrum};
 use tokio::io::{AsyncBufRead, AsyncReadExt};
-
-#[derive(Default, Debug, Clone)]
-pub struct Spectrum {
-    pub ms_level: u8,
-    pub id: String,
-    // pub scan_id: Option<usize>,
-    pub precursors: Vec<Precursor>,
-    /// Profile or Centroided data
-    pub representation: Representation,
-    /// Scan start time
-    pub scan_start_time: f32,
-    /// Ion injection time
-    pub ion_injection_time: f32,
-    /// Total ion current
-    pub total_ion_current: f32,
-    /// M/z array
-    pub mz: Vec<f32>,
-    /// Intensity array
-    pub intensity: Vec<f32>,
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Representation {
-    Profile,
-    Centroid,
-}
-
-impl Default for Representation {
-    fn default() -> Self {
-        Self::Profile
-    }
-}
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 /// Which tag are we inside?
@@ -118,7 +86,10 @@ impl MzMLReader {
     /// Here be dragons -
     /// Seriously, this kinda sucks because it's a giant imperative, stateful loop.
     /// But I also don't want to spend any more time working on an mzML parser...
-    pub async fn parse<B: AsyncBufRead + Unpin>(&self, b: B) -> Result<Vec<Spectrum>, MzMLError> {
+    pub async fn parse<B: AsyncBufRead + Unpin>(
+        &self,
+        b: B,
+    ) -> Result<Vec<RawSpectrum>, MzMLError> {
         let mut reader = Reader::from_reader(b);
         let mut buf = Vec::new();
 
@@ -128,7 +99,7 @@ impl MzMLReader {
         let mut binary_dtype = Dtype::F64;
         let mut binary_array = None;
 
-        let mut spectrum = Spectrum::default();
+        let mut spectrum = RawSpectrum::default();
         let mut precursor = Precursor::default();
         let mut iso_window_lo: Option<f32> = None;
         let mut iso_window_hi: Option<f32> = None;
@@ -207,7 +178,7 @@ impl MzMLReader {
                                 let level = extract_value!(ev);
                                 if let Some(filter) = self.ms_level {
                                     if level != filter {
-                                        spectrum = Spectrum::default();
+                                        spectrum = RawSpectrum::default();
                                         state = None;
                                     }
                                 }
@@ -219,7 +190,7 @@ impl MzMLReader {
                                 let value = extract_value!(ev);
                                 if value == 0.0 {
                                     // No ion current, break out of current state
-                                    spectrum = Spectrum::default();
+                                    spectrum = RawSpectrum::default();
                                     state = None;
                                 } else {
                                     spectrum.total_ion_current = value;
@@ -370,7 +341,7 @@ impl MzMLReader {
                                 }
                                 (false, _) => {}
                             }
-                            spectrum = Spectrum::default();
+                            spectrum = RawSpectrum::default();
                             None
                         }
                         _ => state,
@@ -447,7 +418,7 @@ impl From<base64::DecodeError> for MzMLError {
 
 #[cfg(test)]
 mod test {
-    use crate::{mass::Tolerance, mzml::Representation};
+    use sage_core::{mass::Tolerance, spectrum::Representation};
 
     use super::{MzMLError, MzMLReader};
 

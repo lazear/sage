@@ -62,12 +62,19 @@ impl FromIterator<SageResults> for SageResults {
 impl Runner {
     pub fn new(parameters: Search) -> anyhow::Result<Self> {
         let start = Instant::now();
-        let database = parameters.database.clone().build().with_context(|| {
+        let fasta = sage_cloudpath::util::read_fasta(
+            &parameters.database.fasta,
+            &parameters.database.decoy_tag,
+            parameters.database.generate_decoys,
+        )
+        .with_context(|| {
             format!(
                 "Failed to build database from `{}`",
                 parameters.database.fasta
             )
         })?;
+
+        let database = parameters.database.clone().build(fasta);
         info!(
             "generated {} fragments, {} peptides in {}ms",
             database.fragments.len(),
@@ -159,7 +166,7 @@ impl Runner {
 
         let spectra = chunk
             .par_iter()
-            .map(|path| sage_core::read_mzml(path, sn))
+            .map(|path| sage_cloudpath::util::read_mzml(path, sn))
             .enumerate()
             .filter_map(|(idx, spectra)| match spectra {
                 Ok(spectra) => {

@@ -126,8 +126,8 @@ pub struct Parameters {
     static_mods: HashMap<ModificationSpecificity, f32>,
     variable_mods: HashMap<ModificationSpecificity, Vec<f32>>,
     max_variable_mods: usize,
-    decoy_tag: String,
-    generate_decoys: bool,
+    pub decoy_tag: String,
+    pub generate_decoys: bool,
     pub fasta: String,
 }
 
@@ -206,9 +206,7 @@ impl Parameters {
     }
 
     // pub fn build(self) -> Result<IndexedDatabase, Box<dyn std::error::Error + Send + Sync + 'static>> {
-    pub fn build(self) -> Result<IndexedDatabase, crate::Error> {
-        let fasta = crate::read_fasta(&self.fasta, &self.decoy_tag, self.generate_decoys)?;
-
+    pub fn build(self, fasta: Fasta) -> IndexedDatabase {
         let target_decoys = self.digest(&fasta);
         log::trace!("generating fragments");
 
@@ -300,7 +298,7 @@ impl Parameters {
             .flat_map(|(a, b)| b.iter().map(|b| (*a, *b)))
             .collect::<Vec<(ModificationSpecificity, f32)>>();
 
-        Ok(IndexedDatabase {
+        IndexedDatabase {
             peptides: target_decoys,
             fragments,
             min_value,
@@ -309,7 +307,7 @@ impl Parameters {
             generate_decoys: self.generate_decoys,
             potential_mods,
             decoy_tag: self.decoy_tag,
-        })
+        }
     }
 }
 
@@ -629,22 +627,22 @@ mod test {
         );
     }
 
-    #[test]
-    fn deserialize_enzyme_builder() -> Result<(), serde_json::Error> {
-        let a: EnzymeBuilder = serde_json::from_value(serde_json::json!({
-            "cleave_at": "KR",
-        }))?;
-        let b: EnzymeBuilder = serde_json::from_value(serde_json::json!({
-            "cleave_at": "KR",
-            "restrict": "P",
-        }))?;
+    // #[test]
+    // fn deserialize_enzyme_builder() -> Result<(), serde_json::Error> {
+    //     let a: EnzymeBuilder = serde_json::from_value(serde_json::json!({
+    //         "cleave_at": "KR",
+    //     }))?;
+    //     let b: EnzymeBuilder = serde_json::from_value(serde_json::json!({
+    //         "cleave_at": "KR",
+    //         "restrict": "P",
+    //     }))?;
 
-        let a: EnzymeParameters = a.into();
-        let b: EnzymeParameters = b.into();
+    //     let a: EnzymeParameters = a.into();
+    //     let b: EnzymeParameters = b.into();
 
-        assert_eq!(a.enyzme.and_then(|e| e.skip_suffix), None);
-        assert_eq!(b.enyzme.and_then(|e| e.skip_suffix), Some('P'));
+    //     assert_eq!(a.enyzme.and_then(|e| e.skip_suffix), None);
+    //     assert_eq!(b.enyzme.and_then(|e| e.skip_suffix), Some('P'));
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 }

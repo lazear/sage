@@ -2,7 +2,6 @@ use serde::Serialize;
 
 use crate::database::binary_search_slice;
 use crate::mass::{Tolerance, NEUTRON, PROTON};
-use crate::mzml::{Representation, Spectrum};
 
 /// A charge-less peak at monoisotopic mass
 #[derive(PartialEq, PartialOrd, Copy, Clone, Default, Debug, Serialize)]
@@ -60,6 +59,38 @@ pub struct ProcessedSpectrum {
     pub peaks: Vec<Peak>,
     /// Total ion current
     pub total_intensity: f32,
+}
+
+#[derive(Default, Debug, Clone)]
+pub struct RawSpectrum {
+    pub ms_level: u8,
+    pub id: String,
+    // pub scan_id: Option<usize>,
+    pub precursors: Vec<Precursor>,
+    /// Profile or Centroided data
+    pub representation: Representation,
+    /// Scan start time
+    pub scan_start_time: f32,
+    /// Ion injection time
+    pub ion_injection_time: f32,
+    /// Total ion current
+    pub total_ion_current: f32,
+    /// M/z array
+    pub mz: Vec<f32>,
+    /// Intensity array
+    pub intensity: Vec<f32>,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Representation {
+    Profile,
+    Centroid,
+}
+
+impl Default for Representation {
+    fn default() -> Self {
+        Self::Profile
+    }
 }
 
 /// Binary search followed by linear search to select the most intense peak within `tolerance` window
@@ -210,7 +241,7 @@ impl SpectrumProcessor {
         }
     }
 
-    fn process_ms2(&self, should_deisotope: bool, spectrum: &Spectrum) -> Vec<Peak> {
+    fn process_ms2(&self, should_deisotope: bool, spectrum: &RawSpectrum) -> Vec<Peak> {
         if spectrum.representation != Representation::Centroid {
             // Panic, because there's really nothing we can do with profile data
             panic!(
@@ -272,7 +303,7 @@ impl SpectrumProcessor {
         }
     }
 
-    pub fn process(&self, spectrum: Spectrum) -> ProcessedSpectrum {
+    pub fn process(&self, spectrum: RawSpectrum) -> ProcessedSpectrum {
         let mut peaks = match spectrum.ms_level {
             2 => self.process_ms2(self.deisotope, &spectrum),
             _ => spectrum

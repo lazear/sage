@@ -11,20 +11,13 @@ license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-async-compression = { version = "0.3", features = ["tokio", "zlib"] }
-base64 = "0.13"
 dashmap = { version = "5.4.0", features = ["rayon"] }
 fnv = "1.0"
 itertools = "0.10"
 log = "0.4.0"
-tokio = { version = "1.0", features = ["io-util", "macros"] }
 rayon = "1.5"
 regex = "1.6"
 serde = { version="1.0", features = ["derive"] }
-serde_json = "1.0"
-quick-xml = { version = "0.25", features = ["async-tokio"] }
-
-sage-cloudpath = { path = "../sage-cloudpath" }
 
 [dev-dependencies]
 quickcheck = "1"

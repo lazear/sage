@@ -1524,13 +1524,20 @@ dependencies = [
 name = "sage-cloudpath"
 version = "0.13.0"
 dependencies = [
+ "anyhow",
  "async-compression",
  "aws-config",
  "aws-sdk-s3",
+ "base64 0.13.1",
  "bytes",
  "futures",
  "http",
+ "log",
  "once_cell",
+ "quick-xml",
+ "sage-core",
+ "serde",
+ "serde_json",
  "tokio",
 ]
 
@@ -1538,21 +1545,15 @@ dependencies = [
 name = "sage-core"
 version = "0.13.4"
 dependencies = [
- "async-compression",
- "base64 0.13.1",
  "dashmap",
  "fnv",
  "itertools",
  "log",
- "quick-xml",
  "quickcheck",
  "quickcheck_macros",
  "rayon",
  "regex",
- "sage-cloudpath",
  "serde",
- "serde_json",
- "tokio",
 ]
 
 [[package]]
