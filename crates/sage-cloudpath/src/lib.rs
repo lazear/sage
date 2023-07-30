@@ -118,9 +118,7 @@ impl CloudPath {
 
                 Ok(BufReader::new(Box::new(object.body.into_async_read())))
             }
-            Self::Local(path) => Ok(BufReader::new(Box::new(
-                tokio::fs::File::open(path).await.map_err(Error::IO)?,
-            ))),
+            Self::Local(path) => Ok(BufReader::new(Box::new(tokio::fs::File::open(path).await?))),
         }
     }
 
@@ -140,29 +138,26 @@ impl CloudPath {
             true => {
                 let inner = Vec::with_capacity(bytes.len() / 2);
                 let mut wtr = GzipEncoder::new(inner);
-                wtr.write_all(&bytes).await.map_err(Error::IO)?;
-                wtr.flush().await.map_err(Error::IO)?;
+                wtr.write_all(&bytes).await?;
+                wtr.flush().await?;
                 wtr.into_inner()
             }
             false => bytes,
         };
         match self {
             Self::Local(path) => {
-                let mut file = tokio::fs::File::create(path).await.map_err(Error::IO)?;
-                file.write_all(&bytes).await.map_err(Error::IO)?;
+                let mut file = tokio::fs::File::create(path).await?;
+                file.write_all(&bytes).await?;
                 Ok(())
             }
-            Self::S3 { bucket, key } => Ok(multipart_upload(bucket, key, bytes)
-                .await
-                .map_err(Error::S3)?),
+            Self::S3 { bucket, key } => Ok(multipart_upload(bucket, key, bytes).await?),
         }
     }
 
     pub fn write_bytes_sync(&self, bytes: Vec<u8>) -> Result<(), Error> {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
-            .build()
-            .map_err(Error::IO)?;
+            .build()?;
 
         rt.block_on(async { self.write_bytes(bytes).await })
     }
@@ -255,8 +250,7 @@ where
 
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
-        .build()
-        .map_err(Error::IO)?;
+        .build()?;
 
     rt.block_on(async {
         let reader = path.read().await?;
@@ -264,34 +258,23 @@ where
     })
 }
 
-#[derive(Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum Error {
+    #[error("invalid uri")]
     InvalidUri,
-    S3(aws_sdk_s3::Error),
-    IO(tokio::io::Error),
+    #[error("s3 error: {}", DisplayErrorContext(.0))]
+    S3(
+        #[from]
+        #[source]
+        aws_sdk_s3::Error,
+    ),
+    #[error(transparent)]
+    IO(#[from] tokio::io::Error),
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+    #[error("MzML error: {0}")]
+    MzML(#[from] mzml::MzMLError),
 }
-
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Error::InvalidUri => write!(f, "Invalid URI"),
-            Error::S3(x) => {
-                write!(f, "S3 error: ")?;
-                match x {
-                    // display a more informative error message than simply `unhandled error`
-                    aws_sdk_s3::Error::Unhandled(unhandled) => {
-                        write!(f, "{}", DisplayErrorContext(unhandled))
-                    }
-                    // other error kinds should already be more informative
-                    _ => x.fmt(f),
-                }
-            }
-            Error::IO(x) => write!(f, "IO error: {x}"),
-        }
-    }
-}
-
-impl std::error::Error for Error {}
 
 #[cfg(test)]
 mod test {

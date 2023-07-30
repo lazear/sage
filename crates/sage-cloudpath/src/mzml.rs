@@ -359,61 +359,24 @@ impl MzMLReader {
     }
 }
 
-#[derive(Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum MzMLError {
+    #[error("malformed MzML")]
     Malformed,
+    #[error("unsupported cvParam {0}")]
     UnsupportedCV(String),
-    XMLError(quick_xml::Error),
-    IOError(std::io::Error),
-}
-
-impl std::fmt::Display for MzMLError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            MzMLError::Malformed => f.write_str("MzMLError: malformed cvParam"),
-            MzMLError::UnsupportedCV(s) => write!(f, "MzMLError: unsupported cvParam {}", s),
-            MzMLError::IOError(s) => write!(f, "MzMLError: IO error {}", s),
-            MzMLError::XMLError(s) => write!(f, "MzMLError: XML error {}", s),
-        }
-    }
-}
-
-impl std::error::Error for MzMLError {}
-
-impl From<std::io::Error> for MzMLError {
-    fn from(residual: std::io::Error) -> Self {
-        Self::IOError(residual)
-    }
-}
-
-impl From<quick_xml::Error> for MzMLError {
-    fn from(residual: quick_xml::Error) -> Self {
-        Self::XMLError(residual)
-    }
-}
-
-impl From<std::str::Utf8Error> for MzMLError {
-    fn from(_: std::str::Utf8Error) -> Self {
-        Self::Malformed
-    }
-}
-
-impl From<std::num::ParseFloatError> for MzMLError {
-    fn from(_: std::num::ParseFloatError) -> Self {
-        Self::Malformed
-    }
-}
-
-impl From<std::num::ParseIntError> for MzMLError {
-    fn from(_: std::num::ParseIntError) -> Self {
-        Self::Malformed
-    }
-}
-
-impl From<base64::DecodeError> for MzMLError {
-    fn from(_: base64::DecodeError) -> Self {
-        Self::Malformed
-    }
+    #[error("XML parsing error: {0}")]
+    XMLError(#[from] quick_xml::Error),
+    #[error("io error: {0}")]
+    IOError(#[from] std::io::Error),
+    #[error("utf8 error: {0}")]
+    Utf8Error(#[from] std::str::Utf8Error),
+    #[error("error parsing float: {0}")]
+    FloatError(#[from] std::num::ParseFloatError),
+    #[error("error parsing int: {0}")]
+    IntError(#[from] std::num::ParseIntError),
+    #[error("error decoding base64: {0}")]
+    Base64Error(#[from] base64::DecodeError),
 }
 
 #[cfg(test)]

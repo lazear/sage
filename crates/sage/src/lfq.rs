@@ -54,7 +54,7 @@ impl Default for LfqSettings {
     }
 }
 
-#[derive(Copy, Clone, Debug, Serialize)]
+#[derive(Copy, Clone, Debug)]
 pub struct PrecursorRange {
     pub rt: f32,
     pub mass_lo: f32,

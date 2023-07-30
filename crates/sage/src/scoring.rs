@@ -239,14 +239,14 @@ impl<'db> Scorer<'db> {
                 let mass = peak.mass * charge as f32;
                 for frag in candidates.page_search(mass) {
                     let idx = frag.peptide_index.0 as usize - candidates.pre_idx_lo;
-                    let mut sc = &mut hits.preliminary[idx];
+                    let sc = &mut hits.preliminary[idx];
                     if sc.matched == 0 {
                         hits.scored_candidates += 1;
                         sc.precursor_charge = precursor_charge;
+                        sc.peptide = frag.peptide_index;
+                        sc.isotope_error = isotope_error;
                     }
-                    sc.peptide = frag.peptide_index;
                     sc.matched += 1;
-                    sc.isotope_error = isotope_error;
                     hits.matched_peaks += 1;
                 }
             }
@@ -417,7 +417,7 @@ impl<'db> Scorer<'db> {
                 delta_best: best - score.hyperscore,
                 matched_peaks: k as u32,
                 matched_intensity_pct: 100.0 * (score.summed_b + score.summed_y)
-                    / query.total_intensity,
+                    / query.total_ion_current,
                 poisson: poisson.log10(),
                 longest_b: score.longest_b as u32,
                 longest_y: score.longest_y as u32,
@@ -473,7 +473,7 @@ impl<'db> Scorer<'db> {
             .drain(..)
             .filter(|peak| !to_remove.contains(peak))
             .collect();
-        query.total_intensity = query.peaks.iter().map(|peak| peak.intensity).sum::<f32>();
+        query.total_ion_current = query.peaks.iter().map(|peak| peak.intensity).sum::<f32>();
     }
 
     /// Return multiple PSMs for each spectra - first is the best match, second PSM is the best match

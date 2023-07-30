@@ -1,13 +1,27 @@
-use serde::Serialize;
-
 use crate::database::binary_search_slice;
 use crate::mass::{Tolerance, NEUTRON, PROTON};
 
 /// A charge-less peak at monoisotopic mass
-#[derive(PartialEq, PartialOrd, Copy, Clone, Default, Debug, Serialize)]
+#[derive(PartialEq, Copy, Clone, Default, Debug)]
 pub struct Peak {
-    pub mass: f32,
     pub intensity: f32,
+    pub mass: f32,
+}
+
+impl Eq for Peak {}
+
+impl PartialOrd for Peak {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.intensity
+            .partial_cmp(&other.intensity)
+            .or_else(|| self.mass.partial_cmp(&other.mass))
+    }
+}
+
+impl Ord for Peak {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.partial_cmp(other).unwrap_or(std::cmp::Ordering::Equal)
+    }
 }
 
 /// A de-isotoped peak, that might have some charge state information
@@ -30,7 +44,7 @@ pub struct SpectrumProcessor {
     pub file_id: usize,
 }
 
-#[derive(Default, Debug, Clone, Serialize)]
+#[derive(Default, Debug, Clone)]
 pub struct Precursor {
     pub mz: f32,
     pub intensity: Option<f32>,
@@ -40,13 +54,12 @@ pub struct Precursor {
     pub isolation_window: Option<Tolerance>,
 }
 
-#[derive(Clone, Default, Debug, Serialize)]
+#[derive(Clone, Default, Debug)]
 pub struct ProcessedSpectrum {
     /// MSn level
     pub level: u8,
     /// Scan ID
     pub id: String,
-    // pub scan: usize,
     /// File ID
     pub file_id: usize,
     /// Retention time
@@ -58,14 +71,17 @@ pub struct ProcessedSpectrum {
     /// MS peaks, sorted by mass in ascending order
     pub peaks: Vec<Peak>,
     /// Total ion current
-    pub total_intensity: f32,
+    pub total_ion_current: f32,
 }
 
 #[derive(Default, Debug, Clone)]
+/// An unprocessed mass spectrum, as returned by a parser
 pub struct RawSpectrum {
+    /// MSn level
     pub ms_level: u8,
+    /// Spectrum identifier
     pub id: String,
-    // pub scan_id: Option<usize>,
+    /// Vector of precursors associated with this spectrum
     pub precursors: Vec<Precursor>,
     /// Profile or Centroided data
     pub representation: Representation,
@@ -293,11 +309,7 @@ impl SpectrumProcessor {
                     Peak { mass, intensity }
                 })
                 .collect::<Vec<_>>();
-            peaks.sort_unstable_by(|a, b| {
-                b.intensity
-                    .total_cmp(&a.intensity)
-                    .then_with(|| a.mass.total_cmp(&b.mass))
-            });
+            crate::heap::bounded_min_heapify(&mut peaks, self.take_top_n);
             peaks.truncate(self.take_top_n);
             peaks
         }
@@ -318,7 +330,7 @@ impl SpectrumProcessor {
         };
 
         peaks.sort_by(|a, b| a.mass.total_cmp(&b.mass));
-        let total_intensity = peaks.iter().map(|peak| peak.intensity).sum::<f32>();
+        let total_ion_current = peaks.iter().map(|peak| peak.intensity).sum::<f32>();
 
         ProcessedSpectrum {
             level: spectrum.ms_level,
@@ -328,7 +340,7 @@ impl SpectrumProcessor {
             ion_injection_time: spectrum.ion_injection_time,
             precursors: spectrum.precursors,
             peaks,
-            total_intensity,
+            total_ion_current,
         }
     }
 }

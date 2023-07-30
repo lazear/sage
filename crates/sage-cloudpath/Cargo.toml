@@ -1,6 +1,6 @@
 [package]
 name = "sage-cloudpath"
-version = "0.13.0"
+version = "0.14.0"
 authors = ["Michael Lazear <michaellazear92@gmail.com"]
 edition = "2021"
 rust-version = "1.62"
@@ -11,7 +11,7 @@ license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0"
+thiserror = "1.0"
 async-compression = { version = "0.3", features = ["tokio", "gzip", "zlib"] }
 aws-config = "0.54.1"
 aws-sdk-s3 = "0.24"
