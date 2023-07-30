@@ -9,11 +9,10 @@ use crate::ml::kde::Estimator;
 use crate::scoring::Feature;
 use fnv::FnvHashMap;
 use rayon::prelude::*;
-use serde::Serialize;
 use std::collections::HashMap;
 use std::hash::BuildHasher;
 
-#[derive(Copy, Clone, Debug, Serialize)]
+#[derive(Copy, Clone, Debug)]
 pub struct Competition<Ix> {
     forward: f32,
     foward_ix: Option<Ix>,

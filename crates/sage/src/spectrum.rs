@@ -1,10 +1,8 @@
-use serde::Serialize;
-
 use crate::database::binary_search_slice;
 use crate::mass::{Tolerance, NEUTRON, PROTON};
 
 /// A charge-less peak at monoisotopic mass
-#[derive(PartialEq, PartialOrd, Copy, Clone, Default, Debug, Serialize)]
+#[derive(PartialEq, PartialOrd, Copy, Clone, Default, Debug)]
 pub struct Peak {
     pub mass: f32,
     pub intensity: f32,
@@ -30,7 +28,7 @@ pub struct SpectrumProcessor {
     pub file_id: usize,
 }
 
-#[derive(Default, Debug, Clone, Serialize)]
+#[derive(Default, Debug, Clone)]
 pub struct Precursor {
     pub mz: f32,
     pub intensity: Option<f32>,
@@ -40,7 +38,7 @@ pub struct Precursor {
     pub isolation_window: Option<Tolerance>,
 }
 
-#[derive(Clone, Default, Debug, Serialize)]
+#[derive(Clone, Default, Debug)]
 pub struct ProcessedSpectrum {
     /// MSn level
     pub level: u8,
