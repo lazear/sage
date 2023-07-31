@@ -626,23 +626,4 @@ mod test {
             vec!["sp|AAAAA".to_string().into()]
         );
     }
-
-    // #[test]
-    // fn deserialize_enzyme_builder() -> Result<(), serde_json::Error> {
-    //     let a: EnzymeBuilder = serde_json::from_value(serde_json::json!({
-    //         "cleave_at": "KR",
-    //     }))?;
-    //     let b: EnzymeBuilder = serde_json::from_value(serde_json::json!({
-    //         "cleave_at": "KR",
-    //         "restrict": "P",
-    //     }))?;
-
-    //     let a: EnzymeParameters = a.into();
-    //     let b: EnzymeParameters = b.into();
-
-    //     assert_eq!(a.enyzme.and_then(|e| e.skip_suffix), None);
-    //     assert_eq!(b.enyzme.and_then(|e| e.skip_suffix), Some('P'));
-
-    //     Ok(())
-    // }
 }

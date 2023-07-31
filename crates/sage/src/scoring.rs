@@ -417,7 +417,7 @@ impl<'db> Scorer<'db> {
                 delta_best: best - score.hyperscore,
                 matched_peaks: k as u32,
                 matched_intensity_pct: 100.0 * (score.summed_b + score.summed_y)
-                    / query.total_intensity,
+                    / query.total_ion_current,
                 poisson: poisson.log10(),
                 longest_b: score.longest_b as u32,
                 longest_y: score.longest_y as u32,
@@ -473,7 +473,7 @@ impl<'db> Scorer<'db> {
             .drain(..)
             .filter(|peak| !to_remove.contains(peak))
             .collect();
-        query.total_intensity = query.peaks.iter().map(|peak| peak.intensity).sum::<f32>();
+        query.total_ion_current = query.peaks.iter().map(|peak| peak.intensity).sum::<f32>();
     }
 
     /// Return multiple PSMs for each spectra - first is the best match, second PSM is the best match

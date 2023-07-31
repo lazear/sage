@@ -5,7 +5,6 @@ use sage_core::database::{Builder, IndexedDatabase, PeptideIx};
 use sage_core::fasta::Fasta;
 use sage_core::mass::Tolerance;
 
-
 const FASTA: &'static str = r#"
 >sp|Q99536|VAT1_HUMAN Synaptic vesicle membrane protein VAT-1 homolog OS=Homo sapiens OX=9606 GN=VAT1 PE=1 SV=2
 MSDEREVAEAATGEDASSPPPKTEAASDPQHPAASEGAAAAAASPPLLRCLVLTGFGGYD
@@ -17,10 +16,10 @@ LARTWWNQFSVTALQLLQANRAVCGFHLGYLDGEVELVSGVVARLLALYNQGHIKPHIDS
 VWPFEKVADAMKQMQEKKNVGKVLLVPGPEKEN
 "#;
 
-fn mk_database(path: &str, bucket_size: usize) -> IndexedDatabase {
+fn mk_database(bucket_size: usize) -> IndexedDatabase {
     let builder = Builder {
         bucket_size: Some(bucket_size),
-        fasta: Some(path.into()),
+        fasta: Some("static".into()),
         ..Default::default()
     };
     let fasta = Fasta::parse(FASTA.into(), "rev_", false);
@@ -30,7 +29,7 @@ fn mk_database(path: &str, bucket_size: usize) -> IndexedDatabase {
 
 #[quickcheck]
 fn check_all_ions_visited(target_fragment_mz: f32, bucket_size: usize) {
-    let database = mk_database("../../tests/Q99536.fasta", bucket_size.clamp(1, 8192));
+    let database = mk_database(bucket_size.clamp(1, 8192));
 
     // Map PeptideIx -> number of fragments between 500 & 700 m/z
     // We want to make sure that IndexedDatabase::query hits *all* of them
@@ -60,11 +59,7 @@ fn check_all_ions_visited(target_fragment_mz: f32, bucket_size: usize) {
 
     // Hit all peptides in database, track how many of the 500-700 fragment m/z's
     // are returned to us by searching the database.
-    let query = database.query(
-        1000.0,
-        Tolerance::Da(-5000.0, 5000.0),
-        fragment_tol,
-    );
+    let query = database.query(1000.0, Tolerance::Da(-5000.0, 5000.0), fragment_tol);
 
     for fragment in query.page_search(target_fragment_mz) {
         visited[fragment.peptide_index.0 as usize] += 1;
