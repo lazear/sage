@@ -12,12 +12,6 @@ fn integration() -> anyhow::Result<()> {
 
     let fasta = sage_cloudpath::util::read_fasta("../../tests/Q99536.fasta", "rev_", true)?;
     let database = builder.make_parameters().build(fasta);
-    let pep = Peptide::try_from(Digest {
-        sequence: "LQSRPAAPPAPGPGQLTLR".into(),
-        ..Default::default()
-    })
-    .unwrap();
-
     let spectra = sage_cloudpath::util::read_mzml("../../tests/LQSRPAAPPAPGPGQLTLR.mzML", None)?;
     assert_eq!(spectra.len(), 1);
 

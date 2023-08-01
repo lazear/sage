@@ -78,7 +78,7 @@ impl Runner {
 
     pub fn write_features(
         &self,
-        features: Vec<Feature>,
+        features: &[Feature],
         filenames: &[String],
     ) -> anyhow::Result<String> {
         let path = self.make_path("results.sage.tsv");
@@ -319,7 +319,7 @@ impl Runner {
         Ok(path.to_string())
     }
 
-    pub fn write_tmt(&self, quant: Vec<TmtQuant>, filenames: &[String]) -> anyhow::Result<String> {
+    pub fn write_tmt(&self, quant: &[TmtQuant], filenames: &[String]) -> anyhow::Result<String> {
         let path = self.make_path("tmt.tsv");
 
         let mut wtr = csv::WriterBuilder::new()

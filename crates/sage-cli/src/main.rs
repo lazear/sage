@@ -222,7 +222,7 @@ impl Runner {
             .collect::<SageResults>()
     }
 
-    pub fn run(mut self, parallel: usize) -> anyhow::Result<()> {
+    pub fn run(mut self, parallel: usize, parquet: bool) -> anyhow::Result<()> {
         let scorer = Scorer {
             db: &self.database,
             precursor_tol: self.parameters.precursor_tol,
@@ -276,7 +276,7 @@ impl Runner {
             })
             .collect::<Vec<_>>();
 
-        if let Some(alignments) = alignments {
+        let areas = alignments.and_then(|alignments| {
             if self.parameters.quant.lfq {
                 let mut areas = sage_core::lfq::build_feature_map(
                     self.parameters.quant.lfq_settings,
@@ -287,11 +287,11 @@ impl Runner {
                 let q_precursor = sage_core::fdr::picked_precursor(&mut areas);
 
                 log::info!("discovered {} target MS1 peaks at 5% FDR", q_precursor);
-                self.parameters
-                    .output_paths
-                    .push(self.write_lfq(areas, &filenames)?);
+                Some(areas)
+            } else {
+                None
             }
-        }
+        });
 
         log::info!(
             "discovered {} target peptide-spectrum matches at 1% FDR",
@@ -301,20 +301,50 @@ impl Runner {
         log::info!("discovered {} target proteins at 1% FDR", q_protein);
         log::trace!("writing outputs");
 
+        // Write either a single parquet file, or multiple tsv files
+        if parquet {
+            log::warn!("parquet output format is currently unstable! There may be failures or schema changes!");
+
+            let bytes = sage_cloudpath::parquet::serialize_features(
+                &outputs.features,
+                &outputs.quant,
+                &filenames,
+                &self.database,
+            )?;
+
+            let path = self.make_path("results.sage.parquet");
+            path.write_bytes_sync(bytes)?;
+            self.parameters.output_paths.push(path.to_string());
+
+            if let Some(areas) = &areas {
+                let bytes =
+                    sage_cloudpath::parquet::serialize_lfq(&areas, &filenames, &self.database)?;
+
+                let path = self.make_path("lfq.parquet");
+                path.write_bytes_sync(bytes)?;
+                self.parameters.output_paths.push(path.to_string());
+            }
+        } else {
+            self.parameters
+                .output_paths
+                .push(self.write_features(&outputs.features, &filenames)?);
+            if !outputs.quant.is_empty() {
+                self.parameters
+                    .output_paths
+                    .push(self.write_tmt(&outputs.quant, &filenames)?);
+            }
+            if let Some(areas) = areas {
+                self.parameters
+                    .output_paths
+                    .push(self.write_lfq(areas, &filenames)?);
+            }
+        }
+
+        // Write percolator input file if requested
         if self.parameters.write_pin {
             self.parameters
                 .output_paths
                 .push(self.write_pin(&outputs.features, &filenames)?);
-        }
-
-        self.parameters
-            .output_paths
-            .push(self.write_features(outputs.features, &filenames)?);
-
-        if !outputs.quant.is_empty() {
-            self.parameters
-                .output_paths
-                .push(self.write_tmt(outputs.quant, &filenames)?);
         }
 
         let path = self.make_path("results.json");
@@ -388,6 +418,12 @@ fn main() -> anyhow::Result<()> {
                 .value_hint(ValueHint::Other),
         )
         .arg(
+            Arg::new("parquet")
+                .long("parquet")
+                .action(clap::ArgAction::SetTrue)
+                .help("Write search output in parquet format instead of tsv"),
+        )
+        .arg(
             Arg::new("write-pin")
                 .long("write-pin")
                 .action(clap::ArgAction::SetTrue)
@@ -405,11 +441,14 @@ fn main() -> anyhow::Result<()> {
         .get_one::<u16>("batch-size")
         .copied()
         .unwrap_or_else(|| num_cpus::get() as u16 / 2) as usize;
+
+    let parquet = matches.get_one::<bool>("parquet").copied().unwrap_or(false);
+
     let input = Input::from_arguments(matches)?;
 
     let runner = input.build().and_then(Runner::new)?;
 
-    runner.run(parallel)?;
+    runner.run(parallel, parquet)?;
 
     Ok(())
 }
