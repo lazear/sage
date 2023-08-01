@@ -222,7 +222,7 @@ impl Runner {
             .collect::<SageResults>()
     }
 
-    pub fn run(mut self, parallel: usize) -> anyhow::Result<()> {
+    pub fn run(mut self, parallel: usize, parquet: bool) -> anyhow::Result<()> {
         let scorer = Scorer {
             db: &self.database,
             precursor_tol: self.parameters.precursor_tol,
@@ -307,9 +307,20 @@ impl Runner {
                 .push(self.write_pin(&outputs.features, &filenames)?);
         }
 
-        self.parameters
-            .output_paths
-            .push(self.write_features(outputs.features, &filenames)?);
+        if parquet {
+            let bytes = sage_cloudpath::parquet::serialize_parquet_to_bytes(
+                &outputs.features,
+                &filenames,
+                &self.database,
+            )?;
+            let path = self.make_path("results.sage.parquet");
+            path.write_bytes_sync(bytes)?;
+            self.parameters.output_paths.push(path.to_string());
+        } else {
+            self.parameters
+                .output_paths
+                .push(self.write_features(outputs.features, &filenames)?);
+        }
 
         if !outputs.quant.is_empty() {
             self.parameters
@@ -388,6 +399,12 @@ fn main() -> anyhow::Result<()> {
                 .value_hint(ValueHint::Other),
         )
         .arg(
+            Arg::new("parquet")
+                .long("parquet")
+                .action(clap::ArgAction::SetTrue)
+                .help("Write search output in parquet format instead of tsv"),
+        )
+        .arg(
             Arg::new("write-pin")
                 .long("write-pin")
                 .action(clap::ArgAction::SetTrue)
@@ -405,11 +422,14 @@ fn main() -> anyhow::Result<()> {
         .get_one::<u16>("batch-size")
         .copied()
         .unwrap_or_else(|| num_cpus::get() as u16 / 2) as usize;
+
+    let parquet = matches.get_one::<bool>("parquet").copied().unwrap_or(false);
+
     let input = Input::from_arguments(matches)?;
 
     let runner = input.build().and_then(Runner::new)?;
 
-    runner.run(parallel)?;
+    runner.run(parallel, parquet)?;
 
     Ok(())
 }
