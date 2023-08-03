@@ -449,11 +449,16 @@ impl<'d> IndexedQuery<'d> {
             // search to further refine down to the slice of matching precursor mzs
             let slice = &&self.db.fragments[left_idx..right_idx];
 
-            let (inner_left, inner_right) = binary_search_slice(
+            // let (inner_left, inner_right) = binary_search_slice(
+            //     slice,
+            //     |frag, bounds| (frag.peptide_index.0 as usize).cmp(bounds),
+            //     self.pre_idx_lo,
+            //     self.pre_idx_hi,
+            // );
+            let (inner_left, inner_right) = interpolation_search_slice(
                 slice,
-                |frag, bounds| (frag.peptide_index.0 as usize).cmp(bounds),
-                self.pre_idx_lo,
-                self.pre_idx_hi,
+                PeptideIx(self.pre_idx_lo as u32),
+                PeptideIx(self.pre_idx_hi as u32),
             );
 
             // Finally, filter down our slice into exact matches only
@@ -480,6 +485,75 @@ impl<'d> IndexedQuery<'d> {
             })
         })
     }
+}
+
+fn interpolation_search(slice: &[Theoretical], peptide: PeptideIx) -> Result<usize, usize> {
+    let mut low = 0;
+    let mut high = slice.len().saturating_sub(1);
+
+    if peptide > slice[slice.len() - 1].peptide_index {
+        return Err(slice.len());
+    } else if peptide < slice[0].peptide_index {
+        return Err(0);
+    }
+
+    while low < high {
+        // SAFETY: We know that `low` and `high` are always in bounds
+        // and that we are not dividing by 0
+        let slope = unsafe {
+            (slice.get_unchecked(high).peptide_index.0 - slice.get_unchecked(low).peptide_index.0)
+                as f32
+                / (high - low) as f32
+        };
+
+        let diff = ((peptide.0 as i64 - slice[low].peptide_index.0 as i64) as f32 / slope) as isize;
+        let mid = low as isize + diff;
+        let mid = mid.clamp(low as isize, high as isize) as usize;
+
+        // SAFETY: We know that `low`  and `high` are always in bounds
+        // and that `mid` is clamped between these values.
+        let cmp = unsafe { slice.get_unchecked(mid).peptide_index.cmp(&peptide) };
+
+        if cmp == Ordering::Less {
+            low = mid + 1;
+        } else if cmp == Ordering::Greater {
+            high = mid - 1;
+        } else {
+            return Ok(mid);
+        }
+    }
+    return Err(low);
+}
+
+#[inline]
+pub fn interpolation_search_slice(
+    slice: &[Theoretical],
+    low: PeptideIx,
+    high: PeptideIx,
+) -> (usize, usize) {
+    // let left_idx = match slice.binary_search_by(|a| key(a, &low)) {
+    let left_idx = match interpolation_search(slice, low) {
+        Ok(idx) | Err(idx) => {
+            let mut idx = idx.saturating_sub(4);
+            while idx > 4 && slice[idx].peptide_index.cmp(&low) != Ordering::Less {
+                idx -= 4;
+            }
+            idx
+        }
+    };
+
+    // let right_idx = match slice[left_idx..].binary_search_by(|a| key(a, &high)) {
+    let right_idx = match interpolation_search(&slice[left_idx..], high) {
+        Ok(idx) | Err(idx) => {
+            let mut idx = idx + left_idx;
+            while idx < slice.len() - 4 && slice[idx].peptide_index.cmp(&high) != Ordering::Greater
+            {
+                idx = idx.saturating_add(4);
+            }
+            idx.min(slice.len())
+        }
+    };
+    (left_idx, right_idx)
 }
 
 /// Return the widest `left` and `right` indices into a `slice` (sorted by the
