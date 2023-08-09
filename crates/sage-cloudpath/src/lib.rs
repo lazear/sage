@@ -107,7 +107,9 @@ impl CloudPath {
     }
 
     /// Open a BufReader stream to the object
-    async fn mk_bufreader(&self) -> Result<BufReader<Box<dyn AsyncRead + Unpin>>, Error> {
+    async fn mk_bufreader(
+        &self,
+    ) -> Result<BufReader<Box<dyn AsyncRead + Unpin + Send + Sync>>, Error> {
         match self {
             Self::S3 { bucket, key } => {
                 let object = s3_client()
@@ -125,7 +127,7 @@ impl CloudPath {
         }
     }
 
-    pub async fn read(&self) -> Result<Box<dyn AsyncBufRead + Unpin>, Error> {
+    pub async fn read(&self) -> Result<Box<dyn AsyncBufRead + Unpin + Send + Sync>, Error> {
         let reader = self.mk_bufreader().await?;
         match self.gzip_heuristic() {
             true => {

@@ -73,8 +73,8 @@ pub fn build_schema() -> Result<Type, parquet::errors::ParquetError> {
 }
 
 /// Caller must guarantee that `reporter_ions` is not an empty slice
-fn write_reporter_ions<'a>(
-    mut column: SerializedColumnWriter<'a>,
+fn write_reporter_ions(
+    mut column: SerializedColumnWriter,
     features: &[Feature],
     reporter_ions: &[TmtQuant],
 ) -> parquet::errors::Result<()> {
@@ -98,7 +98,7 @@ fn write_reporter_ions<'a>(
         if let Some(rs) = scan_map.get(&(feature.file_id, &feature.spec_id)) {
             col.write_batch(&rs.peaks, Some(&def_levels), Some(&rep_levels))?;
         } else {
-            col.write_batch(&[0.0], Some(&[1]), Some(&[0]))?;
+            col.write_batch(&[], Some(&[0]), Some(&[0]))?;
         }
     }
 
@@ -106,15 +106,14 @@ fn write_reporter_ions<'a>(
     Ok(())
 }
 
-fn write_null_column<'a>(
-    mut column: SerializedColumnWriter<'a>,
+fn write_null_column(
+    mut column: SerializedColumnWriter,
     length: usize,
 ) -> Result<usize, parquet::errors::ParquetError> {
-    let values = vec![0.0f32; length];
     let levels = vec![0i16; length];
     let wrote = column
         .typed::<FloatType>()
-        .write_batch(&values, Some(&levels), Some(&levels))?;
+        .write_batch(&[], Some(&levels), Some(&levels))?;
     column.close().map(|_| wrote)
 }
 

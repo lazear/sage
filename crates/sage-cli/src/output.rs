@@ -129,7 +129,7 @@ impl Runner {
         wtr.write_byte_record(&headers)?;
         for record in features
             .into_par_iter()
-            .map(|feat| self.serialize_feature(&feat, filenames))
+            .map(|feat| self.serialize_feature(feat, filenames))
             .collect::<Vec<_>>()
         {
             wtr.write_byte_record(&record)?;

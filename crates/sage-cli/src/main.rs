@@ -318,7 +318,7 @@ impl Runner {
 
             if let Some(areas) = &areas {
                 let bytes =
-                    sage_cloudpath::parquet::serialize_lfq(&areas, &filenames, &self.database)?;
+                    sage_cloudpath::parquet::serialize_lfq(areas, &filenames, &self.database)?;
 
                 let path = self.make_path("lfq.parquet");
                 path.write_bytes_sync(bytes)?;
