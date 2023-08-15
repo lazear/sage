@@ -34,7 +34,7 @@ pub fn build_schema() -> Result<Type, parquet::errors::ParquetError> {
             required byte_array proteins (utf8);
             required int32 num_proteins;
             required int32 rank;
-            required int32 label;
+            required boolean is_decoy;
             required float expmass;
             required float calcmass;
             required int32 charge;
@@ -131,97 +131,99 @@ pub fn serialize_features(
 
     let buf = Vec::new();
     let mut writer = SerializedFileWriter::new(buf, schema.into(), options.into())?;
-    let mut rg = writer.next_row_group()?;
 
-    macro_rules! write_col {
-        ($field:ident, $ty:ident) => {
-            if let Some(mut col) = rg.next_column()? {
-                col.typed::<$ty>().write_batch(
-                    &features
-                        .iter()
-                        .map(|f| f.$field as <$ty as DataType>::T)
-                        .collect::<Vec<_>>(),
-                    None,
-                    None,
-                )?;
-                col.close()?;
-            }
-        };
-        ($lambda:expr, $ty:ident) => {
-            if let Some(mut col) = rg.next_column()? {
-                col.typed::<$ty>().write_batch(
-                    &features.iter().map($lambda).collect::<Vec<_>>(),
-                    None,
-                    None,
-                )?;
-                col.close()?;
-            }
-        };
-    }
-
-    write_col!(
-        |f: &Feature| filenames[f.file_id].as_str().into(),
-        ByteArrayType
-    );
-    write_col!(|f: &Feature| f.spec_id.as_str().into(), ByteArrayType);
-    write_col!(
-        |f: &Feature| database[f.peptide_idx].to_string().as_bytes().into(),
-        ByteArrayType
-    );
-    write_col!(
-        |f: &Feature| database[f.peptide_idx].sequence.as_ref().into(),
-        ByteArrayType
-    );
-    write_col!(
-        |f: &Feature| database[f.peptide_idx]
-            .proteins(&database.decoy_tag, database.generate_decoys)
-            .as_str()
-            .into(),
-        ByteArrayType
-    );
-    write_col!(
-        |f: &Feature| database[f.peptide_idx].proteins.len() as i32,
-        Int32Type
-    );
-    write_col!(rank, Int32Type);
-    write_col!(label, Int32Type);
-    write_col!(expmass, FloatType);
-    write_col!(calcmass, FloatType);
-    write_col!(charge, Int32Type);
-    write_col!(peptide_len, Int32Type);
-    write_col!(missed_cleavages, Int32Type);
-    write_col!(isotope_error, FloatType);
-    write_col!(delta_mass, FloatType);
-    write_col!(average_ppm, FloatType);
-    write_col!(hyperscore, FloatType);
-    write_col!(delta_next, FloatType);
-    write_col!(delta_best, FloatType);
-    write_col!(rt, FloatType);
-    write_col!(aligned_rt, FloatType);
-    write_col!(predicted_rt, FloatType);
-    write_col!(delta_rt_model, FloatType);
-    write_col!(matched_peaks, Int32Type);
-    write_col!(longest_b, Int32Type);
-    write_col!(longest_y, Int32Type);
-    write_col!(longest_y_pct, FloatType);
-    write_col!(matched_intensity_pct, FloatType);
-    write_col!(scored_candidates, Int32Type);
-    write_col!(poisson, FloatType);
-    write_col!(discriminant_score, FloatType);
-    write_col!(posterior_error, FloatType);
-    write_col!(spectrum_q, FloatType);
-    write_col!(peptide_q, FloatType);
-    write_col!(protein_q, FloatType);
-
-    if let Some(col) = rg.next_column()? {
-        if reporter_ions.is_empty() {
-            write_null_column(col, features.len())?;
-        } else {
-            write_reporter_ions(col, features, reporter_ions)?;
+    for features in features.chunks(65536) {
+        let mut rg = writer.next_row_group()?;
+        macro_rules! write_col {
+            ($field:ident, $ty:ident) => {
+                if let Some(mut col) = rg.next_column()? {
+                    col.typed::<$ty>().write_batch(
+                        &features
+                            .iter()
+                            .map(|f| f.$field as <$ty as DataType>::T)
+                            .collect::<Vec<_>>(),
+                        None,
+                        None,
+                    )?;
+                    col.close()?;
+                }
+            };
+            ($lambda:expr, $ty:ident) => {
+                if let Some(mut col) = rg.next_column()? {
+                    col.typed::<$ty>().write_batch(
+                        &features.iter().map($lambda).collect::<Vec<_>>(),
+                        None,
+                        None,
+                    )?;
+                    col.close()?;
+                }
+            };
         }
-    }
 
-    rg.close()?;
+        write_col!(
+            |f: &Feature| filenames[f.file_id].as_str().into(),
+            ByteArrayType
+        );
+        write_col!(|f: &Feature| f.spec_id.as_str().into(), ByteArrayType);
+        write_col!(
+            |f: &Feature| database[f.peptide_idx].to_string().as_bytes().into(),
+            ByteArrayType
+        );
+        write_col!(
+            |f: &Feature| database[f.peptide_idx].sequence.as_ref().into(),
+            ByteArrayType
+        );
+        write_col!(
+            |f: &Feature| database[f.peptide_idx]
+                .proteins(&database.decoy_tag, database.generate_decoys)
+                .as_str()
+                .into(),
+            ByteArrayType
+        );
+        write_col!(
+            |f: &Feature| database[f.peptide_idx].proteins.len() as i32,
+            Int32Type
+        );
+        write_col!(rank, Int32Type);
+        write_col!(|f: &Feature| f.label == -1, BoolType);
+        write_col!(expmass, FloatType);
+        write_col!(calcmass, FloatType);
+        write_col!(charge, Int32Type);
+        write_col!(peptide_len, Int32Type);
+        write_col!(missed_cleavages, Int32Type);
+        write_col!(isotope_error, FloatType);
+        write_col!(delta_mass, FloatType);
+        write_col!(average_ppm, FloatType);
+        write_col!(hyperscore, FloatType);
+        write_col!(delta_next, FloatType);
+        write_col!(delta_best, FloatType);
+        write_col!(rt, FloatType);
+        write_col!(aligned_rt, FloatType);
+        write_col!(predicted_rt, FloatType);
+        write_col!(delta_rt_model, FloatType);
+        write_col!(matched_peaks, Int32Type);
+        write_col!(longest_b, Int32Type);
+        write_col!(longest_y, Int32Type);
+        write_col!(longest_y_pct, FloatType);
+        write_col!(matched_intensity_pct, FloatType);
+        write_col!(scored_candidates, Int32Type);
+        write_col!(poisson, FloatType);
+        write_col!(discriminant_score, FloatType);
+        write_col!(posterior_error, FloatType);
+        write_col!(spectrum_q, FloatType);
+        write_col!(peptide_q, FloatType);
+        write_col!(protein_q, FloatType);
+
+        if let Some(col) = rg.next_column()? {
+            if reporter_ions.is_empty() {
+                write_null_column(col, features.len())?;
+            } else {
+                write_reporter_ions(col, features, reporter_ions)?;
+            }
+        }
+
+        rg.close()?;
+    }
     writer.into_inner()
 }
 
@@ -231,7 +233,7 @@ pub fn build_lfq_schema() -> parquet::errors::Result<Type> {
             required byte_array peptide (utf8);
             required byte_array stripped_peptide (utf8);
             required byte_array proteins (utf8);
-            required boolean decoy;
+            required boolean is_decoy;
             required float q_value;
             required byte_array filename (utf8);
             required float intensity;
@@ -258,33 +260,9 @@ pub fn serialize_lfq<H: BuildHasher>(
     if let Some(mut col) = rg.next_column()? {
         let values = areas
             .iter()
-            .map(|((peptide_idx, _), _)| database[*peptide_idx].to_string().as_bytes().into())
-            .collect::<Vec<_>>();
-
-        col.typed::<ByteArrayType>()
-            .write_batch(&values, None, None)?;
-        col.close()?;
-    }
-
-    if let Some(mut col) = rg.next_column()? {
-        let values = areas
-            .iter()
-            .map(|((peptide_idx, _), _)| database[*peptide_idx].sequence.as_ref().into())
-            .collect::<Vec<_>>();
-
-        col.typed::<ByteArrayType>()
-            .write_batch(&values, None, None)?;
-        col.close()?;
-    }
-
-    if let Some(mut col) = rg.next_column()? {
-        let values = areas
-            .iter()
-            .map(|((peptide_idx, _), _)| {
-                database[*peptide_idx]
-                    .proteins(&database.decoy_tag, database.generate_decoys)
-                    .as_str()
-                    .into()
+            .flat_map(|((peptide_idx, _), _)| {
+                let val = database[*peptide_idx].to_string().as_bytes().into();
+                std::iter::repeat(val).take(filenames.len())
             })
             .collect::<Vec<_>>();
 
@@ -296,7 +274,38 @@ pub fn serialize_lfq<H: BuildHasher>(
     if let Some(mut col) = rg.next_column()? {
         let values = areas
             .iter()
-            .map(|((_, decoy), _)| *decoy)
+            .flat_map(|((peptide_idx, _), _)| {
+                let val = database[*peptide_idx].sequence.as_ref().into();
+                std::iter::repeat(val).take(filenames.len())
+            })
+            .collect::<Vec<_>>();
+
+        col.typed::<ByteArrayType>()
+            .write_batch(&values, None, None)?;
+        col.close()?;
+    }
+
+    if let Some(mut col) = rg.next_column()? {
+        let values = areas
+            .iter()
+            .flat_map(|((peptide_idx, _), _)| {
+                let val = database[*peptide_idx]
+                    .proteins(&database.decoy_tag, database.generate_decoys)
+                    .as_str()
+                    .into();
+                std::iter::repeat(val).take(filenames.len())
+            })
+            .collect::<Vec<_>>();
+
+        col.typed::<ByteArrayType>()
+            .write_batch(&values, None, None)?;
+        col.close()?;
+    }
+
+    if let Some(mut col) = rg.next_column()? {
+        let values = areas
+            .iter()
+            .flat_map(|((_, decoy), _)| std::iter::repeat(*decoy).take(filenames.len()))
             .collect::<Vec<_>>();
 
         col.typed::<BoolType>().write_batch(&values, None, None)?;
@@ -306,7 +315,7 @@ pub fn serialize_lfq<H: BuildHasher>(
     if let Some(mut col) = rg.next_column()? {
         let values = areas
             .iter()
-            .map(|((_, _), (peak, _))| peak.q_value)
+            .flat_map(|((_, _), (peak, _))| std::iter::repeat(peak.q_value).take(filenames.len()))
             .collect::<Vec<_>>();
 
         col.typed::<FloatType>().write_batch(&values, None, None)?;

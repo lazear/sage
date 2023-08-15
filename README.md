@@ -22,8 +22,10 @@ Check out the [blog post introducing Sage](https://lazear.github.io/sage/) for m
 - Incredible performance out of the box
 - Effortlessly cross-platform (Linux/MacOS/Windows), effortlessly parallel (uses all of your CPU cores)
 - Fragment indexing strategy allows for blazing fast narrow and open searches (> 500 Da precursor tolerance)
-- MS3-TMT quantification (R-squared of 0.999 with Proteome Discoverer)
+- Isobaric quantification (MS2/MS3-TMT, or custom reporter ions)
+- Label-free quantification: consider all charge states & isotopologues *a la* FlashLFQ
 - Capable of searching for chimeric/co-fragmenting spectra
+- Wide-window (dynamic precursor tolerance) search mode - enables WWA/PRM/DIA searches
 - Retention time prediction models fit to each LC/MS run
 - PSM rescoring using built-in linear discriminant analysis (LDA)
 - PEP calculation using a non-parametric model (KDE)
@@ -33,15 +35,11 @@ Check out the [blog post introducing Sage](https://lazear.github.io/sage/) for m
 - Built-in support for reading gzipped-mzML files
 - Support for reading/writing directly from AWS S3
 
-### Experimental features
-
-- Label-free quantification: consider all charge states & isotopologues *a la* FlashLFQ
-
 ### Assign multiple peptides to complex spectra
 
 <img src="figures/chimera_27525.png" width="800">
 
-- When chimeric searching is turned on, 2 peptide identifications will be reported for each MS2 scan, both with `rank=1`
+- When chimeric searching is enabled, multiple peptide identifications can be reported for each MS2 scan
 
 ### Sage trains machine learning models for FDR refinement and posterior error probability calculation
 
@@ -113,6 +111,8 @@ Options:
           Path where search and quant results will be written. Overrides the directory specified in the configuration file.
       --batch-size <batch-size>
           Number of files to search in parallel (default = number of CPUs/2)
+      --parquet
+          Write parquet files instead of tab-separated files
       --write-pin
           Write percolator-compatible `.pin` output files
   -h, --help
@@ -127,7 +127,7 @@ Example usage: `sage config.json`
 
 Some options in the parameters file can be over-written using the command line interface. These are:
 
-1. The paths to the raw mzML data
+1. The paths to the mzML data
 2. The path to the database (fasta file)
 3. The output directory
 
@@ -149,12 +149,14 @@ Running Sage will produce several output files (located in either the current di
 - MS2 search results will be stored as a tab-separated file (`results.sage.tsv`) file - this is a tab-separated file, which can be opened in Excel/Pandas/etc
 - MS2 and MS3 quantitation results will be stored as a tab-separated file (`tmt.tsv`, `lfq.tsv`) if `quant.tmt` or `quant.lfq` options are used in the parameter file
 
+If `--parquet` is passed as a command line argument, `results.sage.parquet` (and optionally, `lfq.parquet`) will be written. These have a similar set of columns, but TMT values are stored as a nested array alongside PSM features
+
 ## Configuration file schema
 
 ### Notes
 
 - The majority of parameters are optional - only "database.fasta", "precursor_tol", and "fragment_tol" are required. Sage will try and use reasonable defaults for any parameters not supplied
-- Tolerances are specified on the *experimental* m/z values. To perform a -100 to +500 Da open search (mass window applied to *precursor*), you would use `"da": [-500, 100]`
+- Tolerances are specified on the *experimental* m/z values. To perform a -100 to +500 Da open search (mass window applied to *theoretical*), you would use `"da": [-500, 100]`
 
 ### Decoys
 

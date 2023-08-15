@@ -240,7 +240,7 @@ The "results.sage.tsv" file contains the following columns (headers):
 - `spectrum_q`: Assigned spectrum-level q-value.
 - `peptide_q`: Assigned peptide-level q-value.
 - `protein_q`: Assigned protein-level q-value.
-- `ms1_intensity`: Intensity of the MS1 precursor ion
+- `ms1_intensity`: Intensity of the selected MS1 precursor ion (not label-free quant)
 - `ms2_intensity`: Total intensity of MS2 spectrum
 
-These columns provide comprehensive information about each candidate peptide spectrum match (PSM) identified by the Sage search engine, enabling users to assess the quality and characteristics of the results.
+These columns provide comprehensive information about each candidate peptide spectrum match (PSM) identified by the Sage search engine.

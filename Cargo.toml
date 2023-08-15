@@ -6,6 +6,6 @@ members = [
 ]
 
 [profile.release]
-#lto = "fat"
-#codegen-units = 1
+lto = "fat"
+codegen-units = 1
 panic = "abort"
