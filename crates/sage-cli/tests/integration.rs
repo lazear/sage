@@ -12,10 +12,10 @@ fn integration() -> anyhow::Result<()> {
 
     let fasta = sage_cloudpath::util::read_fasta("../../tests/Q99536.fasta", "rev_", true)?;
     let database = builder.make_parameters().build(fasta);
-    let spectra = sage_cloudpath::util::read_mzml("../../tests/LQSRPAAPPAPGPGQLTLR.mzML", None)?;
+    let spectra = sage_cloudpath::util::read_mzml("../../tests/LQSRPAAPPAPGPGQLTLR.mzML", 0, None)?;
     assert_eq!(spectra.len(), 1);
 
-    let sp = SpectrumProcessor::new(100, 0.0, 1500.0, true, 0);
+    let sp = SpectrumProcessor::new(100, 0.0, 1500.0, true);
     let processed = sp.process(spectra[0].clone());
     assert!(processed.peaks.len() <= 300);
 

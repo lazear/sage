@@ -114,11 +114,30 @@ impl Runner {
         scorer: &Scorer,
         spectra: Vec<ProcessedSpectrum>,
     ) -> SageResults {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let counter = AtomicUsize::new(0);
+        let start = Instant::now();
+
         let features: Vec<_> = spectra
             .par_iter()
             .filter(|spec| spec.peaks.len() >= self.parameters.min_peaks && spec.level == 2)
+            .map(|x| {
+                let prev = counter.fetch_add(1, Ordering::Relaxed);
+                if prev > 0 && prev % 10_000 == 0 {
+                    let duration = Instant::now().duration_since(start).as_millis() as usize;
+
+                    let rate = prev * 1000 / (duration + 1);
+                    log::trace!(" - searched {} spectra ({} spectra/s)", prev, rate);
+                }
+                x
+            })
             .flat_map(|spec| scorer.score(spec))
             .collect();
+
+        let duration = Instant::now().duration_since(start).as_millis() as usize;
+        let prev = counter.load(Ordering::Relaxed);
+        let rate = prev * 1000 / (duration + 1);
+        log::info!(" - search:  {:8} ms ({} spectra/s)", duration, rate);
 
         let quant = self
             .parameters
@@ -164,53 +183,35 @@ impl Runner {
             .sn
             .then_some(self.parameters.quant.tmt_settings.level);
 
+        let sp = SpectrumProcessor::new(
+            self.parameters.max_peaks,
+            self.parameters.database.fragment_min_mz,
+            self.parameters.database.fragment_max_mz,
+            self.parameters.deisotope,
+        );
+
         let spectra = chunk
             .par_iter()
-            .map(|path| sage_cloudpath::util::read_mzml(path, sn))
             .enumerate()
-            .filter_map(|(idx, spectra)| match spectra {
-                Ok(spectra) => {
-                    log::trace!(" - {}: read {} spectra", chunk[idx], spectra.len());
-                    Some(spectra)
-                }
-                Err(e) => {
-                    log::error!("error while processing {}: {}", chunk[idx], e);
-                    None
+            .flat_map(|(idx, path)| {
+                match sage_cloudpath::util::read_mzml(path, chunk_idx * batch_size + idx, sn) {
+                    Ok(s) => {
+                        log::trace!("- {}: read {} spectra", path, s.len());
+                        Ok(s)
+                    }
+                    Err(e) => {
+                        log::error!("- {}: {}", path, e);
+                        Err(e)
+                    }
                 }
             })
+            .flat_map_iter(|spectra| spectra.into_iter().map(|s| sp.process(s)))
             .collect::<Vec<_>>();
+
         let io_time = Instant::now() - start;
-
-        let count: usize = spectra.iter().map(|x| x.len()).sum();
-
-        let start = Instant::now();
-        let results = spectra
-            .into_par_iter()
-            .enumerate()
-            .map(|(idx, spectra)| {
-                let sp = SpectrumProcessor::new(
-                    self.parameters.max_peaks,
-                    self.parameters.database.fragment_min_mz,
-                    self.parameters.database.fragment_max_mz,
-                    self.parameters.deisotope,
-                    chunk_idx * batch_size + idx,
-                );
-
-                let spectra = spectra
-                    .into_iter()
-                    .map(move |spec| sp.process(spec))
-                    .collect::<Vec<_>>();
-                self.search_processed_spectra(scorer, spectra)
-            })
-            .collect::<SageResults>();
-        let search_time = Instant::now() - start;
         info!(" - file IO: {:8} ms", io_time.as_millis());
-        info!(
-            " - search:  {:8} ms ({} spectra)",
-            search_time.as_millis(),
-            count
-        );
-        results
+
+        self.search_processed_spectra(scorer, spectra)
     }
 
     pub fn batch_files(&self, scorer: &Scorer, batch_size: usize) -> SageResults {

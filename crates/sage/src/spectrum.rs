@@ -41,7 +41,6 @@ pub struct SpectrumProcessor {
     pub max_fragment_mz: f32,
     pub min_fragment_mz: f32,
     pub deisotope: bool,
-    pub file_id: usize,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -77,6 +76,7 @@ pub struct ProcessedSpectrum {
 #[derive(Default, Debug, Clone)]
 /// An unprocessed mass spectrum, as returned by a parser
 pub struct RawSpectrum {
+    pub file_id: usize,
     /// MSn level
     pub ms_level: u8,
     /// Spectrum identifier
@@ -240,20 +240,17 @@ impl SpectrumProcessor {
     /// * `min_fragment_mz`: Keep only fragments >= this m/z
     /// * `max_fragment_mz`: Keep only fragments <= this m/z
     /// * `deisotope`: Perform deisotoping & charge state deconvolution
-    /// * `file_id`: Store this value in all [`ProcessedSpectrum`]
     pub fn new(
         take_top_n: usize,
         min_fragment_mz: f32,
         max_fragment_mz: f32,
         deisotope: bool,
-        file_id: usize,
     ) -> Self {
         Self {
             take_top_n,
             min_fragment_mz,
             max_fragment_mz,
             deisotope,
-            file_id,
         }
     }
 
@@ -335,7 +332,7 @@ impl SpectrumProcessor {
         ProcessedSpectrum {
             level: spectrum.ms_level,
             id: spectrum.id,
-            file_id: self.file_id,
+            file_id: spectrum.file_id,
             scan_start_time: spectrum.scan_start_time,
             ion_injection_time: spectrum.ion_injection_time,
             precursors: spectrum.precursors,

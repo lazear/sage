@@ -63,6 +63,8 @@ pub struct MzMLReader {
     // If set to Some(level) and noise intensities are present in the MzML file,
     // divide intensities at this MS-level by noise to calculate S/N
     signal_to_noise: Option<u8>,
+
+    file_id: usize,
 }
 
 impl MzMLReader {
@@ -74,8 +76,22 @@ impl MzMLReader {
     pub fn with_level_filter(ms_level: u8) -> Self {
         Self {
             ms_level: Some(ms_level),
+            file_id: 0,
             signal_to_noise: None,
         }
+    }
+
+    pub fn with_file_id(file_id: usize) -> Self {
+        Self {
+            ms_level: None,
+            signal_to_noise: None,
+            file_id,
+        }
+    }
+
+    pub fn set_file_id(&mut self, file_id: usize) -> &mut Self {
+        self.file_id = file_id;
+        self
     }
 
     pub fn set_signal_to_noise(&mut self, sn: Option<u8>) -> &mut Self {

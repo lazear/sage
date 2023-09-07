@@ -4,10 +4,11 @@ use tokio::io::AsyncReadExt;
 
 pub fn read_mzml<S: AsRef<str>>(
     s: S,
+    file_id: usize,
     signal_to_noise: Option<u8>,
 ) -> Result<Vec<RawSpectrum>, Error> {
     read_and_execute(s, |bf| async move {
-        Ok(crate::mzml::MzMLReader::default()
+        Ok(crate::mzml::MzMLReader::with_file_id(file_id)
             .set_signal_to_noise(signal_to_noise)
             .parse(bf)
             .await?)
