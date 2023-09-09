@@ -209,7 +209,7 @@ impl Runner {
             .collect::<Vec<_>>();
 
         let io_time = Instant::now() - start;
-        info!(" - file IO: {:8} ms", io_time.as_millis());
+        info!("- file IO: {:8} ms", io_time.as_millis());
 
         self.search_processed_spectra(scorer, spectra)
     }
