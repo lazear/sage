@@ -127,7 +127,7 @@ impl Runner {
                     let duration = Instant::now().duration_since(start).as_millis() as usize;
 
                     let rate = prev * 1000 / (duration + 1);
-                    log::trace!(" - searched {} spectra ({} spectra/s)", prev, rate);
+                    log::trace!("- searched {} spectra ({} spectra/s)", prev, rate);
                 }
                 x
             })
@@ -137,7 +137,7 @@ impl Runner {
         let duration = Instant::now().duration_since(start).as_millis() as usize;
         let prev = counter.load(Ordering::Relaxed);
         let rate = prev * 1000 / (duration + 1);
-        log::info!(" - search:  {:8} ms ({} spectra/s)", duration, rate);
+        log::info!("- search:  {:8} ms ({} spectra/s)", duration, rate);
 
         let quant = self
             .parameters
