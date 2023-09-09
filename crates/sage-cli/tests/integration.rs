@@ -26,6 +26,8 @@ fn integration() -> anyhow::Result<()> {
         min_matched_peaks: 4,
         min_isotope_err: -1,
         max_isotope_err: 3,
+        min_precursor_charge: 2,
+        max_precursor_charge: 4,
         max_fragment_charge: Some(1),
         min_fragment_mass: 0.0,
         max_fragment_mass: 1500.0,

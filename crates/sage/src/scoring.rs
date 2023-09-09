@@ -152,6 +152,8 @@ pub struct Scorer<'db> {
     pub min_isotope_err: i8,
     /// Precursor isotope error upper bounds (e.g. 3)
     pub max_isotope_err: i8,
+    pub min_precursor_charge: u8,
+    pub max_precursor_charge: u8,
     pub max_fragment_charge: Option<u8>,
     pub min_fragment_mass: f32,
     pub max_fragment_mass: f32,
@@ -298,15 +300,19 @@ impl<'db> Scorer<'db> {
 
         // Search in wide-window/DIA mode
         if self.wide_window {
-            let mut hits = (2..5).fold(InitialHits::default(), |mut hits, precursor_charge| {
-                let precursor_mass = mz * precursor_charge as f32;
-                let precursor_tol = precursor
-                    .isolation_window
-                    .unwrap_or(Tolerance::Da(-2.4, 2.4))
-                    * precursor_charge as f32;
-                hits += self.matched_peaks(query, precursor_mass, precursor_charge, precursor_tol);
-                hits
-            });
+            let mut hits = (self.min_precursor_charge..=self.max_precursor_charge).fold(
+                InitialHits::default(),
+                |mut hits, precursor_charge| {
+                    let precursor_mass = mz * precursor_charge as f32;
+                    let precursor_tol = precursor
+                        .isolation_window
+                        .unwrap_or(Tolerance::Da(-2.4, 2.4))
+                        * precursor_charge as f32;
+                    hits +=
+                        self.matched_peaks(query, precursor_mass, precursor_charge, precursor_tol);
+                    hits
+                },
+            );
             self.trim_hits(&mut hits);
             hits
         } else if let Some(charge) = precursor.charge {
@@ -316,12 +322,19 @@ impl<'db> Scorer<'db> {
         } else {
             // Not all selected ion precursors have charge states annotated -
             // assume it could be z=2, z=3, z=4 and search all three
-            let mut hits = (2..5).fold(InitialHits::default(), |mut hits, precursor_charge| {
-                let precursor_mass = mz * precursor_charge as f32;
-                hits +=
-                    self.matched_peaks(query, precursor_mass, precursor_charge, self.precursor_tol);
-                hits
-            });
+            let mut hits = (self.min_precursor_charge..=self.max_precursor_charge).fold(
+                InitialHits::default(),
+                |mut hits, precursor_charge| {
+                    let precursor_mass = mz * precursor_charge as f32;
+                    hits += self.matched_peaks(
+                        query,
+                        precursor_mass,
+                        precursor_charge,
+                        self.precursor_tol,
+                    );
+                    hits
+                },
+            );
             self.trim_hits(&mut hits);
             hits
         }

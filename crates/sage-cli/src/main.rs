@@ -231,6 +231,8 @@ impl Runner {
             min_matched_peaks: self.parameters.min_matched_peaks,
             min_isotope_err: self.parameters.isotope_errors.0,
             max_isotope_err: self.parameters.isotope_errors.1,
+            min_precursor_charge: self.parameters.precursor_charge.0,
+            max_precursor_charge: self.parameters.precursor_charge.1,
             max_fragment_charge: self.parameters.max_fragment_charge,
             min_fragment_mass: self.parameters.database.fragment_min_mz,
             max_fragment_mass: self.parameters.database.fragment_max_mz,

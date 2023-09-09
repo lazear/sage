@@ -17,6 +17,7 @@ pub struct Search {
     pub quant: QuantSettings,
     pub precursor_tol: Tolerance,
     pub fragment_tol: Tolerance,
+    pub precursor_charge: (u8, u8),
     pub isotope_errors: (i8, i8),
     pub deisotope: bool,
     pub chimera: bool,
@@ -50,6 +51,7 @@ pub struct Input {
     max_peaks: Option<usize>,
     max_fragment_charge: Option<u8>,
     min_matched_peaks: Option<u16>,
+    precursor_charge: Option<(u8, u8)>,
     isotope_errors: Option<(i8, i8)>,
     deisotope: Option<bool>,
     quant: Option<QuantOptions>,
@@ -197,26 +199,31 @@ impl Input {
     }
 
     fn check_tolerances(tolerance: &Tolerance) {
-        match tolerance {
-            Tolerance::Ppm(lo, hi) => {
-                if hi.abs() > lo.abs() {
-                    log::warn!(
-                        "Tolerances are applied to experimental masses, not theoretical: [{} - {}]",
-                        lo,
-                        hi
-                    );
-                }
-            }
-            Tolerance::Da(lo, hi) => {
-                if hi.abs() > lo.abs() {
-                    log::warn!(
-                        "Tolerances are applied to experimental masses, not theoretical: [{} - {}]",
-                        lo,
-                        hi
-                    );
-                }
-            }
+        let (lo, hi) = match tolerance {
+            Tolerance::Ppm(lo, hi) => (*lo, *hi),
+            Tolerance::Da(lo, hi) => (*lo, *hi),
         };
+        if hi.abs() > lo.abs() {
+            log::warn!(
+                "Tolerances are applied to experimental masses, not theoretical: [{}, {}]",
+                lo,
+                hi
+            );
+        }
+        if lo > 0.0 {
+            log::warn!(
+                "The `left` tolerance should probably be negative, for example: [{}, {}]",
+                -lo,
+                hi.abs()
+            )
+        }
+        if hi < 0.0 {
+            log::warn!(
+                "The `right` tolerance should probably be positive, for example: [{}, {}]",
+                -lo.abs(),
+                hi
+            )
+        }
     }
 
     pub fn build(mut self) -> anyhow::Result<Search> {
@@ -225,9 +232,21 @@ impl Input {
         Self::check_tolerances(&self.fragment_tol);
         Self::check_tolerances(&self.precursor_tol);
 
-        let isotope_errors = self.isotope_errors.unwrap_or((0, 0));
-        if isotope_errors.0 > isotope_errors.1 {
-            log::warn!("Minimum isotope_error value greater than maximum! Typical usage: `isotope_errors: [-1, 3]`");
+        if let Some(isotope_errors) = self.isotope_errors {
+            if isotope_errors.0 > isotope_errors.1 {
+                log::error!("Minimum isotope_error value greater than maximum! Typical usage: `isotope_errors: [-1, 3]`");
+                std::process::exit(1);
+            }
+        }
+        if let Some(charges) = self.precursor_charge {
+            if charges.0 > charges.1 {
+                log::error!(
+                    "Precursor charges should be specified [low, high], user provided: [{}, {}]",
+                    charges.0,
+                    charges.1
+                );
+                std::process::exit(1);
+            }
         }
 
         if !self.predict_rt.unwrap_or(true)
@@ -265,6 +284,7 @@ impl Input {
             min_peaks: self.min_peaks.unwrap_or(15),
             min_matched_peaks: self.min_matched_peaks.unwrap_or(4),
             max_fragment_charge: self.max_fragment_charge,
+            precursor_charge: self.precursor_charge.unwrap_or((2, 4)),
             isotope_errors: self.isotope_errors.unwrap_or((0, 0)),
             deisotope: self.deisotope.unwrap_or(true),
             chimera: self.chimera.unwrap_or(false),

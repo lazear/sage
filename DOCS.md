@@ -179,8 +179,8 @@ For additional information about configuration options and output file formats, 
       "^Q": [-17.026549],
       "^E": [-18.010565], // Applied to N-terminal glutamic acid
       "$": [49.2, 22.9],  // Applied to peptide C-terminus
-      "[": 42.0,          // Applied to protein N-terminus
-      "]": 111.0          // Applied to protein C-terminus
+      "[": [42.0],          // Applied to protein N-terminus
+      "]": [111.0]          // Applied to protein C-terminus
     }
     "max_variable_mods": 2, // Optional[int] {default=2} Limit k-combinations of variable modifications
     "decoy_tag": "rev_",    // Optional[str] {default="rev_"}: See notes above
@@ -213,6 +213,10 @@ For additional information about configuration options and output file formats, 
      10                     // This value is added to the experimental fragment to match theoretical fragments 
     ]
   },
+  // Optional[Tuple[int, int]] {default=[2, 4]}
+  // If charge states are not annotated in the mzML, or if `wide_window` mode is turned on, then consider
+  // all precursors at z=2, z=3, z=4
+  "precursor_charge": [2, 4]
   "isotope_errors": [       // Optional[Tuple[int, int]] {default=[0,0]}: C13 isotopic envelope to consider for precursor
     -1,                     // Consider -1 C13 isotope
     3                       // Consider up to +3 C13 isotope (-1/0/1/2/3) 

@@ -189,6 +189,7 @@ impl<'de> Visitor<'de> for ValueOrVec {
     where
         E: serde::de::Error,
     {
+        log::warn!("Variable modifications must be specified as a list of modifications: [{v}]. This will become a HARD ERROR by v0.15");
         self.data.push(v as f32);
         Ok(self)
     }
@@ -197,6 +198,7 @@ impl<'de> Visitor<'de> for ValueOrVec {
     where
         E: serde::de::Error,
     {
+        log::warn!("Variable modifications must be specified as a list of modifications: [{v}]. This will become a HARD ERROR by v0.15");
         self.data.push(v as f32);
         Ok(self)
     }
