@@ -75,6 +75,7 @@ pub struct ProcessedSpectrum {
 
 #[derive(Default, Debug, Clone)]
 /// An unprocessed mass spectrum, as returned by a parser
+/// *CRITICAL*: Users must set all fields manually, including `file_id`
 pub struct RawSpectrum {
     pub file_id: usize,
     /// MSn level
@@ -95,6 +96,17 @@ pub struct RawSpectrum {
     pub mz: Vec<f32>,
     /// Intensity array
     pub intensity: Vec<f32>,
+}
+
+impl RawSpectrum {
+    /// Return a [`RawSpectrum`] with default values, but with the `file_id` field
+    /// properly set
+    pub fn default_with_file_id(file_id: usize) -> Self {
+        Self {
+            file_id,
+            ..Default::default()
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]

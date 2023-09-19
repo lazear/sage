@@ -57,7 +57,6 @@ const SELECTED_ION_CHARGE: &[u8] = b"MS:1000041";
 const ISO_WINDOW_LOWER: &[u8] = b"MS:1000828";
 const ISO_WINDOW_UPPER: &[u8] = b"MS:1000829";
 
-#[derive(Default)]
 pub struct MzMLReader {
     ms_level: Option<u8>,
     // If set to Some(level) and noise intensities are present in the MzML file,
@@ -73,10 +72,10 @@ impl MzMLReader {
     /// # Example
     ///
     /// A minimum level of 2 will not parse or return MS1 scans
-    pub fn with_level_filter(ms_level: u8) -> Self {
+    pub fn with_file_id_and_level_filter(file_id: usize, ms_level: u8) -> Self {
         Self {
             ms_level: Some(ms_level),
-            file_id: 0,
+            file_id,
             signal_to_noise: None,
         }
     }
@@ -115,7 +114,7 @@ impl MzMLReader {
         let mut binary_dtype = Dtype::F64;
         let mut binary_array = None;
 
-        let mut spectrum = RawSpectrum::default();
+        let mut spectrum = RawSpectrum::default_with_file_id(self.file_id);
         let mut precursor = Precursor::default();
         let mut iso_window_lo: Option<f32> = None;
         let mut iso_window_hi: Option<f32> = None;
@@ -194,7 +193,7 @@ impl MzMLReader {
                                 let level = extract_value!(ev);
                                 if let Some(filter) = self.ms_level {
                                     if level != filter {
-                                        spectrum = RawSpectrum::default();
+                                        spectrum = RawSpectrum::default_with_file_id(self.file_id);
                                         state = None;
                                     }
                                 }
@@ -206,7 +205,7 @@ impl MzMLReader {
                                 let value = extract_value!(ev);
                                 if value == 0.0 {
                                     // No ion current, break out of current state
-                                    spectrum = RawSpectrum::default();
+                                    spectrum = RawSpectrum::default_with_file_id(self.file_id);
                                     state = None;
                                 } else {
                                     spectrum.total_ion_current = value;
@@ -357,7 +356,7 @@ impl MzMLReader {
                                 }
                                 (false, _) => {}
                             }
-                            spectrum = RawSpectrum::default();
+                            spectrum = RawSpectrum::default_with_file_id(self.file_id);
                             None
                         }
                         _ => state,
@@ -464,7 +463,7 @@ mod test {
             </binaryDataArrayList>
         </spectrum>
         "#;
-        let mut spectra = MzMLReader::default().parse(s.as_bytes()).await?;
+        let mut spectra = MzMLReader::with_file_id(0).parse(s.as_bytes()).await?;
 
         assert_eq!(spectra.len(), 1);
         let s = spectra.pop().unwrap();
