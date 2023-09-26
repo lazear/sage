@@ -198,7 +198,10 @@ For additional information about configuration options and output file formats, 
       "peak_scoring": "Hybrid", // See DOCS.md for details - recommend that you do not change this setting
       "integration": "Sum",   // Optional["Sum" | "Apex"], use sum of MS1 traces in peak, or MS1 intensity at peak apex
       "spectral_angle": 0.7,  // Optional[float] {default = 0.7}, normalized spectral angle cutoff for calling an MS1 peak
-      "ppm_tolerance": 5.0    // Optional[float] {default = 5.0}, tolerance (in p.p.m.) for DICE window around calculated precursor mass
+      "ppm_tolerance": 5.0,    // Optional[float] {default = 5.0}, tolerance (in p.p.m.) for DICE window around calculated precursor mass
+      // Optional[bool] {default = true}. Combine all charge states for quantification. Setting this to false
+      // quantifies each peptide-charge precursor in `precursor_charge` range (see below) separately
+      "combine_charge_states": true
     }
   },
   "precursor_tol": {        // Tolerance can be either "ppm" or "da"

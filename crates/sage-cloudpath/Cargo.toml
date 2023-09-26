@@ -1,6 +1,6 @@
 [package]
 name = "sage-cloudpath"
-version = "0.14.1"
+version = "0.14.2"
 authors = ["Michael Lazear <michaellazear92@gmail.com"]
 edition = "2021"
 rust-version = "1.62"
