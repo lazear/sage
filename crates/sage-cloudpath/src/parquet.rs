@@ -299,11 +299,11 @@ pub fn serialize_lfq<H: BuildHasher>(
         for ((id, _), _) in areas.iter() {
             match id {
                 PrecursorId::Combined(_) => {
-                    def_levels.push(0);
+                    def_levels.extend(std::iter::repeat(0).take(filenames.len()));
                 }
                 PrecursorId::Charged((_, charge)) => {
-                    values.push(*charge as i32);
-                    def_levels.push(1);
+                    values.extend(std::iter::repeat(*charge as i32).take(filenames.len()));
+                    def_levels.extend(std::iter::repeat(1).take(filenames.len()));
                 }
             }
         }
