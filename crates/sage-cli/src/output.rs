@@ -195,7 +195,11 @@ impl Runner {
         );
         record.push_field(
             itoa::Buffer::new()
-                .format((feature.charge < 2 || feature.charge > 6) as i32)
+                .format(
+                    (feature.charge < 2 || feature.charge > 6)
+                        .then_some(feature.charge)
+                        .unwrap_or(0),
+                )
                 .as_bytes(),
         );
         record.push_field(itoa::Buffer::new().format(feature.peptide_len).as_bytes());
