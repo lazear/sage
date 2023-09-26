@@ -283,6 +283,7 @@ impl Runner {
             if self.parameters.quant.lfq {
                 let mut areas = sage_core::lfq::build_feature_map(
                     self.parameters.quant.lfq_settings,
+                    self.parameters.precursor_charge,
                     &outputs.features,
                 )
                 .quantify(&self.database, &outputs.ms1, &alignments);

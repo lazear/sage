@@ -68,6 +68,7 @@ pub struct LfqOptions {
     integration: Option<sage_core::lfq::IntegrationStrategy>,
     spectral_angle: Option<f64>,
     ppm_tolerance: Option<f32>,
+    combine_charge_states: Option<bool>,
 }
 
 impl From<LfqOptions> for LfqSettings {
@@ -78,6 +79,9 @@ impl From<LfqOptions> for LfqSettings {
             integration: value.integration.unwrap_or(default.integration),
             spectral_angle: value.spectral_angle.unwrap_or(default.spectral_angle).abs(),
             ppm_tolerance: value.ppm_tolerance.unwrap_or(default.ppm_tolerance).abs(),
+            combine_charge_states: value
+                .combine_charge_states
+                .unwrap_or(default.combine_charge_states),
         };
         if settings.ppm_tolerance > 20.0 {
             log::warn!("lfq_settings.ppm_tolerance is higher than expected");

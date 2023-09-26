@@ -19,8 +19,8 @@ use parquet::{
     file::{properties::WriterProperties, writer::SerializedFileWriter},
     schema::types::Type,
 };
-use sage_core::database::{IndexedDatabase, PeptideIx};
-use sage_core::lfq::Peak;
+use sage_core::database::IndexedDatabase;
+use sage_core::lfq::{Peak, PrecursorId};
 use sage_core::scoring::Feature;
 use sage_core::tmt::TmtQuant;
 
@@ -232,6 +232,7 @@ pub fn build_lfq_schema() -> parquet::errors::Result<Type> {
         message schema {
             required byte_array peptide (utf8);
             required byte_array stripped_peptide (utf8);
+            optional int32 charge;
             required byte_array proteins (utf8);
             required boolean is_decoy;
             required float q_value;
@@ -243,7 +244,7 @@ pub fn build_lfq_schema() -> parquet::errors::Result<Type> {
 }
 
 pub fn serialize_lfq<H: BuildHasher>(
-    areas: &HashMap<(PeptideIx, bool), (Peak, Vec<f64>), H>,
+    areas: &HashMap<(PrecursorId, bool), (Peak, Vec<f64>), H>,
     filenames: &[String],
     database: &IndexedDatabase,
 ) -> parquet::errors::Result<Vec<u8>> {
@@ -260,7 +261,10 @@ pub fn serialize_lfq<H: BuildHasher>(
     if let Some(mut col) = rg.next_column()? {
         let values = areas
             .iter()
-            .flat_map(|((peptide_idx, _), _)| {
+            .flat_map(|((id, _), _)| {
+                let peptide_idx = match id {
+                    PrecursorId::Combined(x) | PrecursorId::Charged((x, _)) => x,
+                };
                 let val = database[*peptide_idx].to_string().as_bytes().into();
                 std::iter::repeat(val).take(filenames.len())
             })
@@ -274,7 +278,10 @@ pub fn serialize_lfq<H: BuildHasher>(
     if let Some(mut col) = rg.next_column()? {
         let values = areas
             .iter()
-            .flat_map(|((peptide_idx, _), _)| {
+            .flat_map(|((id, _), _)| {
+                let peptide_idx = match id {
+                    PrecursorId::Combined(x) | PrecursorId::Charged((x, _)) => x,
+                };
                 let val = database[*peptide_idx].sequence.as_ref().into();
                 std::iter::repeat(val).take(filenames.len())
             })
@@ -286,9 +293,33 @@ pub fn serialize_lfq<H: BuildHasher>(
     }
 
     if let Some(mut col) = rg.next_column()? {
+        let mut values = Vec::with_capacity(areas.len() * filenames.len());
+        let mut def_levels = Vec::with_capacity(areas.len() * filenames.len());
+
+        for ((id, _), _) in areas.iter() {
+            match id {
+                PrecursorId::Combined(_) => {
+                    def_levels.push(0);
+                }
+                PrecursorId::Charged((_, charge)) => {
+                    values.push(*charge as i32);
+                    def_levels.push(1);
+                }
+            }
+        }
+
+        col.typed::<Int32Type>()
+            .write_batch(&values, Some(&def_levels), None)?;
+        col.close()?;
+    }
+
+    if let Some(mut col) = rg.next_column()? {
         let values = areas
             .iter()
-            .flat_map(|((peptide_idx, _), _)| {
+            .flat_map(|((id, _), _)| {
+                let peptide_idx = match id {
+                    PrecursorId::Combined(x) | PrecursorId::Charged((x, _)) => x,
+                };
                 let val = database[*peptide_idx]
                     .proteins(&database.decoy_tag, database.generate_decoys)
                     .as_str()
@@ -315,7 +346,7 @@ pub fn serialize_lfq<H: BuildHasher>(
     if let Some(mut col) = rg.next_column()? {
         let values = areas
             .iter()
-            .flat_map(|((_, _), (peak, _))| std::iter::repeat(peak.q_value).take(filenames.len()))
+            .flat_map(|(_, (peak, _))| std::iter::repeat(peak.q_value).take(filenames.len()))
             .collect::<Vec<_>>();
 
         col.typed::<FloatType>().write_batch(&values, None, None)?;
@@ -325,7 +356,7 @@ pub fn serialize_lfq<H: BuildHasher>(
     if let Some(mut col) = rg.next_column()? {
         let values = areas
             .iter()
-            .flat_map(|((_, _), (_, values))| {
+            .flat_map(|(_, (_, values))| {
                 (0..values.len()).map(|idx| filenames[idx].as_bytes().into())
             })
             .collect::<Vec<_>>();
@@ -339,7 +370,7 @@ pub fn serialize_lfq<H: BuildHasher>(
     if let Some(mut col) = rg.next_column()? {
         let values = areas
             .iter()
-            .flat_map(|((_, _), (_, values))| values.iter().copied().map(|v| v as f32))
+            .flat_map(|(_, (_, values))| values.iter().copied().map(|v| v as f32))
             .collect::<Vec<_>>();
 
         col.typed::<FloatType>().write_batch(&values, None, None)?;

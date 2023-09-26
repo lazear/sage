@@ -1,7 +1,11 @@
 use std::collections::HashMap;
 
 use rayon::prelude::*;
-use sage_core::{database::PeptideIx, lfq::Peak, scoring::Feature, tmt::TmtQuant};
+use sage_core::{
+    lfq::{Peak, PrecursorId},
+    scoring::Feature,
+    tmt::TmtQuant,
+};
 
 use crate::Runner;
 
@@ -301,7 +305,7 @@ impl Runner {
             "Proteins",
         ]);
 
-        let re = regex::Regex::new(r#"scan=(\d+)"#).expect("This is valid regex");
+        let re = regex::Regex::new(r"scan=(\d+)").expect("This is valid regex");
 
         wtr.write_byte_record(&headers)?;
         for record in features
@@ -363,7 +367,7 @@ impl Runner {
 
     pub fn write_lfq(
         &self,
-        areas: HashMap<(PeptideIx, bool), (Peak, Vec<f64>), fnv::FnvBuildHasher>,
+        areas: HashMap<(PrecursorId, bool), (Peak, Vec<f64>), fnv::FnvBuildHasher>,
         filenames: &[String],
     ) -> anyhow::Result<String> {
         let path = self.make_path("lfq.tsv");
@@ -373,6 +377,7 @@ impl Runner {
             .from_writer(vec![]);
         let mut headers = csv::ByteRecord::from(vec![
             "peptide",
+            "charge",
             "proteins",
             "q_value",
             "score",
@@ -384,12 +389,17 @@ impl Runner {
 
         let records = areas
             .into_par_iter()
-            .filter_map(|((peptide_ix, decoy), (peak, data))| {
+            .filter_map(|((id, decoy), (peak, data))| {
                 if decoy {
                     return None;
                 };
                 let mut record = csv::ByteRecord::new();
+                let (peptide_ix, charge) = match id {
+                    PrecursorId::Combined(x) => (x, None),
+                    PrecursorId::Charged((x, charge)) => (x, Some(charge as i32)),
+                };
                 record.push_field(self.database[peptide_ix].to_string().as_bytes());
+                record.push_field(itoa::Buffer::new().format(charge.unwrap_or(-1)).as_bytes());
                 record.push_field(
                     self.database[peptide_ix]
                         .proteins(&self.database.decoy_tag, self.database.generate_decoys)

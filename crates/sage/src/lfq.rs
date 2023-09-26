@@ -35,12 +35,20 @@ pub enum IntegrationStrategy {
     Apex,
     Sum,
 }
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum PrecursorId {
+    Combined(PeptideIx),
+    Charged((PeptideIx, u8)),
+}
+
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub struct LfqSettings {
     pub peak_scoring: PeakScoringStrategy,
     pub integration: IntegrationStrategy,
     pub spectral_angle: f64,
     pub ppm_tolerance: f32,
+    pub combine_charge_states: bool,
 }
 
 impl Default for LfqSettings {
@@ -50,6 +58,7 @@ impl Default for LfqSettings {
             integration: IntegrationStrategy::Sum,
             spectral_angle: 0.70,
             ppm_tolerance: 5.0,
+            combine_charge_states: true,
         }
     }
 }
@@ -76,7 +85,11 @@ pub struct FeatureMap {
     settings: LfqSettings,
 }
 
-pub fn build_feature_map(settings: LfqSettings, features: &[Feature]) -> FeatureMap {
+pub fn build_feature_map(
+    settings: LfqSettings,
+    precursor_charge: (u8, u8),
+    features: &[Feature],
+) -> FeatureMap {
     let map: DashMap<PeptideIx, PrecursorRange, fnv::FnvBuildHasher> = DashMap::default();
     features
         .iter()
@@ -109,7 +122,7 @@ pub fn build_feature_map(settings: LfqSettings, features: &[Feature]) -> Feature
     let mut ranges = map
         .into_par_iter()
         .flat_map_iter(|(_, range)| {
-            (2..5).flat_map(move |charge| {
+            (precursor_charge.0..=precursor_charge.1).flat_map(move |charge| {
                 (0..N_ISOTOPES).flat_map(move |isotope| {
                     let mass = (range.mass_lo + isotope as f32 * NEUTRON) / charge as f32;
                     let (mass_lo, mass_hi) =
@@ -199,8 +212,8 @@ impl FeatureMap {
         db: &IndexedDatabase,
         spectra: &[ProcessedSpectrum],
         alignments: &[Alignment],
-    ) -> HashMap<(PeptideIx, bool), (Peak, Vec<f64>), fnv::FnvBuildHasher> {
-        let scores: DashMap<(PeptideIx, bool), Grid, fnv::FnvBuildHasher> = DashMap::default();
+    ) -> HashMap<(PrecursorId, bool), (Peak, Vec<f64>), fnv::FnvBuildHasher> {
+        let scores: DashMap<(PrecursorId, bool), Grid, fnv::FnvBuildHasher> = DashMap::default();
 
         log::info!("tracing MS1 features");
         spectra
@@ -213,22 +226,24 @@ impl FeatureMap {
 
                 for peak in &spectrum.peaks {
                     for entry in query.mass_lookup(peak.mass) {
-                        let mut grid =
-                            scores
-                                .entry((entry.peptide, entry.decoy))
-                                .or_insert_with(|| {
-                                    let p = &db[entry.peptide];
-                                    let composition = p
-                                        .sequence
-                                        .iter()
-                                        .map(|r| composition(*r))
-                                        .sum::<Composition>();
-                                    let dist = crate::isotopes::peptide_isotopes(
-                                        composition.carbon,
-                                        composition.sulfur,
-                                    );
-                                    Grid::new(entry, RT_TOL, dist, alignments.len(), GRID_SIZE)
-                                });
+                        let id = match self.settings.combine_charge_states {
+                            true => PrecursorId::Combined(entry.peptide),
+                            false => PrecursorId::Charged((entry.peptide, entry.charge)),
+                        };
+
+                        let mut grid = scores.entry((id, entry.decoy)).or_insert_with(|| {
+                            let p = &db[entry.peptide];
+                            let composition = p
+                                .sequence
+                                .iter()
+                                .map(|r| composition(*r))
+                                .sum::<Composition>();
+                            let dist = crate::isotopes::peptide_isotopes(
+                                composition.carbon,
+                                composition.sulfur,
+                            );
+                            Grid::new(entry, RT_TOL, dist, alignments.len(), GRID_SIZE)
+                        });
 
                         grid.add_entry(rt, entry.isotope, spectrum.file_id, peak.intensity);
                     }
