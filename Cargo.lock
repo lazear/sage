@@ -1689,7 +1689,7 @@ checksum = "4501abdff3ae82a1c1b477a17252eb69cee9e66eb915c1abaa4f44d873df9f09"
 
 [[package]]
 name = "sage-cli"
-version = "0.14.2"
+version = "0.14.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -1710,7 +1710,7 @@ dependencies = [
 
 [[package]]
 name = "sage-cloudpath"
-version = "0.14.2"
+version = "0.14.3"
 dependencies = [
  "async-compression",
  "aws-config",
@@ -1732,7 +1732,7 @@ dependencies = [
 
 [[package]]
 name = "sage-core"
-version = "0.14.2"
+version = "0.14.3"
 dependencies = [
  "dashmap",
  "fnv",
