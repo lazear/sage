@@ -7,6 +7,7 @@ use std::str::FromStr;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWriteExt, BufReader};
 
 pub mod mzml;
+pub mod tdf;
 pub mod util;
 
 #[cfg(feature = "parquet")]
@@ -279,6 +280,8 @@ pub enum Error {
     Json(#[from] serde_json::Error),
     #[error("MzML error: {0}")]
     MzML(#[from] mzml::MzMLError),
+    #[error("TDF error: {0}")]
+    TDF(#[from] tdf::TdfError),
 }
 
 #[cfg(test)]

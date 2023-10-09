@@ -9,6 +9,7 @@ use sage_core::mass::Tolerance;
 use sage_core::scoring::{Feature, Scorer};
 use sage_core::spectrum::{ProcessedSpectrum, SpectrumProcessor};
 use sage_core::tmt::TmtQuant;
+use std::path::PathBuf;
 use std::time::Instant;
 
 mod input;
@@ -190,11 +191,25 @@ impl Runner {
             self.parameters.deisotope,
         );
 
+        let bruker_extensions = ["d", "tdf", "tdf_bin"];
         let spectra = chunk
             .par_iter()
             .enumerate()
             .flat_map(|(idx, path)| {
-                match sage_cloudpath::util::read_mzml(path, chunk_idx * batch_size + idx, sn) {
+                let res = match path {
+                    path if bruker_extensions.contains(
+                        &PathBuf::from(path)
+                            .extension()
+                            .unwrap_or_default()
+                            .to_str()
+                            .unwrap_or_default(),
+                    ) =>
+                    {
+                        sage_cloudpath::util::read_tdf(path, chunk_idx * batch_size + idx)
+                    }
+                    _ => sage_cloudpath::util::read_mzml(path, chunk_idx * batch_size + idx, sn),
+                };
+                match res {
                     Ok(s) => {
                         log::trace!("- {}: read {} spectra", path, s.len());
                         Ok(s)
