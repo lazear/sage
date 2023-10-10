@@ -196,22 +196,27 @@ impl Runner {
             .par_iter()
             .enumerate()
             .flat_map(|(idx, path)| {
-                match path {
+                let res = match path {
                     path if bruker_extensions.contains(
                         &PathBuf::from(path)
-                        .extension()
-                        .unwrap_or_default()
-                        .to_str()
-                        .unwrap_or_default()) => sage_cloudpath::util::read_tdf(path, chunk_idx * batch_size + idx),
-                    _ => match sage_cloudpath::util::read_mzml(path, chunk_idx * batch_size + idx, sn) {
-                        Ok(s) => {
-                            log::trace!("- {}: read {} spectra", path, s.len());
-                            Ok(s)
-                        }
-                        Err(e) => {
-                            log::error!("- {}: {}", path, e);
-                            Err(e)
-                        }
+                            .extension()
+                            .unwrap_or_default()
+                            .to_str()
+                            .unwrap_or_default(),
+                    ) =>
+                    {
+                        sage_cloudpath::util::read_tdf(path, chunk_idx * batch_size + idx)
+                    }
+                    _ => sage_cloudpath::util::read_mzml(path, chunk_idx * batch_size + idx, sn),
+                };
+                match res {
+                    Ok(s) => {
+                        log::trace!("- {}: read {} spectra", path, s.len());
+                        Ok(s)
+                    }
+                    Err(e) => {
+                        log::error!("- {}: {}", path, e);
+                        Err(e)
                     }
                 }
             })
