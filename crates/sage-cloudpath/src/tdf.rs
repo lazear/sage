@@ -1,5 +1,5 @@
 use rayon::prelude::*;
-use sage_core::spectrum::{Precursor, Representation, RawSpectrum};
+use sage_core::spectrum::{Precursor, RawSpectrum, Representation};
 use std::fmt::{Display, Formatter};
 use timsrust;
 
@@ -19,7 +19,8 @@ impl TdfReader {
             .map(|index| {
                 let dda_spectrum = &dda_spectra[index];
                 let mut precursor: Precursor = Precursor::default();
-                let dda_precursor: timsrust::Precursor = dda_spectrum.precursor.unwrap_as_precursor();
+                let dda_precursor: timsrust::Precursor =
+                    dda_spectrum.precursor.unwrap_as_precursor();
                 precursor.mz = dda_precursor.mz as f32;
                 precursor.charge = Option::from(dda_precursor.charge as u8);
                 // precursor.ion_mobility = Option::from(dda_precursor.im as f32);
