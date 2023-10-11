@@ -14,10 +14,9 @@ impl TdfReader {
     ) -> Result<Vec<RawSpectrum>, TdfError> {
         let dda_spectra: Vec<timsrust::Spectrum> =
             timsrust::FileReader::new(path_name.as_ref().to_string()).read_all_spectra();
-        let spectra: Vec<RawSpectrum> = (0..dda_spectra.len())
+        let spectra: Vec<RawSpectrum> = dda_spectra
             .into_par_iter()
-            .map(|index| {
-                let dda_spectrum = &dda_spectra[index];
+            .map(|dda_spectrum| {
                 let mut precursor: Precursor = Precursor::default();
                 let dda_precursor: timsrust::Precursor =
                     dda_spectrum.precursor.unwrap_as_precursor();
