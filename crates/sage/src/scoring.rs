@@ -80,6 +80,12 @@ pub struct Feature {
     pub predicted_rt: f32,
     /// Difference between predicted & observed RT
     pub delta_rt_model: f32,
+    /// Ion mobility
+    pub ims: f32,
+    /// Predicted ion mobility, if enabled
+    pub predicted_ims: f32,
+    /// Difference between predicted & observed ion mobility
+    pub delta_ims_model: f32,
     /// Difference between expmass and calcmass
     pub delta_mass: f32,
     /// C13 isotope error
@@ -453,6 +459,12 @@ impl<'db> Scorer<'db> {
                 // Features
                 charge: score.precursor_charge,
                 rt: query.scan_start_time,
+                ims: query
+                    .precursors
+                    .get(0)
+                    .unwrap()
+                    .inverse_ion_mobility
+                    .unwrap_or(0.0),
                 delta_mass,
                 isotope_error,
                 average_ppm: score.ppm_difference,
@@ -477,8 +489,10 @@ impl<'db> Scorer<'db> {
                 protein_q: 1.0,
                 peptide_q: 1.0,
                 predicted_rt: 0.0,
+                predicted_ims: 0.0,
                 aligned_rt: query.scan_start_time,
                 delta_rt_model: 0.999,
+                delta_ims_model: 0.999,
                 ms2_intensity: score.summed_b + score.summed_y,
 
                 //Fragments

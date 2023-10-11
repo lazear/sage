@@ -16,7 +16,7 @@ use crate::mass::Tolerance;
 use crate::scoring::Feature;
 
 // Declare, so that we have compile time checking of matrix dimensions
-const FEATURES: usize = 18;
+const FEATURES: usize = 20;
 const FEATURE_NAMES: [&str; FEATURES] = [
     "rank",
     "charge",
@@ -35,7 +35,9 @@ const FEATURE_NAMES: [&str; FEATURES] = [
     "ln1p(peptide_len)",
     "missed_cleavages",
     "rt",
+    "ims",
     "sqrt(delta_rt_model)",
+    "sqrt(delta_ims_model)",
 ];
 
 struct Features<'a>(&'a [f64]);
@@ -174,7 +176,9 @@ pub fn score_psms(scores: &mut [Feature], precursor_tol: Tolerance) -> Option<()
                 (perc.peptide_len as f64).ln_1p(),
                 (perc.missed_cleavages as f64),
                 (perc.aligned_rt as f64),
+                (perc.ims as f64),
                 (perc.delta_rt_model as f64).clamp(0.001, 0.999).sqrt(),
+                (perc.delta_ims_model as f64).clamp(0.001, 0.999).sqrt(),
             ];
             x
         })

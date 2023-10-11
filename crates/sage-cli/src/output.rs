@@ -58,6 +58,13 @@ impl Runner {
         record.push_field(ryu::Buffer::new().format(feature.aligned_rt).as_bytes());
         record.push_field(ryu::Buffer::new().format(feature.predicted_rt).as_bytes());
         record.push_field(ryu::Buffer::new().format(feature.delta_rt_model).as_bytes());
+        record.push_field(ryu::Buffer::new().format(feature.ims).as_bytes());
+        record.push_field(ryu::Buffer::new().format(feature.predicted_ims).as_bytes());
+        record.push_field(
+            ryu::Buffer::new()
+                .format(feature.delta_ims_model)
+                .as_bytes(),
+        );
         record.push_field(itoa::Buffer::new().format(feature.matched_peaks).as_bytes());
         record.push_field(itoa::Buffer::new().format(feature.longest_b).as_bytes());
         record.push_field(itoa::Buffer::new().format(feature.longest_y).as_bytes());
@@ -174,6 +181,9 @@ impl Runner {
             "aligned_rt",
             "predicted_rt",
             "delta_rt_model",
+            "ion_mobility",
+            "predicted_mobility",
+            "delta_mobility",
             "matched_peaks",
             "longest_b",
             "longest_y",
@@ -261,6 +271,7 @@ impl Runner {
         record.push_field(ryu::Buffer::new().format(feature.calcmass).as_bytes());
         record.push_field(filenames[feature.file_id].as_bytes());
         record.push_field(ryu::Buffer::new().format(feature.rt).as_bytes());
+        record.push_field(ryu::Buffer::new().format(feature.ims).as_bytes());
         record.push_field(itoa::Buffer::new().format(feature.rank).as_bytes());
         record.push_field(
             itoa::Buffer::new()
@@ -336,6 +347,12 @@ impl Runner {
                 .format(feature.delta_rt_model.clamp(0.001, 1.0).sqrt())
                 .as_bytes(),
         );
+        record.push_field(ryu::Buffer::new().format(feature.predicted_ims).as_bytes());
+        record.push_field(
+            ryu::Buffer::new()
+                .format(feature.delta_ims_model)
+                .as_bytes(),
+        );
         record.push_field(itoa::Buffer::new().format(feature.matched_peaks).as_bytes());
         record.push_field(itoa::Buffer::new().format(feature.longest_b).as_bytes());
         record.push_field(itoa::Buffer::new().format(feature.longest_y).as_bytes());
@@ -384,6 +401,7 @@ impl Runner {
             "CalcMass",
             "FileName",
             "retentiontime",
+            "ion_mobility",
             "rank",
             "z=2",
             "z=3",
@@ -403,6 +421,8 @@ impl Runner {
             "aligned_rt",
             "predicted_rt",
             "sqrt(delta_rt_model)",
+            "predicted_mobility",
+            "sqrt(delta_mobility)",
             "matched_peaks",
             "longest_b",
             "longest_y",

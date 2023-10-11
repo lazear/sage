@@ -59,6 +59,8 @@ const SELECTED_ION_CHARGE: &[u8] = b"MS:1000041";
 const ISO_WINDOW_LOWER: &[u8] = b"MS:1000828";
 const ISO_WINDOW_UPPER: &[u8] = b"MS:1000829";
 
+const INVERSE_ION_MOBILITY: &[u8] = b"MS:1002815";
+
 pub struct MzMLReader {
     ms_level: Option<u8>,
     // If set to Some(level) and noise intensities are present in the MzML file,
@@ -235,6 +237,9 @@ impl MzMLReader {
                             }
                             SELECTED_ION_INT => {
                                 precursor.intensity = Some(extract_value!(ev));
+                            }
+                            INVERSE_ION_MOBILITY => {
+                                precursor.inverse_ion_mobility = Some(extract_value!(ev));
                             }
                             _ => {}
                         }
@@ -448,6 +453,7 @@ mod test {
                         <selectedIon>
                             <cvParam cvRef="MS" accession="MS:1000744" name="selected ion m/z" value="457.723968505859" unitAccession="MS:1000040" unitName="m/z" unitCvRef="MS" />
                             <cvParam cvRef="MS" accession="MS:1000041" name="charge state" value="2" />
+                            <cvParam cvRef="MS" accession="MS:1002815" name="inverse reduced ion mobility" value="1.078628" unitAccession="MS:1002814" unitName="volt-second per square centimeter"/>
                         </selectedIon>
                     </selectedIonList>
                     <activation>
@@ -483,6 +489,10 @@ mod test {
         assert_eq!(s.precursors.len(), 1);
         assert_eq!(s.precursors[0].charge, Some(2));
         assert!((s.precursors[0].mz - 457.723968) < 0.0001);
+        assert!(match s.precursors[0].inverse_ion_mobility {
+            Some(x) => (x - 1.0786) < 0.0001,
+            None => false,
+        });
         assert_eq!(
             s.precursors[0].isolation_window,
             Some(Tolerance::Da(-1.5, 0.75))

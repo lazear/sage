@@ -23,6 +23,7 @@ impl TdfReader {
                 // precursor.ion_mobility = Option::from(dda_precursor.im as f32);
                 precursor.intensity = Option::from(dda_precursor.intensity as f32);
                 precursor.spectrum_ref = Option::from(dda_precursor.frame_index.to_string());
+                precursor.inverse_ion_mobility = Option::from(dda_precursor.im as f32);
                 let spectrum: RawSpectrum = RawSpectrum {
                     file_id,
                     precursors: vec![precursor],
