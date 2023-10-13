@@ -93,15 +93,25 @@ pub struct Enzyme {
     regex: Regex,
     // Cleave at c-terminal?
     pub c_terminal: bool,
+    // Semi-enzymatic cleavage?
+    pub is_semi_enzymatic: bool,
 }
 
 impl Enzyme {
     pub fn new(cleave: &str, skip_suffix: Option<char>, c_terminal: bool) -> Option<Self> {
-        assert!(
-            cleave.chars().all(|x| VALID_AA.contains(&(x as u8))) || cleave == "$",
-            "Enzyme cleavage sequence contains non-amino acid characters: {}",
-            cleave
-        );
+
+        match cleave.contains("?") {
+            false => assert!(
+                        cleave.chars().all(|x| VALID_AA.contains(&(x as u8))) || cleave == "$",
+                        "Enzyme cleavage sequence contains non-amino acid characters: {}",
+                        cleave
+                     ),
+            true => assert!(
+                        cleave.len() > 1 && cleave.starts_with("?") && cleave[1..].chars().all(|x| VALID_AA.contains(&(x as u8))),
+                        "Semi-enzymatic cleavage sequences must contain a single `?` as the first characters followed by valid amino acid characters: {}",
+                        cleave
+                    ),
+        }
 
         assert!(
             skip_suffix
@@ -119,17 +129,20 @@ impl Enzyme {
                 skip_suffix: None,
                 // Allowing this to be set to false could cause unexpected behavior
                 c_terminal: true,
+                is_semi_enzymatic: false,
             }),
             _ => Some(Enzyme {
-                regex: Regex::new(&format!("[{}]", cleave)).unwrap(),
+                regex: Regex::new(&format!("[{}]", cleave.replace("?", ""))).unwrap(),
                 skip_suffix,
                 c_terminal,
+                is_semi_enzymatic: cleave.starts_with("?"),
             }),
         }
     }
 
-    fn cleavage_sites(&self, sequence: &str) -> Vec<std::ops::Range<usize>> {
+    fn cleavage_sites(&self, sequence: &str, missed_cleavages: &u8) -> Vec<std::ops::Range<usize>> {
         let mut ranges = Vec::new();
+        let mut semi_enzymatic_ranges = Vec::new();
         let mut left = 0;
         for mat in self.regex.find_iter(sequence) {
             let right = match self.c_terminal {
@@ -145,6 +158,19 @@ impl Enzyme {
             left = right;
         }
         ranges.push(left..sequence.len());
+
+        if self.is_semi_enzymatic {
+            for cleavage in 1..=(1 + missed_cleavages) {
+                for range in ranges.windows(cleavage as usize) {
+                    let left = range[0].start;
+                    let end = range[cleavage as usize - 1].end;
+                    for right in left+1..end {
+                        semi_enzymatic_ranges.push(left..right)
+                    }
+                }
+            }
+            ranges.append(&mut semi_enzymatic_ranges)
+        }
         ranges
     }
 }
@@ -152,7 +178,7 @@ impl Enzyme {
 impl EnzymeParameters {
     fn cleavage_sites(&self, sequence: &str) -> Vec<std::ops::Range<usize>> {
         match &self.enyzme {
-            Some(enzyme) => enzyme.cleavage_sites(sequence),
+            Some(enzyme) => enzyme.cleavage_sites(sequence, &self.missed_cleavages),
             None => {
                 // Perform a non-specific digest
                 let mut v = Vec::new();
@@ -530,6 +556,81 @@ mod test {
             enyzme: Enzyme::new("KR", None, true),
         };
 
+        assert_eq!(
+            expected,
+            tryp.digest(sequence, Arc::default())
+                .into_iter()
+                .map(|d| d.sequence)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn semi_enzymatic_trypsin() {
+        let sequence = "MADEEKLPPGWEKRMSRSSGRVYYFNHITNASQWERPSGN";
+        let expected = vec![
+            ("MADEEK".into(), Position::Nterm), 
+            ("LPPGWEK".into(), Position::Internal), 
+            ("MSR".into(), Position::Internal), 
+            ("SSGR".into(), Position::Internal), 
+            ("VYYFNHITNASQWERPSGN".into(), Position::Cterm), 
+            ("MA".into(), Position::Nterm), ("MAD".into(), Position::Nterm), ("MADE".into(), Position::Nterm), ("MADEE".into(), Position::Nterm), 
+            ("LP".into(), Position::Internal), ("LPP".into(), Position::Internal), ("LPPG".into(), Position::Internal), ("LPPGW".into(), Position::Internal), ("LPPGWE".into(), Position::Internal), 
+            ("MS".into(), Position::Internal), 
+            ("SS".into(), Position::Internal), ("SSG".into(), Position::Internal), 
+            ("VY".into(), Position::Internal), ("VYY".into(), Position::Internal), ("VYYF".into(), Position::Internal), ("VYYFN".into(), Position::Internal), ("VYYFNH".into(), Position::Internal), 
+            ("VYYFNHI".into(), Position::Internal), ("VYYFNHIT".into(), Position::Internal), ("VYYFNHITN".into(), Position::Internal), ("VYYFNHITNA".into(), Position::Internal), 
+            ("VYYFNHITNAS".into(), Position::Internal), ("VYYFNHITNASQ".into(), Position::Internal), ("VYYFNHITNASQW".into(), Position::Internal), ("VYYFNHITNASQWE".into(), Position::Internal), ("VYYFNHITNASQWER".into(), Position::Internal),
+            ("VYYFNHITNASQWERP".into(), Position::Internal), ("VYYFNHITNASQWERPS".into(), Position::Internal), ("VYYFNHITNASQWERPSG".into(), Position::Internal),
+        ];
+    
+        let tryp = EnzymeParameters {
+            min_len: 2,
+            max_len: 50,
+            missed_cleavages: 0,
+            enyzme: Enzyme::new("?KR", Some('P'), true),
+        };
+    
+        assert_eq!(
+            expected,
+            tryp.digest(sequence, Arc::default())
+                .into_iter()
+                .map(|d| (d.sequence, d.position))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn semi_enzymatic_trypsin_missed_cleavage() {
+        let sequence = "MADEEKLPPGWEKRMSRSSGRVYYFNHITNASQWERPSGN";
+        let expected = vec![
+            "MADEEK", "LPPGWEK", "MSR", "SSGR", "VYYFNHITNASQWERPSGN", 
+            "MA", "MAD", "MADE", "MADEE", 
+            "LP", "LPP", "LPPG", "LPPGW", "LPPGWE", 
+            "MS", 
+            "SS", "SSG", 
+            "VY", "VYY", "VYYF", "VYYFN", "VYYFNH", "VYYFNHI", "VYYFNHIT", "VYYFNHITN", "VYYFNHITNA", "VYYFNHITNAS", 
+            "VYYFNHITNASQ", "VYYFNHITNASQW", "VYYFNHITNASQWE", "VYYFNHITNASQWER", "VYYFNHITNASQWERP", "VYYFNHITNASQWERPS", "VYYFNHITNASQWERPSG", 
+            "MADEEKL", "MADEEKLP", "MADEEKLPP", "MADEEKLPPG", "MADEEKLPPGW", "MADEEKLPPGWE", 
+            "RM", "RMS", 
+            "MSRS", "MSRSS", "MSRSSG", 
+            "SSGRV", "SSGRVY", "SSGRVYY", "SSGRVYYF", "SSGRVYYFN", "SSGRVYYFNH", "SSGRVYYFNHI", "SSGRVYYFNHIT", "SSGRVYYFNHITN", "SSGRVYYFNHITNA", "SSGRVYYFNHITNAS", 
+            "SSGRVYYFNHITNASQ", "SSGRVYYFNHITNASQW", "SSGRVYYFNHITNASQWE", "SSGRVYYFNHITNASQWER", "SSGRVYYFNHITNASQWERP", "SSGRVYYFNHITNASQWERPS", "SSGRVYYFNHITNASQWERPSG", 
+            "MADEEKLPPGWEK", 
+            "LPPGWEKR", 
+            "RMSR", 
+            "MSRSSGR", 
+            "SSGRVYYFNHITNASQWERPSGN", 
+            "LPPGWEKRM", 
+        ];
+    
+        let tryp = EnzymeParameters {
+            min_len: 2,
+            max_len: 50,
+            missed_cleavages: 1,
+            enyzme: Enzyme::new("?KR", Some('P'), true),
+        };
+    
         assert_eq!(
             expected,
             tryp.digest(sequence, Arc::default())
