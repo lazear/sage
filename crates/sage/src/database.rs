@@ -23,6 +23,7 @@ pub struct EnzymeBuilder {
     pub cleave_at: Option<String>,
     pub restrict: Option<char>,
     pub c_terminal: Option<bool>,
+    pub semi_enzymatic: Option<bool>,
 }
 
 impl Default for EnzymeBuilder {
@@ -34,6 +35,7 @@ impl Default for EnzymeBuilder {
             cleave_at: Some("KR".into()),
             restrict: Some('P'),
             c_terminal: Some(true),
+            semi_enzymatic: Some(false),
         }
     }
 }
@@ -48,6 +50,7 @@ impl From<EnzymeBuilder> for EnzymeParameters {
                 &en.cleave_at.unwrap_or_else(|| "KR".into()),
                 en.restrict,
                 en.c_terminal.unwrap_or(true),
+                en.semi_enzymatic.unwrap_or(false),
             ),
         }
     }
