@@ -161,7 +161,8 @@ For additional information about configuration options and output file formats, 
       "max_len": 50,          // Optional[int] {default=50}, Maximum AA length of peptides to search
       "cleave_at": "KR",      // Optional[str] {default='KR'}. Amino acids to cleave at
       "restrict": "P",        // Optional[char/single AA] {default='P'}. Do not cleave if this AA follows the cleavage site
-      "c_terminal": true      // Optional[bool] {default=true}. Cleave at c terminus of matching amino acid
+      "c_terminal": false,      // Optional[bool] {default=true}. Cleave at c terminus of matching amino acid
+      "semi_enzymatic": false      // Optional[bool] {default=false}. Generate semi-enzymatic peptides
     },
     "fragment_min_mz": 200.0,       // Optional[float] {default=150.0}, Minimum mass of fragments to search
     "fragment_max_mz": 2000.0,      // Optional[float] {default=2000.0}, Maximum mass of fragments to search 

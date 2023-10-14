@@ -22,6 +22,8 @@ pub struct Peptide {
     pub monoisotopic: f32,
     /// Number of missed cleavages for this sequence
     pub missed_cleavages: u8,
+    /// Is this a semi-enzymatic peptide?
+    pub semi_enzymatic: bool,
     /// Where is this peptide located in the protein?
     pub position: Position,
 
@@ -369,6 +371,7 @@ impl TryFrom<Digest> for Peptide {
             nterm: None,
             cterm: None,
             missed_cleavages: value.missed_cleavages,
+            semi_enzymatic: value.semi_enzymatic,
             proteins: vec![value.protein],
         })
     }
@@ -420,7 +423,7 @@ mod test {
             min_len: 0,
             max_len: 50,
             missed_cleavages: 0,
-            enyzme: Enzyme::new("KR", Some('P'), true),
+            enyzme: Enzyme::new("KR", Some('P'), true, false),
         };
 
         let peptides = tryp
@@ -612,7 +615,7 @@ mod test {
             missed_cleavages: 0,
             min_len: 3,
             max_len: 30,
-            enyzme: Enzyme::new("KR", Some('P'), true),
+            enyzme: Enzyme::new("KR", Some('P'), true, false),
         };
 
         let fwd = "MADEEKLPPGWEKRMSRSSGRVYYFNHITNASQWERPSGN";

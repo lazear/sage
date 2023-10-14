@@ -37,6 +37,11 @@ impl Runner {
                 .format(feature.missed_cleavages)
                 .as_bytes(),
         );
+        record.push_field(
+            itoa::Buffer::new()
+                .format(peptide.semi_enzymatic as u8)
+                .as_bytes(),
+        );
         record.push_field(ryu::Buffer::new().format(feature.isotope_error).as_bytes());
         record.push_field(ryu::Buffer::new().format(feature.delta_mass).as_bytes());
         record.push_field(ryu::Buffer::new().format(feature.average_ppm).as_bytes());
@@ -104,6 +109,7 @@ impl Runner {
             "charge",
             "peptide_len",
             "missed_cleavages",
+            "semi_enzymatic",
             "isotope_error",
             "precursor_ppm",
             "fragment_ppm",
@@ -208,6 +214,11 @@ impl Runner {
                 .format(feature.missed_cleavages)
                 .as_bytes(),
         );
+        record.push_field(
+            itoa::Buffer::new()
+                .format(peptide.semi_enzymatic as u8)
+                .as_bytes(),
+        );
         record.push_field(ryu::Buffer::new().format(feature.isotope_error).as_bytes());
         record.push_field(
             ryu::Buffer::new()
@@ -256,6 +267,11 @@ impl Runner {
                 .format((-feature.poisson).ln_1p())
                 .as_bytes(),
         );
+        record.push_field(
+            ryu::Buffer::new()
+                .format(feature.posterior_error)
+                .as_bytes(),
+        );
         record.push_field(peptide.to_string().as_bytes());
         record.push_field(
             peptide
@@ -289,6 +305,7 @@ impl Runner {
             "z=other",
             "peptide_len",
             "missed_cleavages",
+            "semi_enzymatic",
             "isotope_error",
             "ln(precursor_ppm)",
             "fragment_ppm",
@@ -305,6 +322,7 @@ impl Runner {
             "ln(matched_intensity_pct)",
             "scored_candidates",
             "ln(-poisson)",
+            "posterior_error",
             "Peptide",
             "Proteins",
         ]);
