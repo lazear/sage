@@ -165,6 +165,21 @@ pub struct Scorer<'db> {
     pub wide_window: bool,
 }
 
+#[inline(always)]
+/// Calculate upper bound (excluded) of the charge state range to use for
+/// searching fragment ions (1..N)
+/// If user has configured max_fragment_charge, potentially override precursor
+/// charge
+fn max_fragment_charge(max_fragment_charge: Option<u8>, precursor_charge: u8) -> u8 {
+    precursor_charge
+        .min(
+            max_fragment_charge
+                .map(|c| c + 1)
+                .unwrap_or(precursor_charge),
+        )
+        .max(2)
+}
+
 impl<'db> Scorer<'db> {
     pub fn score(&self, query: &ProcessedSpectrum) -> Vec<Feature> {
         assert_eq!(
@@ -175,17 +190,6 @@ impl<'db> Scorer<'db> {
             true => self.score_chimera_fast(query),
             false => self.score_standard(query),
         }
-    }
-
-    #[inline(always)]
-    /// If user has configured max_fragment_charge, potentially override precursor
-    /// charge
-    fn max_fragment_charge(&self, precursor_charge: u8) -> u8 {
-        precursor_charge.min(
-            self.max_fragment_charge
-                .map(|c| c + 1)
-                .unwrap_or(precursor_charge),
-        )
     }
 
     /// Perform a k-select and truncation of an [`InitialHits`] list.
@@ -226,8 +230,7 @@ impl<'db> Scorer<'db> {
             self.fragment_tol,
         );
 
-        let max_fragment_charge = self.max_fragment_charge(precursor_charge);
-
+        let max_fragment_charge = max_fragment_charge(self.max_fragment_charge, precursor_charge);
         // Allocate space for all potential candidates - many potential candidates
         let potential = candidates.pre_idx_hi - candidates.pre_idx_lo + 1;
         let mut hits = InitialHits {
@@ -256,6 +259,7 @@ impl<'db> Scorer<'db> {
         if hits.matched_peaks == 0 {
             return hits;
         }
+
         self.trim_hits(&mut hits);
         hits
     }
@@ -463,7 +467,7 @@ impl<'db> Scorer<'db> {
             .iter()
             .flat_map(|kind| IonSeries::new(peptide, *kind));
 
-        let max_fragment_charge = self.max_fragment_charge(psm.charge);
+        let max_fragment_charge = max_fragment_charge(self.max_fragment_charge, psm.charge);
 
         // Remove MS2 peaks matched by previous match
         let mut to_remove = Vec::new();
@@ -526,7 +530,8 @@ impl<'db> Scorer<'db> {
             ..Default::default()
         };
         let peptide = &self.db[score.peptide];
-        let max_fragment_charge = self.max_fragment_charge(score.precursor_charge);
+        let max_fragment_charge =
+            max_fragment_charge(self.max_fragment_charge, score.precursor_charge);
 
         // Regenerate theoretical ions - initial database search might be
         // using only a subset of all possible ions (e.g. no b1/b2/y1/y2)
@@ -625,5 +630,17 @@ mod tests {
         assert_eq!(run.longest, 3);
         run.matched(6);
         assert_eq!(run.length, 2);
+    }
+
+    #[test]
+    fn test_max_fragment_charge() {
+        assert_eq!(max_fragment_charge(None, 1), 2);
+        assert_eq!(max_fragment_charge(None, 2), 2);
+        assert_eq!(max_fragment_charge(None, 3), 3);
+        assert_eq!(max_fragment_charge(None, 4), 4);
+        assert_eq!(max_fragment_charge(Some(1), 2), 2);
+        assert_eq!(max_fragment_charge(Some(1), 3), 2);
+        assert_eq!(max_fragment_charge(Some(2), 4), 3);
+        assert_eq!(max_fragment_charge(Some(4), 1), 2);
     }
 }
