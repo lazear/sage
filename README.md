@@ -25,6 +25,13 @@ Additionally, Sage was designed with cloud computing in mind - massively paralle
 Sage is **simple to configure**, **powerful** and **flexible**. 
 It also happens to be well-tested, **mind-boggingly fast**, open-source (MIT-licensed) and free.
 
+## Citation
+
+If you use Sage in a scientific publication, please cite the following paper:
+
+[Sage: An Open-Source Tool for Fast Proteomics Searching and Quantification at Scale](https://doi.org/10.1021/acs.jproteome.3c00486")
+
+
 ## Features
 
 - Incredible performance out of the box
@@ -44,6 +51,5 @@ It also happens to be well-tested, **mind-boggingly fast**, open-source (MIT-lic
 - Support for reading/writing directly from [AWS S3](https://sage-docs.vercel.app/docs/configuration/aws)
 
 
-<!-- <img src="figures/TMT_Panel.png" width="800"> -->
 
 Check out the [blog post introducing Sage](https://lazear.github.io/sage/) for more information and full benchmarks!
