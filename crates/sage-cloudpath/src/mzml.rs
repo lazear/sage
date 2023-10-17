@@ -48,6 +48,8 @@ const CENTROID: &[u8] = b"MS:1000127";
 const TOTAL_ION_CURRENT: &[u8] = b"MS:1000285";
 
 const SCAN_START_TIME: &[u8] = b"MS:1000016";
+const UNIT_SECONDS: &[u8] = b"UO:0000010";
+const UNIT_MINUTES: &[u8] = b"UO:0000031";
 const ION_INJECTION_TIME: &[u8] = b"MS:1000927";
 
 const SELECTED_ION_MZ: &[u8] = b"MS:1000744";
@@ -241,7 +243,14 @@ impl MzMLReader {
                         let accession = extract!(ev, b"accession");
                         match accession.as_ref() {
                             SCAN_START_TIME => {
-                                spectrum.scan_start_time = extract_value!(ev);
+                                let scan_start_time = extract_value!(ev);
+                                let unit = extract!(ev, b"unitAccession");
+
+                                spectrum.scan_start_time = match unit.as_ref() {
+                                    UNIT_SECONDS => scan_start_time / 60.0,
+                                    UNIT_MINUTES => scan_start_time,
+                                    _ => return Err(MzMLError::Malformed),
+                                };
                             }
                             ION_INJECTION_TIME => {
                                 spectrum.ion_injection_time = extract_value!(ev);
@@ -478,7 +487,7 @@ mod test {
             s.precursors[0].isolation_window,
             Some(Tolerance::Da(-1.5, 0.75))
         );
-        assert!((s.scan_start_time - 1503.96166992188) < 0.0001);
+        assert!((s.scan_start_time - 25.066).abs() < 0.0001);
         assert_eq!(s.ion_injection_time, 0.0);
         assert_eq!(s.intensity.len(), s.mz.len());
         Ok(())

@@ -61,7 +61,7 @@ pub struct ProcessedSpectrum {
     pub id: String,
     /// File ID
     pub file_id: usize,
-    /// Retention time
+    /// Retention time in minutes
     pub scan_start_time: f32,
     /// Ion injection time
     pub ion_injection_time: f32,
@@ -86,7 +86,7 @@ pub struct RawSpectrum {
     pub precursors: Vec<Precursor>,
     /// Profile or Centroided data
     pub representation: Representation,
-    /// Scan start time
+    /// Scan start time in minutes
     pub scan_start_time: f32,
     /// Ion injection time
     pub ion_injection_time: f32,
