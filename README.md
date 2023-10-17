@@ -29,7 +29,7 @@ It also happens to be well-tested, **mind-boggingly fast**, open-source (MIT-lic
 
 If you use Sage in a scientific publication, please cite the following paper:
 
-[Sage: An Open-Source Tool for Fast Proteomics Searching and Quantification at Scale](https://doi.org/10.1021/acs.jproteome.3c00486")
+[Sage: An Open-Source Tool for Fast Proteomics Searching and Quantification at Scale](https://doi.org/10.1021/acs.jproteome.3c00486)
 
 
 ## Features
