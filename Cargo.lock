@@ -2389,9 +2389,7 @@ dependencies = [
 
 [[package]]
 name = "timsrust"
-version = "0.1.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3204db6a68177030a77b812d46f182306de92a90b87f186924f244e47863fcff"
+version = "0.2.0"
 dependencies = [
  "bytemuck",
  "byteorder",
@@ -2399,6 +2397,7 @@ dependencies = [
  "parquet 42.0.0",
  "rayon",
  "rusqlite",
+ "thiserror",
  "zstd",
 ]
 

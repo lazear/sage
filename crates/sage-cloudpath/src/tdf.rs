@@ -13,7 +13,9 @@ impl TdfReader {
         file_id: usize,
     ) -> Result<Vec<RawSpectrum>, TdfError> {
         let dda_spectra: Vec<timsrust::Spectrum> =
-            timsrust::FileReader::new(path_name.as_ref().to_string()).read_all_spectra();
+            timsrust::FileReader::new(path_name.as_ref().to_string())
+                .unwrap()
+                .read_all_spectra();
         let spectra: Vec<RawSpectrum> = dda_spectra
             .into_par_iter()
             .map(|dda_spectrum| {
