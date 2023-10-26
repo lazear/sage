@@ -16,7 +16,7 @@ pub fn read_mzml<S: AsRef<str>>(
 }
 
 pub fn read_tdf<S: AsRef<str>>(s: S, file_id: usize) -> Result<Vec<RawSpectrum>, Error> {
-    let res = crate::tdf::TdfReader::default().parse(s, file_id);
+    let res = crate::tdf::TdfReader.parse(s, file_id);
     match res {
         Ok(t) => Ok(t),
         Err(e) => Err(Error::TDF(e)),
