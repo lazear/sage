@@ -79,10 +79,10 @@ pub struct PrecursorRange {
 /// storing fragment masses binned by precursor mass, store MS1 precursors
 /// binned by RT - This should enable rapid quantification as well
 pub struct FeatureMap {
-    ranges: Vec<PrecursorRange>,
-    min_rts: Vec<f32>,
-    bin_size: usize,
-    settings: LfqSettings,
+    pub ranges: Vec<PrecursorRange>,
+    pub min_rts: Vec<f32>,
+    pub bin_size: usize,
+    pub settings: LfqSettings,
 }
 
 pub fn build_feature_map(

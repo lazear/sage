@@ -36,6 +36,7 @@ pub struct Deisotoped {
     pub envelope: Option<usize>,
 }
 
+#[derive(Debug, Clone)]
 pub struct SpectrumProcessor {
     pub take_top_n: usize,
     pub max_fragment_mz: f32,

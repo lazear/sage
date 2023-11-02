@@ -118,24 +118,24 @@ impl Builder {
 
 #[derive(Serialize, Clone, Debug)]
 pub struct Parameters {
-    bucket_size: usize,
+    pub bucket_size: usize,
     pub enzyme: EnzymeBuilder,
     pub fragment_min_mz: f32,
     pub fragment_max_mz: f32,
-    peptide_min_mass: f32,
-    peptide_max_mass: f32,
-    ion_kinds: Vec<Kind>,
-    min_ion_index: usize,
-    static_mods: HashMap<ModificationSpecificity, f32>,
-    variable_mods: HashMap<ModificationSpecificity, Vec<f32>>,
-    max_variable_mods: usize,
+    pub peptide_min_mass: f32,
+    pub peptide_max_mass: f32,
+    pub ion_kinds: Vec<Kind>,
+    pub min_ion_index: usize,
+    pub static_mods: HashMap<ModificationSpecificity, f32>,
+    pub variable_mods: HashMap<ModificationSpecificity, Vec<f32>>,
+    pub max_variable_mods: usize,
     pub decoy_tag: String,
     pub generate_decoys: bool,
     pub fasta: String,
 }
 
 impl Parameters {
-    fn digest(&self, fasta: &Fasta) -> Vec<Peptide> {
+    pub fn digest(&self, fasta: &Fasta) -> Vec<Peptide> {
         log::trace!("digesting fasta");
         let enzyme = self.enzyme.clone().into();
         // Generate all tryptic peptide sequences, including reversed (decoy)
@@ -335,7 +335,7 @@ pub struct IndexedDatabase {
     pub peptides: Vec<Peptide>,
     pub fragments: Vec<Theoretical>,
     pub ion_kinds: Vec<Kind>,
-    pub(crate) min_value: Vec<f32>,
+    pub min_value: Vec<f32>,
     /// Keep a list of potential (AA, mass) modifications for RT prediction
     pub potential_mods: Vec<(ModificationSpecificity, f32)>,
     pub bucket_size: usize,

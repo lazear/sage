@@ -89,6 +89,7 @@ pub struct EnzymeParameters {
     pub enyzme: Option<Enzyme>,
 }
 
+#[derive(Clone)]
 pub struct Enzyme {
     // Skip cleaving if the site is followed matching this AA
     pub skip_suffix: Option<char>,
@@ -150,7 +151,7 @@ impl Enzyme {
         }
     }
 
-    fn cleavage_sites(&self, sequence: &str) -> Vec<DigestSite> {
+    pub fn cleavage_sites(&self, sequence: &str) -> Vec<DigestSite> {
         let mut sites = Vec::new();
         let mut left = 0;
         for mat in self.regex.find_iter(sequence) {
@@ -180,7 +181,7 @@ impl Enzyme {
 }
 
 impl EnzymeParameters {
-    fn cleavage_sites(&self, sequence: &str) -> Vec<DigestSite> {
+    pub fn cleavage_sites(&self, sequence: &str) -> Vec<DigestSite> {
         match &self.enyzme {
             Some(enzyme) => enzyme.cleavage_sites(sequence),
             None => {

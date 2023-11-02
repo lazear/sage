@@ -96,6 +96,7 @@ pub const fn composition(aa: u8) -> Composition {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct Composition {
     pub carbon: u16,
     pub sulfur: u16,

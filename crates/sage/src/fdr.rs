@@ -15,10 +15,10 @@ use std::hash::BuildHasher;
 
 #[derive(Copy, Clone, Debug)]
 pub struct Competition<Ix> {
-    forward: f32,
-    foward_ix: Option<Ix>,
-    reverse: f32,
-    reverse_ix: Option<Ix>,
+    pub forward: f32,
+    pub foward_ix: Option<Ix>,
+    pub reverse: f32,
+    pub reverse_ix: Option<Ix>,
 }
 
 struct Row<Ix> {

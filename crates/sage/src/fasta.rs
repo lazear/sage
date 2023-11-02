@@ -2,6 +2,7 @@ use crate::enzyme::{Digest, EnzymeParameters};
 use rayon::prelude::*;
 use std::sync::Arc;
 
+#[derive(Clone)]
 pub struct Fasta {
     pub targets: Vec<(Arc<String>, String)>,
     decoy_tag: String,

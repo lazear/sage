@@ -289,6 +289,7 @@ const TMT18PLEX: [f32; 18] = [
 //     })
 // }
 
+#[derive(Clone)]
 pub struct TmtQuant {
     pub spec_id: String,
     pub file_id: usize,
