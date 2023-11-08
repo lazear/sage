@@ -254,6 +254,7 @@ impl Runner {
             chimera: self.parameters.chimera,
             report_psms: self.parameters.report_psms,
             wide_window: self.parameters.wide_window,
+            annotate_matches: self.parameters.annotate_matches,
         };
 
         //Collect all results into a single container
@@ -329,11 +330,20 @@ impl Runner {
                 &outputs.quant,
                 &filenames,
                 &self.database,
+                &self.parameters.annotate_matches,
             )?;
 
             let path = self.make_path("results.sage.parquet");
             path.write_bytes_sync(bytes)?;
             self.parameters.output_paths.push(path.to_string());
+
+            if self.parameters.annotate_matches {
+                let bytes =
+                    sage_cloudpath::parquet::serialize_matched_fragments(&outputs.features)?;
+                let path = self.make_path("results.matched.fragments.sage.parquet");
+                path.write_bytes_sync(bytes)?;
+                self.parameters.output_paths.push(path.to_string());
+            }
 
             if let Some(areas) = &areas {
                 let bytes =
@@ -347,6 +357,13 @@ impl Runner {
             self.parameters
                 .output_paths
                 .push(self.write_features(&outputs.features, &filenames)?);
+
+            if self.parameters.annotate_matches {
+                self.parameters
+                    .output_paths
+                    .push(self.write_fragments(&outputs.features)?);
+            }
+
             if !outputs.quant.is_empty() {
                 self.parameters
                     .output_paths
@@ -442,6 +459,12 @@ fn main() -> anyhow::Result<()> {
                 .long("parquet")
                 .action(clap::ArgAction::SetTrue)
                 .help("Write search output in parquet format instead of tsv"),
+        )
+        .arg(
+            Arg::new("annotate-matches")
+                .long("annotate-matches")
+                .action(clap::ArgAction::SetTrue)
+                .help("Write matched fragments output file."),
         )
         .arg(
             Arg::new("write-pin")

@@ -1,6 +1,9 @@
+use csv::ByteRecord;
 use std::collections::HashMap;
 
 use rayon::prelude::*;
+use sage_core::ion_series::Kind;
+use sage_core::scoring::Fragments;
 use sage_core::{
     lfq::{Peak, PrecursorId},
     scoring::Feature,
@@ -12,6 +15,15 @@ use crate::Runner;
 impl Runner {
     pub fn serialize_feature(&self, feature: &Feature, filenames: &[String]) -> csv::ByteRecord {
         let mut record = csv::ByteRecord::new();
+
+        if self.parameters.annotate_matches {
+            record.push_field(
+                itoa::Buffer::new()
+                    .format(feature.psm_id.unwrap_or_default())
+                    .as_bytes(),
+            );
+        }
+
         let peptide = &self.database[feature.peptide_idx];
         record.push_field(peptide.to_string().as_bytes());
         record.push_field(
@@ -85,6 +97,58 @@ impl Runner {
         record
     }
 
+    pub fn serialize_fragments(
+        &self,
+        psm_id: &Option<usize>,
+        fragments_: &Option<Fragments>,
+    ) -> Vec<ByteRecord> {
+        let mut frag_records = vec![];
+
+        if let Some(fragments) = fragments_ {
+            for id in 0..fragments.fragment_ordinals.len() {
+                let mut record = ByteRecord::new();
+                record.push_field(
+                    itoa::Buffer::new()
+                        .format(psm_id.unwrap_or_default())
+                        .as_bytes(),
+                );
+                let ion_type = match fragments.kinds[id] {
+                    Kind::A => "a",
+                    Kind::B => "b",
+                    Kind::C => "c",
+                    Kind::X => "x",
+                    Kind::Y => "y",
+                    Kind::Z => "z",
+                };
+                record.push_field(ion_type.as_bytes());
+                record.push_field(
+                    itoa::Buffer::new()
+                        .format(fragments.fragment_ordinals[id])
+                        .as_bytes(),
+                );
+                record.push_field(itoa::Buffer::new().format(fragments.charges[id]).as_bytes());
+                record.push_field(
+                    ryu::Buffer::new()
+                        .format(fragments.mz_calculated[id])
+                        .as_bytes(),
+                );
+                record.push_field(
+                    ryu::Buffer::new()
+                        .format(fragments.mz_experimental[id])
+                        .as_bytes(),
+                );
+                record.push_field(
+                    ryu::Buffer::new()
+                        .format(fragments.intensities[id])
+                        .as_bytes(),
+                );
+                frag_records.push(record);
+            }
+        }
+
+        frag_records
+    }
+
     pub fn write_features(
         &self,
         features: &[Feature],
@@ -96,7 +160,7 @@ impl Runner {
             .delimiter(b'\t')
             .from_writer(vec![]);
 
-        let headers = csv::ByteRecord::from(vec![
+        let mut csv_headers = vec![
             "peptide",
             "proteins",
             "num_proteins",
@@ -134,12 +198,52 @@ impl Runner {
             "protein_q",
             "ms1_intensity",
             "ms2_intensity",
-        ]);
+        ];
+
+        if self.parameters.annotate_matches {
+            csv_headers.insert(0, "psm_id");
+        }
+
+        let headers = csv::ByteRecord::from(csv_headers);
 
         wtr.write_byte_record(&headers)?;
         for record in features
             .into_par_iter()
             .map(|feat| self.serialize_feature(feat, filenames))
+            .collect::<Vec<_>>()
+        {
+            wtr.write_byte_record(&record)?;
+        }
+
+        wtr.flush()?;
+        let bytes = wtr.into_inner()?;
+        path.write_bytes_sync(bytes)?;
+        Ok(path.to_string())
+    }
+
+    pub fn write_fragments(&self, features: &[Feature]) -> anyhow::Result<String> {
+        let path = self.make_path("matched_fragments.sage.tsv");
+
+        let mut wtr = csv::WriterBuilder::new()
+            .delimiter(b'\t')
+            .from_writer(vec![]);
+
+        let headers = csv::ByteRecord::from(vec![
+            "psm_id",
+            "fragment_type",
+            "fragment_ordinals",
+            "fragment_charge",
+            "fragment_mz_calculated",
+            "fragment_mz_experimental",
+            "fragment_intensity",
+        ]);
+
+        wtr.write_byte_record(&headers)?;
+
+        for record in features
+            .into_par_iter()
+            .map(|feat| self.serialize_fragments(&feat.psm_id, &feat.fragments))
+            .flatten()
             .collect::<Vec<_>>()
         {
             wtr.write_byte_record(&record)?;

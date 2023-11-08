@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 use std::hash::BuildHasher;
 
-use parquet::data_type::{BoolType, FloatType};
+use parquet::data_type::{BoolType, ByteArray, FloatType};
 use parquet::file::writer::SerializedColumnWriter;
 use parquet::{
     basic::ZstdLevel,
@@ -20,13 +20,16 @@ use parquet::{
     schema::types::Type,
 };
 use sage_core::database::IndexedDatabase;
+use sage_core::ion_series::Kind;
 use sage_core::lfq::{Peak, PrecursorId};
 use sage_core::scoring::Feature;
 use sage_core::tmt::TmtQuant;
 
-pub fn build_schema() -> Result<Type, parquet::errors::ParquetError> {
-    let msg = r#"
-        message schema {
+pub fn build_schema(is_psm_id_enable: &bool) -> Result<Type, parquet::errors::ParquetError> {
+    let msg_header = "message schema {";
+    let msg_footer = "}";
+    let psm_id_def = "required int32 psm_id;";
+    let psm_default_header = r#"
             required byte_array filename (utf8);
             required byte_array scannr (utf8);
             required byte_array peptide (utf8);
@@ -67,9 +70,16 @@ pub fn build_schema() -> Result<Type, parquet::errors::ParquetError> {
                     optional float element;
                 }
             }
-        }
     "#;
-    parquet::schema::parser::parse_message_type(msg)
+    let msg = match is_psm_id_enable {
+        true => format!(
+            "{} \n {}  \n {} \n {}",
+            msg_header, psm_id_def, psm_default_header, msg_footer
+        ),
+        false => format!("{} \n {} \n {}", msg_header, psm_default_header, msg_footer),
+    };
+
+    parquet::schema::parser::parse_message_type(&msg)
 }
 
 /// Caller must guarantee that `reporter_ions` is not an empty slice
@@ -122,8 +132,9 @@ pub fn serialize_features(
     reporter_ions: &[TmtQuant],
     filenames: &[String],
     database: &IndexedDatabase,
+    is_psm_id_enable: &bool,
 ) -> Result<Vec<u8>, parquet::errors::ParquetError> {
-    let schema = build_schema()?;
+    let schema = build_schema(is_psm_id_enable)?;
 
     let options = WriterProperties::builder()
         .set_compression(parquet::basic::Compression::ZSTD(ZstdLevel::try_new(3)?))
@@ -158,6 +169,10 @@ pub fn serialize_features(
                     col.close()?;
                 }
             };
+        }
+
+        if *is_psm_id_enable {
+            write_col!(|f: &Feature| f.psm_id.unwrap_or_default() as i32, Int32Type);
         }
 
         write_col!(
@@ -224,6 +239,173 @@ pub fn serialize_features(
 
         rg.close()?;
     }
+    writer.into_inner()
+}
+
+pub fn build_matched_fragment_schema() -> parquet::errors::Result<Type> {
+    let msg = r#"
+        message schema {
+            required int32 psm_id;
+            required byte_array fragment_type (utf8);
+            required int32 fragment_ordinals;
+            required int32 fragment_charge;
+            required float fragment_mz_experimental;
+            required float fragment_mz_calculated;
+            required float fragment_intensity;
+        }
+    "#;
+
+    parquet::schema::parser::parse_message_type(msg)
+}
+
+pub fn serialize_matched_fragments(
+    features: &[Feature],
+) -> Result<Vec<u8>, parquet::errors::ParquetError> {
+    let schema = build_matched_fragment_schema()?;
+
+    let options = WriterProperties::builder()
+        .set_compression(parquet::basic::Compression::ZSTD(ZstdLevel::try_new(3)?))
+        .build();
+
+    let buf = Vec::new();
+
+    let mut writer = SerializedFileWriter::new(buf, schema.into(), options.into())?;
+
+    for features in features.chunks(65536) {
+        let mut rg = writer.next_row_group()?;
+
+        if let Some(mut col) = rg.next_column()? {
+            let psm_ids = features
+                .iter()
+                .map(|f| {
+                    vec![
+                        f.psm_id.unwrap_or_default() as i32;
+                        f.fragments
+                            .as_ref()
+                            .map(|fragments| fragments.fragment_ordinals.len())
+                            .unwrap_or_default()
+                    ]
+                })
+                .flatten()
+                .collect::<Vec<_>>();
+
+            col.typed::<Int32Type>().write_batch(&psm_ids, None, None)?;
+            col.close()?;
+        }
+
+        if let Some(mut col) = rg.next_column()? {
+            let fragment_types = features
+                .iter()
+                .flat_map(|future| {
+                    future
+                        .fragments
+                        .as_ref()
+                        .map(|fragments| fragments.kinds.iter().copied())
+                })
+                .flatten()
+                .map(|kind| match kind {
+                    Kind::A => "a".as_bytes().into(),
+                    Kind::B => "b".as_bytes().into(),
+                    Kind::C => "c".as_bytes().into(),
+                    Kind::X => "x".as_bytes().into(),
+                    Kind::Y => "y".as_bytes().into(),
+                    Kind::Z => "z".as_bytes().into(),
+                })
+                .collect::<Vec<ByteArray>>();
+
+            col.typed::<ByteArrayType>()
+                .write_batch(&fragment_types, None, None)?;
+            col.close()?;
+        }
+
+        if let Some(mut col) = rg.next_column()? {
+            let fragment_ordinals = features
+                .iter()
+                .flat_map(|future| {
+                    future
+                        .fragments
+                        .as_ref()
+                        .map(|fragments| fragments.fragment_ordinals.iter().copied())
+                })
+                .flatten()
+                .collect::<Vec<_>>();
+
+            col.typed::<Int32Type>()
+                .write_batch(&fragment_ordinals, None, None)?;
+            col.close()?;
+        }
+
+        if let Some(mut col) = rg.next_column()? {
+            let fragment_charge = features
+                .iter()
+                .flat_map(|future| {
+                    future
+                        .fragments
+                        .as_ref()
+                        .map(|fragments| fragments.charges.iter().copied())
+                })
+                .flatten()
+                .collect::<Vec<i32>>();
+
+            col.typed::<Int32Type>()
+                .write_batch(&fragment_charge, None, None)?;
+            col.close()?;
+        }
+
+        if let Some(mut col) = rg.next_column()? {
+            let fragment_mz_experimental = features
+                .iter()
+                .flat_map(|future| {
+                    future
+                        .fragments
+                        .as_ref()
+                        .map(|fragments| fragments.mz_experimental.iter().copied())
+                })
+                .flatten()
+                .collect::<Vec<_>>();
+
+            col.typed::<FloatType>()
+                .write_batch(&fragment_mz_experimental, None, None)?;
+            col.close()?;
+        }
+
+        if let Some(mut col) = rg.next_column()? {
+            let fragment_mz_calculated = features
+                .iter()
+                .flat_map(|future| {
+                    future
+                        .fragments
+                        .as_ref()
+                        .map(|fragments| fragments.mz_calculated.iter().copied())
+                })
+                .flatten()
+                .collect::<Vec<_>>();
+
+            col.typed::<FloatType>()
+                .write_batch(&fragment_mz_calculated, None, None)?;
+            col.close()?;
+        }
+
+        if let Some(mut col) = rg.next_column()? {
+            let fragment_intensity = features
+                .iter()
+                .flat_map(|future| {
+                    future
+                        .fragments
+                        .as_ref()
+                        .map(|fragments| fragments.intensities.iter().copied())
+                })
+                .flatten()
+                .collect::<Vec<_>>();
+
+            col.typed::<FloatType>()
+                .write_batch(&fragment_intensity, None, None)?;
+            col.close()?;
+        }
+
+        rg.close()?;
+    }
+
     writer.into_inner()
 }
 

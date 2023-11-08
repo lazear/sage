@@ -36,6 +36,9 @@ pub struct Search {
 
     #[serde(skip_serializing)]
     pub write_pin: bool,
+
+    #[serde(skip_serializing)]
+    pub annotate_matches: bool,
 }
 
 #[derive(Deserialize)]
@@ -59,6 +62,7 @@ pub struct Input {
     output_directory: Option<String>,
     mzml_paths: Option<Vec<String>>,
 
+    annotate_matches: Option<bool>,
     write_pin: Option<bool>,
 }
 
@@ -179,6 +183,10 @@ impl Input {
             input.write_pin = Some(write_pin);
         }
 
+        if let Some(annotate_matches) = matches.get_one::<bool>("annotate-matches").copied() {
+            input.annotate_matches = Some(annotate_matches);
+        }
+
         // avoid to later panic if these parameters are not set (but doesn't check if files exist)
 
         ensure!(
@@ -288,6 +296,7 @@ impl Input {
             min_peaks: self.min_peaks.unwrap_or(15),
             min_matched_peaks: self.min_matched_peaks.unwrap_or(4),
             max_fragment_charge: self.max_fragment_charge,
+            annotate_matches: self.annotate_matches.unwrap_or(false),
             precursor_charge: self.precursor_charge.unwrap_or((2, 4)),
             isotope_errors: self.isotope_errors.unwrap_or((0, 0)),
             deisotope: self.deisotope.unwrap_or(true),

@@ -4,7 +4,9 @@ use crate::ion_series::{IonSeries, Kind};
 use crate::mass::{Tolerance, NEUTRON, PROTON};
 use crate::spectrum::{Precursor, ProcessedSpectrum};
 use serde::Serialize;
+use std::mem;
 use std::ops::AddAssign;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Structure to hold temporary scores
 #[derive(Copy, Clone, Default, Debug)]
@@ -53,6 +55,8 @@ impl AddAssign<InitialHits> for InitialHits {
 /// Features of a candidate peptide spectrum match
 pub struct Feature {
     #[serde(skip_serializing)]
+    // psm_id help to match with matched fragments table.
+    pub psm_id: Option<usize>,
     pub peptide_idx: PeptideIx,
     pub peptide_len: usize,
     /// Spectrum id
@@ -116,6 +120,26 @@ pub struct Feature {
 
     pub ms2_intensity: f32,
     pub ms1_intensity: f32,
+
+    pub fragments: Option<Fragments>,
+}
+
+/// Matching Fragment details
+#[derive(Serialize, Default, Clone, Debug)]
+pub struct Fragments {
+    #[serde(skip_serializing)]
+    pub charges: Vec<i32>,
+    pub kinds: Vec<Kind>,
+    pub fragment_ordinals: Vec<i32>,
+    pub intensities: Vec<f32>,
+    pub mz_calculated: Vec<f32>,
+    pub mz_experimental: Vec<f32>,
+}
+
+static PSM_COUNTER: AtomicUsize = AtomicUsize::new(1);
+
+fn increment_psm_counter() -> usize {
+    PSM_COUNTER.fetch_add(1, Ordering::Relaxed)
 }
 
 /// Stirling's approximation for log factorial
@@ -163,6 +187,7 @@ pub struct Scorer<'db> {
     // Rather than use a fixed precursor tolerance, dynamically alter
     // the precursor tolerance window based on MS2 isolation window and charge
     pub wide_window: bool,
+    pub annotate_matches: bool,
 }
 
 #[inline(always)]
@@ -371,11 +396,11 @@ impl<'db> Scorer<'db> {
             .iter()
             .filter(|score| score.peptide != PeptideIx::default())
             .map(|pre| self.score_candidate(query, pre))
-            .filter(|s| (s.matched_b + s.matched_y) >= self.min_matched_peaks)
+            .filter(|s| (s.0.matched_b + s.0.matched_y) >= self.min_matched_peaks)
             .collect::<Vec<_>>();
 
         // Hyperscore is our primary score function for PSMs
-        score_vector.sort_by(|a, b| b.hyperscore.total_cmp(&a.hyperscore));
+        score_vector.sort_by(|a, b| b.0.hyperscore.total_cmp(&a.0.hyperscore));
 
         // Expected value for poisson distribution
         // (average # of matches peaks/peptide candidate)
@@ -385,18 +410,24 @@ impl<'db> Scorer<'db> {
         let mz = precursor.mz - PROTON;
 
         for idx in 0..report_psms.min(score_vector.len()) {
-            let score = score_vector[idx];
+            let score = score_vector[idx].0;
+            let mut fragments: Option<Fragments> = None;
+            let mut psm_id: Option<usize> = None;
+            if self.annotate_matches {
+                mem::swap(&mut score_vector[idx].1, &mut fragments);
+                psm_id = Option::from(increment_psm_counter());
+            }
             let peptide = &self.db[score.peptide];
             let precursor_mass = mz * score.precursor_charge as f32;
 
             let next = score_vector
                 .get(idx + 1)
-                .map(|score| score.hyperscore)
+                .map(|score| score.0.hyperscore)
                 .unwrap_or_default();
 
             let best = score_vector
                 .get(0)
-                .map(|score| score.hyperscore)
+                .map(|score| score.0.hyperscore)
                 .expect("we know that index 0 is valid");
 
             // Poisson distribution probability mass function
@@ -416,6 +447,7 @@ impl<'db> Scorer<'db> {
 
             features.push(Feature {
                 // Identifiers
+                psm_id,
                 peptide_idx: score.peptide,
                 spec_id: query.id.clone(),
                 file_id: query.file_id,
@@ -454,6 +486,9 @@ impl<'db> Scorer<'db> {
                 delta_rt_model: 0.999,
                 ms2_intensity: score.summed_b + score.summed_y,
                 ms1_intensity: precursor.intensity.unwrap_or(0.0),
+
+                //Fragments
+                fragments,
             })
         }
     }
@@ -522,7 +557,11 @@ impl<'db> Scorer<'db> {
     }
 
     /// Calculate full hyperscore for a given PSM
-    fn score_candidate(&self, query: &ProcessedSpectrum, pre_score: &PreScore) -> Score {
+    fn score_candidate(
+        &self,
+        query: &ProcessedSpectrum,
+        pre_score: &PreScore,
+    ) -> (Score, Option<Fragments>) {
         let mut score = Score {
             peptide: pre_score.peptide,
             precursor_charge: pre_score.precursor_charge,
@@ -545,6 +584,8 @@ impl<'db> Scorer<'db> {
         let mut b_run = Run::default();
         let mut y_run = Run::default();
 
+        let mut fragments_details = Fragments::default();
+
         for (idx, frag) in fragments {
             for charge in 1..max_fragment_charge {
                 // Experimental peaks are multipled by charge, therefore theoretical are divided
@@ -558,6 +599,9 @@ impl<'db> Scorer<'db> {
                     score.ppm_difference +=
                         peak.intensity * (mz - peak.mass).abs() * 2E6 / (mz + peak.mass);
 
+                    let exp_mz = peak.mass + PROTON;
+                    let calc_mz = mz + PROTON;
+
                     match frag.kind {
                         Kind::A | Kind::B | Kind::C => {
                             score.matched_b += 1;
@@ -570,6 +614,15 @@ impl<'db> Scorer<'db> {
                             y_run.matched(idx);
                         }
                     }
+
+                    if self.annotate_matches {
+                        fragments_details.kinds.push(frag.kind);
+                        fragments_details.charges.push(charge as i32);
+                        fragments_details.mz_experimental.push(exp_mz);
+                        fragments_details.mz_calculated.push(calc_mz);
+                        fragments_details.fragment_ordinals.push(idx as i32);
+                        fragments_details.intensities.push(peak.intensity);
+                    }
                 }
             }
         }
@@ -578,7 +631,13 @@ impl<'db> Scorer<'db> {
         score.longest_b = b_run.longest;
         score.longest_y = y_run.longest;
         score.ppm_difference /= score.summed_b + score.summed_y;
-        score
+
+        if self.annotate_matches {
+            (score, Some(fragments_details))
+        } else {
+            // drop(fragments_details);
+            (score, None)
+        }
     }
 }
 

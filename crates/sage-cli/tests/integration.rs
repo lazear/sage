@@ -34,6 +34,7 @@ fn integration() -> anyhow::Result<()> {
         chimera: false,
         report_psms: 1,
         wide_window: false,
+        annotate_matches: false,
     };
 
     let psm = scorer.score(&processed);
