@@ -186,7 +186,6 @@ impl Runner {
             "spectrum_q",
             "peptide_q",
             "protein_q",
-            "ms1_intensity",
             "ms2_intensity",
         ];
 

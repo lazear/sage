@@ -27,5 +27,7 @@ jobs:
         cargo run -- \
           -f tests/Q99536.fasta \
           -o foo \
+          --annotate-matches \
+          --write-pin \
           tests/config-cli.json \
           tests/*.mzML
