@@ -16,13 +16,7 @@ impl Runner {
     pub fn serialize_feature(&self, feature: &Feature, filenames: &[String]) -> csv::ByteRecord {
         let mut record = csv::ByteRecord::new();
 
-        if self.parameters.annotate_matches {
-            record.push_field(
-                itoa::Buffer::new()
-                    .format(feature.psm_id.unwrap_or_default())
-                    .as_bytes(),
-            );
-        }
+        record.push_field(itoa::Buffer::new().format(feature.psm_id).as_bytes());
 
         let peptide = &self.database[feature.peptide_idx];
         record.push_field(peptide.to_string().as_bytes());
@@ -99,7 +93,7 @@ impl Runner {
 
     pub fn serialize_fragments(
         &self,
-        psm_id: &Option<usize>,
+        psm_id: usize,
         fragments_: &Option<Fragments>,
     ) -> Vec<ByteRecord> {
         let mut frag_records = vec![];
@@ -107,11 +101,7 @@ impl Runner {
         if let Some(fragments) = fragments_ {
             for id in 0..fragments.fragment_ordinals.len() {
                 let mut record = ByteRecord::new();
-                record.push_field(
-                    itoa::Buffer::new()
-                        .format(psm_id.unwrap_or_default())
-                        .as_bytes(),
-                );
+                record.push_field(itoa::Buffer::new().format(psm_id).as_bytes());
                 let ion_type = match fragments.kinds[id] {
                     Kind::A => "a",
                     Kind::B => "b",
@@ -160,7 +150,8 @@ impl Runner {
             .delimiter(b'\t')
             .from_writer(vec![]);
 
-        let mut csv_headers = vec![
+        let csv_headers = vec![
+            "psm_id",
             "peptide",
             "proteins",
             "num_proteins",
@@ -200,10 +191,6 @@ impl Runner {
             "ms2_intensity",
         ];
 
-        if self.parameters.annotate_matches {
-            csv_headers.insert(0, "psm_id");
-        }
-
         let headers = csv::ByteRecord::from(csv_headers);
 
         wtr.write_byte_record(&headers)?;
@@ -242,7 +229,7 @@ impl Runner {
 
         for record in features
             .into_par_iter()
-            .map(|feat| self.serialize_fragments(&feat.psm_id, &feat.fragments))
+            .map(|feat| self.serialize_fragments(feat.psm_id, &feat.fragments))
             .flatten()
             .collect::<Vec<_>>()
         {
@@ -258,7 +245,6 @@ impl Runner {
     fn serialize_pin(
         &self,
         re: &regex::Regex,
-        idx: usize,
         feature: &Feature,
         filenames: &[String],
     ) -> csv::ByteRecord {
@@ -270,7 +256,7 @@ impl Runner {
 
         let mut record = csv::ByteRecord::new();
         let peptide = &self.database[feature.peptide_idx];
-        record.push_field(itoa::Buffer::new().format(idx).as_bytes());
+        record.push_field(itoa::Buffer::new().format(feature.psm_id).as_bytes());
         record.push_field(itoa::Buffer::new().format(feature.label).as_bytes());
         record.push_field(scannr.as_bytes());
         record.push_field(ryu::Buffer::new().format(feature.expmass).as_bytes());
@@ -436,8 +422,7 @@ impl Runner {
         wtr.write_byte_record(&headers)?;
         for record in features
             .into_par_iter()
-            .enumerate()
-            .map(|(idx, feat)| self.serialize_pin(&re, idx, feat, filenames))
+            .map(|feat| self.serialize_pin(&re, feat, filenames))
             .collect::<Vec<_>>()
         {
             wtr.write_byte_record(&record)?;

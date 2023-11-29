@@ -330,7 +330,6 @@ impl Runner {
                 &outputs.quant,
                 &filenames,
                 &self.database,
-                &self.parameters.annotate_matches,
             )?;
 
             let path = self.make_path("results.sage.parquet");
@@ -340,7 +339,7 @@ impl Runner {
             if self.parameters.annotate_matches {
                 let bytes =
                     sage_cloudpath::parquet::serialize_matched_fragments(&outputs.features)?;
-                let path = self.make_path("results.matched.fragments.sage.parquet");
+                let path = self.make_path("matched_fragments.sage.parquet");
                 path.write_bytes_sync(bytes)?;
                 self.parameters.output_paths.push(path.to_string());
             }

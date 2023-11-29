@@ -55,9 +55,9 @@ impl AddAssign<InitialHits> for InitialHits {
 /// Features of a candidate peptide spectrum match
 pub struct Feature {
     #[serde(skip_serializing)]
-    // psm_id help to match with matched fragments table.
-    pub psm_id: Option<usize>,
     pub peptide_idx: PeptideIx,
+    // psm_id help to match with matched fragments table.
+    pub psm_id: usize,
     pub peptide_len: usize,
     /// Spectrum id
     pub spec_id: String,
@@ -411,12 +411,9 @@ impl<'db> Scorer<'db> {
 
         for idx in 0..report_psms.min(score_vector.len()) {
             let score = score_vector[idx].0;
-            let mut fragments: Option<Fragments> = None;
-            let mut psm_id: Option<usize> = None;
-            if self.annotate_matches {
-                mem::swap(&mut score_vector[idx].1, &mut fragments);
-                psm_id = Option::from(increment_psm_counter());
-            }
+            let fragments: Option<Fragments> = score_vector[idx].1.take();
+            let psm_id = increment_psm_counter();
+
             let peptide = &self.db[score.peptide];
             let precursor_mass = mz * score.precursor_charge as f32;
 
@@ -616,11 +613,17 @@ impl<'db> Scorer<'db> {
                     }
 
                     if self.annotate_matches {
+                        let idx = match frag.kind {
+                            Kind::A | Kind::B | Kind::C => idx as i32 + 1,
+                            Kind::X | Kind::Y | Kind::Z => {
+                                peptide.sequence.len().saturating_sub(1) as i32 - idx as i32
+                            }
+                        };
                         fragments_details.kinds.push(frag.kind);
                         fragments_details.charges.push(charge as i32);
                         fragments_details.mz_experimental.push(exp_mz);
                         fragments_details.mz_calculated.push(calc_mz);
-                        fragments_details.fragment_ordinals.push(idx as i32);
+                        fragments_details.fragment_ordinals.push(idx);
                         fragments_details.intensities.push(peak.intensity);
                     }
                 }
