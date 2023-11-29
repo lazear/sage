@@ -119,7 +119,6 @@ pub struct Feature {
     pub protein_q: f32,
 
     pub ms2_intensity: f32,
-    pub ms1_intensity: f32,
 
     pub fragments: Option<Fragments>,
 }
@@ -482,7 +481,6 @@ impl<'db> Scorer<'db> {
                 aligned_rt: query.scan_start_time,
                 delta_rt_model: 0.999,
                 ms2_intensity: score.summed_b + score.summed_y,
-                ms1_intensity: precursor.intensity.unwrap_or(0.0),
 
                 //Fragments
                 fragments,
