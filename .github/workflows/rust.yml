@@ -29,5 +29,6 @@ jobs:
           -o foo \
           --annotate-matches \
           --write-pin \
+          --disable-telemetry-i-dont-want-to-improve-sage \
           tests/config-cli.json \
           tests/*.mzML

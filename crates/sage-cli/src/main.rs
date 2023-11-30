@@ -14,6 +14,7 @@ use std::time::Instant;
 
 mod input;
 mod output;
+mod telemetry;
 
 struct Runner {
     database: IndexedDatabase,
@@ -238,7 +239,7 @@ impl Runner {
             .collect::<SageResults>()
     }
 
-    pub fn run(mut self, parallel: usize, parquet: bool) -> anyhow::Result<()> {
+    pub fn run(mut self, parallel: usize, parquet: bool) -> anyhow::Result<telemetry::Telemetry> {
         let scorer = Scorer {
             db: &self.database,
             precursor_tol: self.parameters.precursor_tol,
@@ -393,7 +394,15 @@ impl Runner {
         info!("finished in {}s", run_time);
         info!("cite: \"Sage: An Open-Source Tool for Fast Proteomics Searching and Quantification at Scale\" https://doi.org/10.1021/acs.jproteome.3c00486");
 
-        Ok(())
+        let telemetry = telemetry::Telemetry::new(
+            self.parameters,
+            self.database.peptides.len(),
+            self.database.fragments.len(),
+            parquet,
+            run_time,
+        );
+
+        Ok(telemetry)
     }
 }
 
@@ -471,6 +480,12 @@ fn main() -> anyhow::Result<()> {
                 .action(clap::ArgAction::SetTrue)
                 .help("Write percolator-compatible `.pin` output files"),
         )
+        .arg(
+            Arg::new("disable-telemetry")
+                .long("disable-telemetry-i-dont-want-to-improve-sage")
+                .action(clap::ArgAction::SetFalse)
+                .help("Disable sending telemetry data"),
+        )
         .help_template(
             "{usage-heading} {usage}\n\n\
              {about-with-newline}\n\
@@ -485,12 +500,20 @@ fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|| num_cpus::get() as u16 / 2) as usize;
 
     let parquet = matches.get_one::<bool>("parquet").copied().unwrap_or(false);
+    let send_telemetry = matches
+        .get_one::<bool>("disable-telemetry")
+        .copied()
+        .unwrap_or(true);
 
     let input = Input::from_arguments(matches)?;
 
     let runner = input.build().and_then(Runner::new)?;
 
-    runner.run(parallel, parquet)?;
+    let tel = runner.run(parallel, parquet)?;
+
+    if send_telemetry {
+        tel.send();
+    }
 
     Ok(())
 }
