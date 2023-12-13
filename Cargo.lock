@@ -2236,6 +2236,7 @@ dependencies = [
  "parquet 44.0.0",
  "quick-xml",
  "rayon",
+ "regex",
  "reqwest",
  "sage-core",
  "serde",
