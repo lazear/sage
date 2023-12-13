@@ -8,6 +8,7 @@ use tokio::io::{AsyncBufRead, AsyncRead, AsyncWriteExt, BufReader};
 
 pub mod mzml;
 pub mod tdf;
+pub mod mgf;
 pub mod util;
 
 #[cfg(feature = "parquet")]
@@ -282,6 +283,8 @@ pub enum Error {
     MzML(#[from] mzml::MzMLError),
     #[error("TDF error: {0}")]
     TDF(#[from] timsrust::Error),
+    #[error("MGF error: {0}")]
+    MGF(#[from] mgf::MgfError),
 }
 
 #[cfg(test)]
