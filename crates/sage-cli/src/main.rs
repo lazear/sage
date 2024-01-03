@@ -9,7 +9,6 @@ use sage_core::mass::Tolerance;
 use sage_core::scoring::{Feature, Scorer};
 use sage_core::spectrum::{ProcessedSpectrum, SpectrumProcessor};
 use sage_core::tmt::TmtQuant;
-use std::path::PathBuf;
 use std::time::Instant;
 
 mod input;
@@ -192,34 +191,25 @@ impl Runner {
             self.parameters.deisotope,
         );
 
-        let bruker_extensions = ["d", "tdf", "tdf_bin"];
+        let bruker_extensions = [".d", ".tdf", ".tdf_bin"];
         let spectra = chunk
             .par_iter()
             .enumerate()
             .flat_map(|(idx, path)| {
-                let res = match path {
-                    path if bruker_extensions.contains(
-                        &PathBuf::from(path)
-                            .extension()
-                            .unwrap_or_default()
-                            .to_str()
-                            .unwrap_or_default(),
-                    ) =>
-                    {
-                        sage_cloudpath::util::read_tdf(path, chunk_idx * batch_size + idx)
-                    }
-                    path if PathBuf::from(path)
-                        .extension()
-                        .unwrap_or_default()
-                        .to_str()
-                        .unwrap_or_default()
-                        .to_lowercase()
-                        == "mgf" =>
-                    {
-                        sage_cloudpath::util::read_mgf(path, chunk_idx * batch_size + idx)
-                    }
-                    _ => sage_cloudpath::util::read_mzml(path, chunk_idx * batch_size + idx, sn),
+                let file_id = chunk_idx * batch_size + idx;
+
+                let path_lower = path.to_lowercase();
+                let res = if path_lower.ends_with(".mgf.gz") || path_lower.ends_with(".mgf") {
+                    sage_cloudpath::util::read_mgf(path_lower, file_id)
+                } else if bruker_extensions
+                    .iter()
+                    .any(|ext| path_lower.ends_with(ext))
+                {
+                    sage_cloudpath::util::read_tdf(path, file_id)
+                } else {
+                    sage_cloudpath::util::read_mzml(path, file_id, sn)
                 };
+
                 match res {
                     Ok(s) => {
                         log::trace!("- {}: read {} spectra", path, s.len());

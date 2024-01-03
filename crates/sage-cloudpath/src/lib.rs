@@ -6,9 +6,9 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWriteExt, BufReader};
 
+pub mod mgf;
 pub mod mzml;
 pub mod tdf;
-pub mod mgf;
 pub mod util;
 
 #[cfg(feature = "parquet")]

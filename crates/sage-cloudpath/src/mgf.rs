@@ -1,8 +1,8 @@
-use std::panic::Location;
 use regex::Regex;
 use sage_core::mass::Tolerance;
-use sage_core::spectrum::{Precursor, Representation};
 use sage_core::spectrum::RawSpectrum;
+use sage_core::spectrum::{Precursor, Representation};
+use std::panic::Location;
 
 #[derive(Clone)]
 pub struct DefaultParams {
@@ -19,7 +19,7 @@ impl Default for DefaultParams {
         Self {
             is_query_start: false,
             file_id: 0,
-            regex_for_charge: Regex::new(r"\d\+").unwrap(),
+            regex_for_charge: Regex::new(r"(\d)\+?").unwrap(),
             tol: None,
             tol_unit: None,
             charge_array: None,
@@ -77,8 +77,8 @@ impl QueryData {
                     "ppm" => return Some(Tolerance::Ppm(-tol_value.abs(), tol_value.abs())),
                     _ => return None,
                 }
-            } 
-        } 
+            }
+        }
         None
     }
 
@@ -89,7 +89,7 @@ impl QueryData {
 
         for precursor in &mut self.precursors {
             precursor.isolation_window = isolation_window;
-           
+
             if let Some(charge_array) = &self.precursor_charge_array {
                 for &charge in charge_array.iter() {
                     let mut precursor_with_charge = precursor.clone();
@@ -113,13 +113,16 @@ impl QueryData {
     }
 
     pub fn check_spectrum(&self, spectrum: &RawSpectrum) -> Result<bool, MgfError> {
-        if spectrum.id.is_empty() ||
-            spectrum.precursors.is_empty() ||
-            spectrum.mz.is_empty() ||
-            spectrum.mz.len() != spectrum.intensity.len() {
-            return Err(MgfError::Malformed {location: *Location::caller()})
+        if spectrum.id.is_empty()
+            || spectrum.precursors.is_empty()
+            || spectrum.mz.is_empty()
+            || spectrum.mz.len() != spectrum.intensity.len()
+        {
+            return Err(MgfError::Malformed {
+                location: *Location::caller(),
+            });
         }
-        Ok(true)        
+        Ok(true)
     }
 }
 
@@ -137,7 +140,7 @@ impl DefaultParser {
     pub fn parse_begin(line: &str, default_params: &mut DefaultParams) -> Result<bool, MgfError> {
         if line.starts_with("BEGIN IONS") {
             default_params.is_query_start = true;
-            return Ok(true)
+            return Ok(true);
         }
         Ok(false)
     }
@@ -146,29 +149,32 @@ impl DefaultParser {
             if let Ok(tol) = tol_str.parse::<f32>() {
                 default_params.tol = Some(tol);
             }
-            return Ok(true)
+            return Ok(true);
         }
-        Ok(false) 
+        Ok(false)
     }
-    pub fn parse_tol_unit(line: &str, default_params: &mut DefaultParams) -> Result<bool, MgfError> {
+    pub fn parse_tol_unit(
+        line: &str,
+        default_params: &mut DefaultParams,
+    ) -> Result<bool, MgfError> {
         if let Some(tol_unit_str) = line.strip_prefix("TOLU=") {
             default_params.tol_unit = Some(tol_unit_str.to_string());
-            return Ok(true)
+            return Ok(true);
         }
         Ok(false)
     }
     pub fn parse_charge(line: &str, default_params: &mut DefaultParams) -> Result<bool, MgfError> {
         let regex_for_charge = &default_params.regex_for_charge;
 
-        if let Some(charge_str) = line.strip_prefix("CHARGE=") { 
-            let mut charge_array: Vec<u8> = Vec::new();   
-            for cap in regex_for_charge.captures_iter(charge_str) { 
+        if let Some(charge_str) = line.strip_prefix("CHARGE=") {
+            let mut charge_array: Vec<u8> = Vec::new();
+            for cap in regex_for_charge.captures_iter(charge_str) {
                 if let Some(charge) = cap[0].chars().next().unwrap().to_digit(10) {
                     charge_array.push(charge as u8);
                 }
             }
             default_params.charge_array = Some(charge_array);
-            return Ok(true)
+            return Ok(true);
         }
         Ok(false)
     }
@@ -184,8 +190,8 @@ impl QueryParser {
             Self::parse_title,
             Self::parse_charge,
             Self::parse_tol,
-            Self::parse_tol_unit,     
-            Self::parse_rt,             
+            Self::parse_tol_unit,
+            Self::parse_rt,
         ]
     }
 
@@ -196,17 +202,20 @@ impl QueryParser {
             if let Some(mz_str) = pepmass.next() {
                 match mz_str.parse::<f32>() {
                     Ok(mz) => precursor.mz = mz,
-                    Err(_) => return Err(MgfError::Malformed {location: *Location::caller()})
+                    Err(_) => {
+                        return Err(MgfError::Malformed {
+                            location: *Location::caller(),
+                        })
+                    }
                 }
             }
             if let Some(intensity_str) = pepmass.next() {
-                match intensity_str.parse::<f32>() {
-                    Ok(intensity) => precursor.intensity = Some(intensity),
-                    Err(_) => {}
+                if let Ok(intensity) = intensity_str.parse::<f32>() {
+                    precursor.intensity = Some(intensity);
                 }
             }
             query_data.precursors.push(precursor);
-            return Ok(true)
+            return Ok(true);
         }
         Ok(false)
     }
@@ -216,13 +225,13 @@ impl QueryParser {
 
         if let Some(charge_str) = line.strip_prefix("CHARGE=") {
             let mut charge_array = Vec::new();
-            for cap in regex_for_charge.captures_iter(charge_str) { 
+            for cap in regex_for_charge.captures_iter(charge_str) {
                 if let Some(charge) = cap[0].chars().next().unwrap().to_digit(10) {
                     charge_array.push(charge as u8);
                 }
             }
             query_data.precursor_charge_array = Some(charge_array);
-            return Ok(true)
+            return Ok(true);
         }
         Ok(false)
     }
@@ -232,8 +241,8 @@ impl QueryParser {
             if let Ok(rt_in_seconds) = rt_str.parse::<f32>() {
                 let rt_in_minutes = rt_in_seconds / 60.0;
                 query_data.rt_in_minutes = Some(rt_in_minutes);
-                return Ok(true)
-            } 
+                return Ok(true);
+            }
         }
         Ok(false)
     }
@@ -241,7 +250,7 @@ impl QueryParser {
     pub fn parse_title(line: &str, query_data: &mut QueryData) -> Result<bool, MgfError> {
         if let Some(id_str) = line.strip_prefix("TITLE=") {
             query_data.id = id_str.to_string();
-            return Ok(true)
+            return Ok(true);
         }
         Ok(false)
     }
@@ -251,7 +260,7 @@ impl QueryParser {
             if let Ok(tol) = tol_str.parse::<f32>() {
                 query_data.precursor_tol = Some(tol);
             }
-            return Ok(true)
+            return Ok(true);
         }
         Ok(false)
     }
@@ -259,7 +268,7 @@ impl QueryParser {
     pub fn parse_tol_unit(line: &str, query_data: &mut QueryData) -> Result<bool, MgfError> {
         if let Some(tol_unit_str) = line.strip_prefix("TOLU=") {
             query_data.precursor_tol_unit = Some(tol_unit_str.to_string());
-            return Ok(true)
+            return Ok(true);
         }
         Ok(false)
     }
@@ -270,18 +279,21 @@ impl QueryParser {
             if let Some(mz_str) = mz_intensity.next() {
                 match mz_str.parse::<f32>() {
                     Ok(mz) => query_data.ion_mz_array.push(mz),
-                    Err(_) => return Err(MgfError::Malformed {location: *Location::caller()})
+                    Err(_) => {
+                        return Err(MgfError::Malformed {
+                            location: *Location::caller(),
+                        })
+                    }
                 }
             }
             if let Some(intensity_str) = mz_intensity.next() {
-                match intensity_str.parse::<f32>() {
-                    Ok(intensity) => query_data.ion_intensity_array.push(intensity),
-                    Err(_) => {}
+                if let Ok(intensity) = intensity_str.parse::<f32>() {
+                    query_data.ion_intensity_array.push(intensity);
                 }
             } else {
                 query_data.ion_intensity_array.push(1.0)
             }
-            return Ok(true)
+            return Ok(true);
         }
         Ok(false)
     }
@@ -289,7 +301,7 @@ impl QueryParser {
     pub fn parse_end(line: &str, query_data: &mut QueryData) -> Result<bool, MgfError> {
         if line.starts_with("END IONS") {
             let mut spectrum = query_data.default_spectrum(query_data.default_params.file_id);
-            
+
             spectrum.id = query_data.id.to_string();
             spectrum.precursors = query_data.get_precursors_with_charge();
             spectrum.scan_start_time = query_data.rt_in_minutes.unwrap_or_default();
@@ -298,12 +310,12 @@ impl QueryParser {
             spectrum.intensity = std::mem::take(&mut query_data.ion_intensity_array);
 
             match query_data.check_spectrum(&spectrum) {
-               Ok(_) => query_data.spectra.push(spectrum),
-               Err(err) => eprintln!("{}", err)
+                Ok(_) => query_data.spectra.push(spectrum),
+                Err(err) => eprintln!("{}", err),
             }
             query_data.init();
 
-            return Ok(true)
+            return Ok(true);
         }
         Ok(false)
     }
@@ -315,37 +327,32 @@ pub struct MgfReader {
 
 impl MgfReader {
     pub fn with_file_id(file_id: usize) -> Self {
-        Self {
-            file_id,
-        }
+        Self { file_id }
     }
 
-    pub fn parse (
-        &self,
-        contents: String
-    ) -> Result<Vec<RawSpectrum>, MgfError> {
+    pub fn parse(&self, contents: String) -> Result<Vec<RawSpectrum>, MgfError> {
         let default_parsers = DefaultParser.get_parsers();
         let query_parsers = QueryParser.get_parsers();
 
         let mut default_params = DefaultParams::default_with_file_id(self.file_id);
         let mut lines = contents.as_str().lines();
 
-        // embedded parameters 
+        // embedded parameters
         while !default_params.is_query_start {
             let line = lines.next().unwrap().trim();
             for parser in &default_parsers {
                 match parser(line, &mut default_params) {
                     Ok(true) => break,
                     Ok(false) => continue,
-                    Err(err) => eprintln!("{}", err)
+                    Err(err) => eprintln!("{}", err),
                 }
             }
         }
 
         let mut query_data = QueryData::default_with_params(default_params);
-        
+
         // query
-        while let Some(line) = lines.next() {
+        for line in lines {
             if line.is_empty() {
                 continue;
             }
@@ -353,8 +360,8 @@ impl MgfReader {
             for parser in &query_parsers {
                 match parser(line, &mut query_data) {
                     Ok(true) => break,
-                    Ok(false) => {},
-                    Err(err) => eprintln!("{}", err)
+                    Ok(false) => {}
+                    Err(err) => eprintln!("{}", err),
                 }
             }
         }
@@ -365,7 +372,7 @@ impl MgfReader {
 #[derive(thiserror::Error, Debug)]
 pub enum MgfError {
     #[error("malformed MGF: {location}")]
-    Malformed{location: Location<'static>},
+    Malformed { location: Location<'static> },
     #[error("unsupported cvParam {0}")]
     UnsupportedCV(String),
     #[error("io error: {0}")]
@@ -382,7 +389,10 @@ pub enum MgfError {
 
 #[cfg(test)]
 mod test {
-    use sage_core::{spectrum::{RawSpectrum, Representation}, mass::Tolerance};
+    use sage_core::{
+        mass::Tolerance,
+        spectrum::{RawSpectrum, Representation},
+    };
 
     use super::{MgfError, MgfReader};
 
@@ -415,10 +425,16 @@ mod test {
         assert_eq!(s.precursors[1].charge, Some(3));
         assert!((s.precursors[0].mz - 367.069682741984).abs() < 0.0001);
         assert_eq!(s.precursors[0].intensity, Some(56700.5185546875));
-        assert_eq!(s.precursors[0].isolation_window, Some(Tolerance::Ppm(-10.0, 10.0)));
+        assert_eq!(
+            s.precursors[0].isolation_window,
+            Some(Tolerance::Ppm(-10.0, 10.0))
+        );
         assert!((s.precursors[1].mz - 367.069682741984).abs() < 0.0001);
         assert_eq!(s.precursors[1].intensity, Some(56700.5185546875));
-        assert_eq!(s.precursors[1].isolation_window, Some(Tolerance::Ppm(-10.0, 10.0)));
+        assert_eq!(
+            s.precursors[1].isolation_window,
+            Some(Tolerance::Ppm(-10.0, 10.0))
+        );
         assert!((s.scan_start_time - 0.8963232289 / 60.0).abs() < 0.0001);
         assert_eq!(s.ion_injection_time, 0.0);
         assert_eq!(s.intensity.len(), s.mz.len());
@@ -436,7 +452,6 @@ mod test {
 
         run_asserts_for_spectrum_0(&s);
         Ok(())
-
     }
 
     #[tokio::test]
@@ -448,7 +463,9 @@ mod test {
 
         let spectra = MgfReader::with_file_id(0).parse(content)?;
         assert_eq!(spectra.len(), 2);
-        spectra.iter().for_each(|spec: &RawSpectrum| { run_asserts_for_spectrum_0(spec)} );
+        spectra
+            .iter()
+            .for_each(|spec: &RawSpectrum| run_asserts_for_spectrum_0(spec));
         Ok(())
     }
 
@@ -540,8 +557,10 @@ mod test {
         let s = spectra.pop().unwrap();
         assert_eq!(s.precursors.len(), 1);
         assert_eq!(s.precursors[0].charge, Some(3));
-        assert_eq!(s.precursors[0].isolation_window, Some(Tolerance::Da(-3.0, 3.0)));
+        assert_eq!(
+            s.precursors[0].isolation_window,
+            Some(Tolerance::Da(-3.0, 3.0))
+        );
         Ok(())
     }
-
 }

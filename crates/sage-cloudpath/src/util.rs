@@ -24,10 +24,7 @@ pub fn read_tdf<S: AsRef<str>>(s: S, file_id: usize) -> Result<Vec<RawSpectrum>,
     }
 }
 
-pub fn read_mgf<S: AsRef<str>>(
-    path: S,
-    file_id: usize,
-) -> Result<Vec<RawSpectrum>, Error> {
+pub fn read_mgf<S: AsRef<str>>(path: S, file_id: usize) -> Result<Vec<RawSpectrum>, Error> {
     read_and_execute(path, |mut bf| async move {
         let mut contents = String::new();
         bf.read_to_string(&mut contents)

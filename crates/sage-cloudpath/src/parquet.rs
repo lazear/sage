@@ -71,7 +71,7 @@ pub fn build_schema() -> Result<Type, parquet::errors::ParquetError> {
             }
         }
     "#;
-    parquet::schema::parser::parse_message_type(&msg)
+    parquet::schema::parser::parse_message_type(msg)
 }
 
 /// Caller must guarantee that `reporter_ions` is not an empty slice
@@ -265,7 +265,7 @@ pub fn serialize_matched_fragments(
         if let Some(mut col) = rg.next_column()? {
             let psm_ids = features
                 .iter()
-                .map(|f| {
+                .flat_map(|f| {
                     std::iter::repeat(f.psm_id as i64).take(
                         f.fragments
                             .as_ref()
@@ -273,7 +273,6 @@ pub fn serialize_matched_fragments(
                             .unwrap_or_default(),
                     )
                 })
-                .flatten()
                 .collect::<Vec<_>>();
 
             col.typed::<Int64Type>().write_batch(&psm_ids, None, None)?;
