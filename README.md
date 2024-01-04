@@ -57,7 +57,7 @@ Sage is well-integrated into the open-source proteomics ecosystem. The following
 - [SearchGUI](http://compomics.github.io/projects/searchgui): a graphical user interface for running searches
 - [PeptideShaker](http://compomics.github.io/projects/peptide-shaker): visualize peptide-spectrum matches
 - [MS2Rescore](http://compomics.github.io/projects/ms2rescore): AI-assisted rescoring of results
-- [Picked group FDR](github.com/kusterlab/picked_group_fdr): scalable protein group FDR for large-scale experiments
+- [Picked group FDR](https://github.com/kusterlab/picked_group_fdr): scalable protein group FDR for large-scale experiments
 - [sagepy](https://github.com/theGreatHerrLebert/sagepy): Python bindings to the sage-core library
 - [quantms](https://github.com/bigbio/quantms): nextflow pipeline for running searches with Sage
 - [OpenMS](https://github.com/OpenMS/OpenMS): Sage is included as a "TOPP" tool in OpenMS
