@@ -14,6 +14,12 @@ license = "MIT"
 name = "sage"
 path = "src/main.rs"
 
+
+[features]
+
+mzmlb = ["sage-cloudpath/mzdata"]
+
+
 [dependencies]
 sage-core = { path = "../sage" }
 sage-cloudpath = { path = "../sage-cloudpath", features = ["parquet"] }

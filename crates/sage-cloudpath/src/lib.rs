@@ -9,6 +9,8 @@ use tokio::io::{AsyncBufRead, AsyncRead, AsyncWriteExt, BufReader};
 pub mod mzml;
 pub mod tdf;
 pub mod util;
+#[cfg(feature = "mzdata")]
+pub mod mzmlb;
 
 #[cfg(feature = "parquet")]
 pub mod parquet;

@@ -24,6 +24,19 @@ pub fn read_tdf<S: AsRef<str>>(s: S, file_id: usize) -> Result<Vec<RawSpectrum>,
     }
 }
 
+
+#[cfg(feature = "mzdata")]
+pub fn read_mzmlb<S: AsRef<str>>(s: S, file_id: usize) -> Result<Vec<RawSpectrum>, Error> {
+    let res = crate::mzmlb::MzMLbReader::with_file_id(file_id).parse(s.as_ref());
+    match res {
+        Ok(spectra) => Ok(spectra),
+        Err(e) => Err(
+            Error::IO(e)
+        ),
+    }
+}
+
+
 pub fn read_fasta<S>(
     path: S,
     decoy_tag: S,

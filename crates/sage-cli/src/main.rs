@@ -208,6 +208,14 @@ impl Runner {
                     {
                         sage_cloudpath::util::read_tdf(path, chunk_idx * batch_size + idx)
                     }
+                    #[cfg(feature = "mzmlb")]
+                    path if &PathBuf::from(path)
+                            .extension()
+                            .unwrap_or_default()
+                            .to_str()
+                            .unwrap_or_default().to_ascii_lowercase() == ".mzmlb" => {
+                                sage_cloudpath::util::read_mzmlb(path, chunk_idx * batch_size + idx)
+                            }
                     _ => sage_cloudpath::util::read_mzml(path, chunk_idx * batch_size + idx, sn),
                 };
                 match res {
