@@ -17,12 +17,14 @@ path = "src/main.rs"
 
 [features]
 
+default = []
+
 mzmlb = ["sage-cloudpath/mzdata"]
 
 
 [dependencies]
 sage-core = { path = "../sage" }
-sage-cloudpath = { path = "../sage-cloudpath", features = ["parquet"] }
+sage-cloudpath = { path = "../sage-cloudpath", features = ["parquet", "mzdata"] }
 
 anyhow = "1.0"
 csv = "1"

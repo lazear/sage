@@ -10,6 +10,9 @@ license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+default = []
+
 [dependencies]
 thiserror = "1.0"
 async-compression = { version = "0.3", features = ["tokio", "gzip", "zlib"] }
