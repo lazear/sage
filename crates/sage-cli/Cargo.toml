@@ -24,7 +24,7 @@ mzmlb = ["sage-cloudpath/mzdata"]
 
 [dependencies]
 sage-core = { path = "../sage" }
-sage-cloudpath = { path = "../sage-cloudpath", features = ["parquet", "mzdata"] }
+sage-cloudpath = { path = "../sage-cloudpath", features = ["parquet"] }
 
 anyhow = "1.0"
 csv = "1"
