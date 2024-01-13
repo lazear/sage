@@ -143,7 +143,7 @@ impl Enzyme {
                 semi_enzymatic: false,
             }),
             _ => Some(Enzyme {
-                regex: Regex::new(&format!("[{}]", cleave.replace("?", ""))).unwrap(),
+                regex: Regex::new(&format!("[{}]", cleave.replace('?', ""))).unwrap(),
                 skip_suffix,
                 c_terminal,
                 semi_enzymatic,

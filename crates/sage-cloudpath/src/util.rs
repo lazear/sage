@@ -37,6 +37,20 @@ pub fn read_mzmlb<S: AsRef<str>>(s: S, file_id: usize) -> Result<Vec<RawSpectrum
 }
 
 
+pub fn read_mgf<S: AsRef<str>>(path: S, file_id: usize) -> Result<Vec<RawSpectrum>, Error> {
+    read_and_execute(path, |mut bf| async move {
+        let mut contents = String::new();
+        bf.read_to_string(&mut contents)
+            .await
+            .map_err(crate::Error::IO)?;
+        let res = crate::mgf::MgfReader::with_file_id(file_id).parse(contents);
+        match res {
+            Ok(m) => Ok(m),
+            Err(e) => Err(Error::MGF(e)),
+        }
+    })
+}
+
 pub fn read_fasta<S>(
     path: S,
     decoy_tag: S,

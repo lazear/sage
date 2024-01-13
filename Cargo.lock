@@ -1040,16 +1040,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "filename"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "63e4df03effebdf9cfa31a663f569fd96cc7e206184b0d4dcd388dc490f7ebe8"
-dependencies = [
- "libc",
- "winapi",
-]
-
-[[package]]
 name = "flatbuffers"
 version = "23.5.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1780,13 +1770,12 @@ dependencies = [
 
 [[package]]
 name = "mzdata"
-version = "0.7.0"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23d405b59055c7c5bda0237cb5879a94723483444515f928b0ff268e65d63b9d"
+checksum = "f86324988ef05c13b140d4d31d9529f9e60831d404ee5c0f81b6c076c21fd6b3"
 dependencies = [
  "base64-simd",
  "bytemuck",
- "filename",
  "flate2",
  "hdf5",
  "hdf5-sys",
@@ -1806,9 +1795,9 @@ dependencies = [
 
 [[package]]
 name = "mzpeaks"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "59058c9f26d536e00596c7dc01c5d9e88e88ec294b20a6cedc5b83ac6db804f1"
+checksum = "d519a4d34d369ad9869553909c659de71e682119d58f00861d11be2978a25e67"
 
 [[package]]
 name = "ndarray"
@@ -2477,6 +2466,7 @@ dependencies = [
  "parquet 44.0.0",
  "quick-xml",
  "rayon",
+ "regex",
  "reqwest",
  "sage-core",
  "serde",

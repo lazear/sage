@@ -4,7 +4,6 @@ use crate::ion_series::{IonSeries, Kind};
 use crate::mass::{Tolerance, NEUTRON, PROTON};
 use crate::spectrum::{Precursor, ProcessedSpectrum};
 use serde::Serialize;
-use std::mem;
 use std::ops::AddAssign;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
