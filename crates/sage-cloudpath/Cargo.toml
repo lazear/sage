@@ -37,4 +37,4 @@ serde_json = "1.0"
 sage-core = { path = "../sage" }
 parquet = { version = "44.0.0", optional = true, default-features = false, features = ["zstd"] }
 
-mzdata = {version = "0.8.0", default-features = false, features = ["mzmlb", "zlib-ng-compat", ], optional = true}
+mzdata = {version = "0.10.0", default-features = false, features = ["mzmlb", "zlib-ng-compat", "hdf5_static"], optional = true}

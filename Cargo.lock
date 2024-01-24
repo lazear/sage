@@ -1273,11 +1273,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "hdf5-src"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e01493db39ddc0519cf2a83d620d2c037fee60f4fed724cb72dc23763f1727a8"
+dependencies = [
+ "cmake",
+]
+
+[[package]]
 name = "hdf5-sys"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4842d5980dc311a7c8933c7b45534fdae84df5ae7939a0ae8e449a56d4beb3d2"
 dependencies = [
+ "hdf5-src",
  "libc",
  "libloading",
  "pkg-config",
@@ -1770,9 +1780,9 @@ dependencies = [
 
 [[package]]
 name = "mzdata"
-version = "0.8.0"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f86324988ef05c13b140d4d31d9529f9e60831d404ee5c0f81b6c076c21fd6b3"
+checksum = "e22c11dc124eae3ddd6745d82d4eee42cc9574d47dc98dc27c09d7bfbcd32e03"
 dependencies = [
  "base64-simd",
  "bytemuck",
