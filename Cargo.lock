@@ -1279,6 +1279,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e01493db39ddc0519cf2a83d620d2c037fee60f4fed724cb72dc23763f1727a8"
 dependencies = [
  "cmake",
+ "libz-sys",
 ]
 
 [[package]]
@@ -1290,6 +1291,7 @@ dependencies = [
  "hdf5-src",
  "libc",
  "libloading",
+ "libz-sys",
  "pkg-config",
  "regex",
  "serde",
@@ -1650,8 +1652,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d97137b25e321a73eef1418d1d5d2eda4d77e12813f8e6dead84bc52c5870a7b"
 dependencies = [
  "cc",
- "cmake",
- "libc",
  "pkg-config",
  "vcpkg",
 ]
@@ -1780,9 +1780,9 @@ dependencies = [
 
 [[package]]
 name = "mzdata"
-version = "0.10.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e22c11dc124eae3ddd6745d82d4eee42cc9574d47dc98dc27c09d7bfbcd32e03"
+checksum = "9cf6f27be7fb811470287cb72fcad6fd3c1212eb33918798bfccc2ab25f988f6"
 dependencies = [
  "base64-simd",
  "bytemuck",
@@ -1791,6 +1791,7 @@ dependencies = [
  "hdf5-sys",
  "indexmap 2.0.1",
  "lazy_static",
+ "libz-sys",
  "log",
  "md5",
  "mzpeaks",
