@@ -106,7 +106,7 @@ impl MobilityModel {
             // Embed N- and C-terminal AA's
             // 2 on each end
             match aa_idx {
-                0 | 1=> embedding[N_TERMINAL + idx] += 1.0,
+                0 | 1 => embedding[N_TERMINAL + idx] += 1.0,
                 x if x > cterm => embedding[C_TERMINAL + idx] += 1.0,
                 _ => {}
             }
