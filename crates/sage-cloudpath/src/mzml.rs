@@ -260,6 +260,9 @@ impl MzMLReader {
                             ION_INJECTION_TIME => {
                                 spectrum.ion_injection_time = extract_value!(ev);
                             }
+                            INVERSE_ION_MOBILITY => {
+                                precursor.inverse_ion_mobility = Some(extract_value!(ev));
+                            }
                             _ => {}
                         }
                     }
