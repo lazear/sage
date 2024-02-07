@@ -200,12 +200,22 @@ impl Runner {
 
                 let path_lower = path.to_lowercase();
                 let res = if path_lower.ends_with(".mgf.gz") || path_lower.ends_with(".mgf") {
-                    sage_cloudpath::util::read_mgf(path_lower, file_id)
+                    sage_cloudpath::util::read_mgf(path, file_id)
                 } else if bruker_extensions
                     .iter()
                     .any(|ext| path_lower.ends_with(ext))
                 {
                     sage_cloudpath::util::read_tdf(path, file_id)
+                } else if path_lower.ends_with(".mzmlb") {
+                    #[cfg(feature = "mzmlb")]
+                    {
+                        sage_cloudpath::util::read_mzmlb(path, file_id, sn)
+                    }
+                    #[cfg(not(feature = "mzmlb"))]
+                    {
+                        // Fall back to prior behavior
+                        sage_cloudpath::util::read_mzml(path, file_id, sn)
+                    }
                 } else {
                     sage_cloudpath::util::read_mzml(path, file_id, sn)
                 };
