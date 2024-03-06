@@ -21,7 +21,7 @@ struct Score {
     ppm_difference: f32,
     precursor_charge: u8,
     isotope_error: i8,
-    precursor_index: usize,
+    precursor_index: u8,
 }
 
 /// Preliminary score - # of matched peaks for each candidate peptide
@@ -31,7 +31,7 @@ struct PreScore {
     peptide: PeptideIx,
     precursor_charge: u8,
     isotope_error: i8,
-    precursor_index: usize,
+    precursor_index: u8,
 }
 
 /// Store preliminary scores & stats for first pass search for a query spectrum
@@ -301,8 +301,9 @@ impl<'db> Scorer<'db> {
         precursor_mass: f32,
         precursor_charge: u8,
         precursor_tol: Tolerance,
+        precursor_index: u8,
     ) -> InitialHits {
-        if self.min_isotope_err != self.max_isotope_err {
+        let mut out_hits = if self.min_isotope_err != self.max_isotope_err {
             let mut hits = (self.min_isotope_err..=self.max_isotope_err).fold(
                 InitialHits::default(),
                 |mut hits, isotope| {
@@ -326,37 +327,37 @@ impl<'db> Scorer<'db> {
                 precursor_tol,
                 0,
             )
-        }
+        };
+        out_hits.preliminary.iter_mut().for_each(|score| {
+            score.precursor_index = precursor_index;
+        });
+        out_hits
     }
 
     fn initial_hits(&self, query: &ProcessedSpectrum, precursors: &[Precursor]) -> InitialHits {
-        // Sage operates on masses without protons; [M] instead of [MH+]
-        let mzs = precursors
-            .iter()
-            .map(|p| p.mz - PROTON)
-            .collect::<Vec<f32>>();
 
         // Search in wide-window/DIA mode
         if self.wide_window {
             let mut hits = InitialHits::default();
-            for (i, (precursor, mz)) in precursors.iter().zip(mzs).enumerate() {
+            for (i, precursor) in precursors.iter().enumerate() {
+                let i = i as u8;
+                let mz = precursor.mz - PROTON;
                 let local_hits = (self.min_precursor_charge..=self.max_precursor_charge).fold(
                     InitialHits::default(),
                     |mut local_hits, precursor_charge| {
+                        // Sage operates on masses without protons; [M] instead of [MH+]
                         let precursor_mass = mz * precursor_charge as f32;
                         let precursor_tol = precursor
                             .isolation_window
                             .unwrap_or(Tolerance::Da(-2.4, 2.4))
                             * precursor_charge as f32;
-                        let mut matched_peaks = self.matched_peaks(
+                        let matched_peaks = self.matched_peaks(
                             query,
                             precursor_mass,
                             precursor_charge,
                             precursor_tol,
+                            i,
                         );
-                        matched_peaks.preliminary.iter_mut().for_each(|score| {
-                            score.precursor_index = i;
-                        });
 
                         local_hits += matched_peaks;
                         local_hits
@@ -367,29 +368,32 @@ impl<'db> Scorer<'db> {
             self.trim_hits(&mut hits);
             hits
         } else if precursors.len() == 1 && precursors.first().unwrap().charge.is_some() {
-            let charge = precursors.first().unwrap().charge.unwrap();
-            let mz = mzs[0];
+            let precursor = precursors.first().unwrap();
+            let charge = precursor.charge.unwrap();
+            // Sage operates on masses without protons; [M] instead of [MH+]
+            let mz = precursor.mz - PROTON;
             // Charge state is already annotated for this precusor, only search once
             let precursor_mass = mz * charge as f32;
-            self.matched_peaks(query, precursor_mass, charge, self.precursor_tol)
+            self.matched_peaks(query, precursor_mass, charge, self.precursor_tol, 0)
         } else {
             // Not all selected ion precursors have charge states annotated -
             // assume it could be z=2, z=3, z=4 and search all three
             let mut hits = InitialHits::default();
-            for (i, mz) in mzs.iter().enumerate() {
+            for (i, precursor) in precursors.iter().enumerate() {
+                let i = i as u8;
+                // Sage operates on masses without protons; [M] instead of [MH+]
+                let mz = precursor.mz - PROTON;
                 let local_hits = (self.min_precursor_charge..=self.max_precursor_charge).fold(
                     InitialHits::default(),
                     |mut local_hits, precursor_charge| {
                         let precursor_mass = mz * precursor_charge as f32;
-                        let mut matched_peaks = self.matched_peaks(
+                        let matched_peaks = self.matched_peaks(
                             query,
                             precursor_mass,
                             precursor_charge,
                             self.precursor_tol,
+                            i,
                         );
-                        matched_peaks.preliminary.iter_mut().for_each(|score| {
-                            score.precursor_index = i;
-                        });
 
                         local_hits += matched_peaks;
                         local_hits
@@ -452,7 +456,7 @@ impl<'db> Scorer<'db> {
 
             let peptide = &self.db[score.peptide];
             // Sage operates on masses without protons; [M] instead of [MH+]
-            let mz = precursors[score.precursor_index].mz - PROTON;
+            let mz = precursors[score.precursor_index as usize].mz - PROTON;
             let precursor_mass = mz * score.precursor_charge as f32;
 
             let next = score_vector
