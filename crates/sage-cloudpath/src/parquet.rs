@@ -42,6 +42,8 @@ pub fn build_schema() -> Result<Type, parquet::errors::ParquetError> {
             required int32 charge;
             required int32 peptide_len;
             required int32 missed_cleavages;
+            required boolean semi_enzymatic;
+            required float ms2_intensity;
             required float isotope_error;
             required float precursor_ppm;
             required float fragment_ppm;
@@ -197,6 +199,11 @@ pub fn serialize_features(
         write_col!(charge, Int32Type);
         write_col!(peptide_len, Int32Type);
         write_col!(missed_cleavages, Int32Type);
+        write_col!(
+            |f: &Feature| database[f.peptide_idx].semi_enzymatic,
+            BoolType
+        );
+        write_col!(ms2_intensity, FloatType);
         write_col!(isotope_error, FloatType);
         write_col!(delta_mass, FloatType);
         write_col!(average_ppm, FloatType);
