@@ -200,7 +200,7 @@ impl Runner {
 
                 let path_lower = path.to_lowercase();
                 let res = if path_lower.ends_with(".mgf.gz") || path_lower.ends_with(".mgf") {
-                    sage_cloudpath::util::read_mgf(path_lower, file_id)
+                    sage_cloudpath::util::read_mgf(path, file_id)
                 } else if bruker_extensions
                     .iter()
                     .any(|ext| path_lower.ends_with(ext))
