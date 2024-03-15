@@ -4,11 +4,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [unreleased]
+## [v0.14.7]
 ### Added
 - Added columns missing from parquet output: `semi_enzymatic` and `missed_cleavages`
 ### Changed
 - Fixed ion mobility parsing from some mzMLs
+- MGF paths were being lowercased prior to parsing
 
 ## [v0.14.6]
 ### Added
