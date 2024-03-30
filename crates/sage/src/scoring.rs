@@ -21,7 +21,6 @@ struct Score {
     ppm_difference: f32,
     precursor_charge: u8,
     isotope_error: i8,
-    precursor_index: u8,
 }
 
 /// Preliminary score - # of matched peaks for each candidate peptide
@@ -31,7 +30,6 @@ struct PreScore {
     peptide: PeptideIx,
     precursor_charge: u8,
     isotope_error: i8,
-    precursor_index: u8,
 }
 
 /// Store preliminary scores & stats for first pass search for a query spectrum
@@ -62,6 +60,8 @@ pub struct Feature {
     pub peptide_len: usize,
     /// Spectrum id
     pub spec_id: String,
+    /// Precursor id
+    pub prec_id: usize,
     /// File identifier
     pub file_id: usize,
     /// PSM rank
@@ -301,9 +301,8 @@ impl<'db> Scorer<'db> {
         precursor_mass: f32,
         precursor_charge: u8,
         precursor_tol: Tolerance,
-        precursor_index: u8,
     ) -> InitialHits {
-        let mut out_hits = if self.min_isotope_err != self.max_isotope_err {
+        if self.min_isotope_err != self.max_isotope_err {
             let mut hits = (self.min_isotope_err..=self.max_isotope_err).fold(
                 InitialHits::default(),
                 |mut hits, isotope| {
@@ -327,83 +326,69 @@ impl<'db> Scorer<'db> {
                 precursor_tol,
                 0,
             )
-        };
-        out_hits.preliminary.iter_mut().for_each(|score| {
-            score.precursor_index = precursor_index;
-        });
-        out_hits
+        }
     }
 
-    fn initial_hits(&self, query: &ProcessedSpectrum, precursors: &[Precursor]) -> InitialHits {
+    fn initial_hits(&self, query: &ProcessedSpectrum, precursor: &Precursor) -> InitialHits {
+        // Sage operates on masses without protons; [M] instead of [MH+]
+        let mz = precursor.mz - PROTON;
 
         // Search in wide-window/DIA mode
         if self.wide_window {
-            let mut hits = InitialHits::default();
-            for (i, precursor) in precursors.iter().enumerate() {
-                let i = i as u8;
-                let mz = precursor.mz - PROTON;
-                let local_hits = (self.min_precursor_charge..=self.max_precursor_charge).fold(
-                    InitialHits::default(),
-                    |mut local_hits, precursor_charge| {
-                        // Sage operates on masses without protons; [M] instead of [MH+]
-                        let precursor_mass = mz * precursor_charge as f32;
-                        let precursor_tol = precursor
-                            .isolation_window
-                            .unwrap_or(Tolerance::Da(-2.4, 2.4))
-                            * precursor_charge as f32;
-                        let matched_peaks = self.matched_peaks(
-                            query,
-                            precursor_mass,
-                            precursor_charge,
-                            precursor_tol,
-                            i,
-                        );
-
-                        local_hits += matched_peaks;
-                        local_hits
-                    },
-                );
-                hits += local_hits;
-            }
+            let mut hits = (self.min_precursor_charge..=self.max_precursor_charge).fold(
+                InitialHits::default(),
+                |mut hits, precursor_charge| {
+                    let precursor_mass = mz * precursor_charge as f32;
+                    let precursor_tol = precursor
+                        .isolation_window
+                        .unwrap_or(Tolerance::Da(-2.4, 2.4))
+                        * precursor_charge as f32;
+                    hits +=
+                        self.matched_peaks(query, precursor_mass, precursor_charge, precursor_tol);
+                    hits
+                },
+            );
             self.trim_hits(&mut hits);
             hits
-        } else if precursors.len() == 1 && precursors.first().unwrap().charge.is_some() {
-            let precursor = precursors.first().unwrap();
-            let charge = precursor.charge.unwrap();
-            // Sage operates on masses without protons; [M] instead of [MH+]
-            let mz = precursor.mz - PROTON;
+        } else if let Some(charge) = precursor.charge {
             // Charge state is already annotated for this precusor, only search once
             let precursor_mass = mz * charge as f32;
-            self.matched_peaks(query, precursor_mass, charge, self.precursor_tol, 0)
+            self.matched_peaks(query, precursor_mass, charge, self.precursor_tol)
         } else {
             // Not all selected ion precursors have charge states annotated -
             // assume it could be z=2, z=3, z=4 and search all three
-            let mut hits = InitialHits::default();
-            for (i, precursor) in precursors.iter().enumerate() {
-                let i = i as u8;
-                // Sage operates on masses without protons; [M] instead of [MH+]
-                let mz = precursor.mz - PROTON;
-                let local_hits = (self.min_precursor_charge..=self.max_precursor_charge).fold(
-                    InitialHits::default(),
-                    |mut local_hits, precursor_charge| {
-                        let precursor_mass = mz * precursor_charge as f32;
-                        let matched_peaks = self.matched_peaks(
-                            query,
-                            precursor_mass,
-                            precursor_charge,
-                            self.precursor_tol,
-                            i,
-                        );
-
-                        local_hits += matched_peaks;
-                        local_hits
-                    },
-                );
-                hits += local_hits;
-            }
+            let mut hits = (self.min_precursor_charge..=self.max_precursor_charge).fold(
+                InitialHits::default(),
+                |mut hits, precursor_charge| {
+                    let precursor_mass = mz * precursor_charge as f32;
+                    hits += self.matched_peaks(
+                        query,
+                        precursor_mass,
+                        precursor_charge,
+                        self.precursor_tol,
+                    );
+                    hits
+                },
+            );
             self.trim_hits(&mut hits);
             hits
         }
+    }
+
+    fn notched_initial_hits(&self, query: &ProcessedSpectrum) -> (InitialHits, Vec<usize>) {
+        let precursor_hits: Vec<InitialHits> = query.precursors.iter().map(|precursor| self.initial_hits(query, precursor)).collect();
+        // Match lengths is pre cumulative sum of the number of hits for each precursor
+        let mut cum_match_lengths = Vec::with_capacity(precursor_hits.len());
+
+        let mut hits = InitialHits::default();
+
+        let mut cumsum = 0;
+        for precursor_hits in precursor_hits {
+            cumsum += precursor_hits.preliminary.len();
+            hits += precursor_hits;
+            cum_match_lengths.push(cumsum.clone());
+        }
+        (hits, cum_match_lengths)
     }
 
     /// Score a single [`ProcessedSpectrum`] against the database
@@ -411,16 +396,10 @@ impl<'db> Scorer<'db> {
         if query.precursors.is_empty() {
             panic!("missing precursor for {}", query.id);
         }
+        let (hits, match_lens) = self.notched_initial_hits(query);
 
-        let hits = self.initial_hits(query, &query.precursors);
         let mut features = Vec::with_capacity(self.report_psms);
-        self.build_features(
-            query,
-            &query.precursors,
-            &hits,
-            self.report_psms,
-            &mut features,
-        );
+        self.build_features(query, &query.precursors, &hits, self.report_psms, &mut features, &match_lens);
         features
     }
 
@@ -429,44 +408,49 @@ impl<'db> Scorer<'db> {
     fn build_features(
         &self,
         query: &ProcessedSpectrum,
-        precursors: &[Precursor],
+        precursor: &[Precursor],
         hits: &InitialHits,
         report_psms: usize,
         features: &mut Vec<Feature>,
+        index_rle: &[usize],
     ) {
         let mut score_vector = hits
             .preliminary
             .iter()
-            .filter(|score| score.peptide != PeptideIx::default())
-            .map(|pre| self.score_candidate(query, pre))
-            .filter(|s| (s.0.matched_b + s.0.matched_y) >= self.min_matched_peaks)
+            .enumerate()
+            .filter(|(_i, score)| score.peptide != PeptideIx::default())
+            .map(|(i, pre)| (i, self.score_candidate(query, pre)))
+            .filter(|(_i, s)| (s.0.matched_b + s.0.matched_y) >= self.min_matched_peaks)
             .collect::<Vec<_>>();
 
         // Hyperscore is our primary score function for PSMs
-        score_vector.sort_by(|a, b| b.0.hyperscore.total_cmp(&a.0.hyperscore));
+        score_vector.sort_by(|(_i, a), (_ii, b)| b.0.hyperscore.total_cmp(&a.0.hyperscore));
 
         // Expected value for poisson distribution
         // (average # of matches peaks/peptide candidate)
         let lambda = hits.matched_peaks as f64 / hits.scored_candidates as f64;
 
         for idx in 0..report_psms.min(score_vector.len()) {
-            let score = score_vector[idx].0;
-            let fragments: Option<Fragments> = score_vector[idx].1.take();
+            let score = score_vector[idx].1.0;
+            let score_index = score_vector[idx].0;
+            let mut precursor_index: usize = 0;
+            while score_index >= index_rle[precursor_index as usize] {
+                precursor_index += 1;
+            }
+
+            let fragments: Option<Fragments> = score_vector[idx].1.1.take();
             let psm_id = increment_psm_counter();
 
             let peptide = &self.db[score.peptide];
-            // Sage operates on masses without protons; [M] instead of [MH+]
-            let mz = precursors[score.precursor_index as usize].mz - PROTON;
-            let precursor_mass = mz * score.precursor_charge as f32;
 
             let next = score_vector
                 .get(idx + 1)
-                .map(|score| score.0.hyperscore)
+                .map(|score| score.1.0.hyperscore)
                 .unwrap_or_default();
 
             let best = score_vector
                 .get(0)
-                .map(|score| score.0.hyperscore)
+                .map(|score| score.1.0.hyperscore)
                 .expect("we know that index 0 is valid");
 
             // Poisson distribution probability mass function
@@ -478,6 +462,9 @@ impl<'db> Scorer<'db> {
                 poisson = 1E-325;
             }
 
+            // Sage operates on masses without protons; [M] instead of [MH+]
+            let mz = precursor[precursor_index].mz - PROTON;
+            let precursor_mass = mz * score.precursor_charge as f32;
             let isotope_error = score.isotope_error as f32 * NEUTRON;
             let delta_mass = (precursor_mass - peptide.monoisotopic - isotope_error).abs() * 2E6
                 / (precursor_mass - isotope_error + peptide.monoisotopic);
@@ -489,6 +476,7 @@ impl<'db> Scorer<'db> {
                 psm_id,
                 peptide_idx: score.peptide,
                 spec_id: query.id.clone(),
+                prec_id: precursor_index,
                 file_id: query.file_id,
                 rank: idx as u32 + 1,
                 label: peptide.label(),
@@ -582,13 +570,13 @@ impl<'db> Scorer<'db> {
         }
 
         let mut query = query.clone();
-        let hits = self.initial_hits(&query, &query.precursors);
+        let (hits, match_lengths) = self.notched_initial_hits(&query);
 
         let mut candidates: Vec<Feature> = Vec::with_capacity(self.report_psms);
 
         let mut prev = 0;
         while candidates.len() < self.report_psms {
-            self.build_features(&query, &query.precursors, &hits, 1, &mut candidates);
+            self.build_features(&query, &query.precursors, &hits, 1, &mut candidates, &match_lengths);
             if candidates.len() > prev {
                 if let Some(feat) = candidates.get_mut(prev) {
                     self.remove_matched_peaks(&mut query, feat);
@@ -612,7 +600,6 @@ impl<'db> Scorer<'db> {
             peptide: pre_score.peptide,
             precursor_charge: pre_score.precursor_charge,
             isotope_error: pre_score.isotope_error,
-            precursor_index: pre_score.precursor_index,
             ..Default::default()
         };
         let peptide = &self.db[score.peptide];
