@@ -376,18 +376,18 @@ impl<'db> Scorer<'db> {
     }
 
     fn notched_initial_hits(&self, query: &ProcessedSpectrum) -> (InitialHits, Vec<usize>) {
-        let precursor_hits: Vec<InitialHits> = query.precursors.iter().map(|precursor| self.initial_hits(query, precursor)).collect();
-        // Match lengths is pre cumulative sum of the number of hits for each precursor
-        let mut cum_match_lengths = Vec::with_capacity(precursor_hits.len());
-
-        let mut hits = InitialHits::default();
-
         let mut cumsum = 0;
-        for precursor_hits in precursor_hits {
+        let mut hits = InitialHits::default();
+        // Match lengths is pre cumulative sum of the number of hits for each precursor
+        let mut cum_match_lengths = Vec::with_capacity(query.precursors.len());
+
+        for precursor in &query.precursors {
+            let precursor_hits = self.initial_hits(query, precursor);
             cumsum += precursor_hits.preliminary.len();
             hits += precursor_hits;
             cum_match_lengths.push(cumsum.clone());
         }
+
         (hits, cum_match_lengths)
     }
 
