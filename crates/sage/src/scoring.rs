@@ -414,25 +414,27 @@ impl<'db> Scorer<'db> {
         features: &mut Vec<Feature>,
         index_rle: &[usize],
     ) {
-        let mut score_vector = hits
+        let mut score_vector = (0u8..).zip(hits
             .preliminary
-            .iter()
-            .enumerate()
+            .iter())
             .filter(|(_i, score)| score.peptide != PeptideIx::default())
             .map(|(i, pre)| (i, self.score_candidate(query, pre)))
             .filter(|(_i, s)| (s.0.matched_b + s.0.matched_y) >= self.min_matched_peaks)
             .collect::<Vec<_>>();
 
         // Hyperscore is our primary score function for PSMs
-        score_vector.sort_by(|(_i, a), (_ii, b)| b.0.hyperscore.total_cmp(&a.0.hyperscore));
+        // score_vector.sort_by(|(_i, a), (_ii, b)| b.0.hyperscore.total_cmp(&a.0.hyperscore));
 
         // Expected value for poisson distribution
         // (average # of matches peaks/peptide candidate)
         let lambda = hits.matched_peaks as f64 / hits.scored_candidates as f64;
 
         for idx in 0..report_psms.min(score_vector.len()) {
-            let score = score_vector[idx].1.0;
-            let score_index = score_vector[idx].0;
+            let (_, (score_index, score), _) = score_vector.select_nth_unstable_by(idx, |(_i, a), (_ii, b)| b.0.hyperscore.total_cmp(&a.0.hyperscore));
+            let score_index = *score_index as usize;
+            let score = (*score).0;
+            // let score = score_vector[idx].1.0;
+            // let score_index = score_vector[idx].0 as usize;
             let mut precursor_index: usize = 0;
             while score_index >= index_rle[precursor_index as usize] {
                 precursor_index += 1;
