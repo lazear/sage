@@ -241,6 +241,7 @@ impl<'db> Scorer<'db> {
         );
         bounded_min_heapify(&mut hits.preliminary, k);
         hits.preliminary.truncate(k);
+        hits.preliminary.retain(|score| score.peptide != PeptideIx::default());
     }
 
     /// Preliminary Score, return # of matched peaks per candidate
@@ -414,45 +415,42 @@ impl<'db> Scorer<'db> {
         features: &mut Vec<Feature>,
         index_rle: &[usize],
     ) {
-        let mut score_vector = (0u8..).zip(hits
+        let mut score_vector = hits
             .preliminary
-            .iter())
-            .filter(|(_i, score)| score.peptide != PeptideIx::default())
-            .map(|(i, pre)| (i, self.score_candidate(query, pre)))
-            .filter(|(_i, s)| (s.0.matched_b + s.0.matched_y) >= self.min_matched_peaks)
+            .iter()
+            .map(|pre| self.score_candidate(query, pre))
+            .zip(0u8..)
+            .filter(|(s, _i)| (s.0.matched_b + s.0.matched_y) >= self.min_matched_peaks)
             .collect::<Vec<_>>();
 
         // Hyperscore is our primary score function for PSMs
-        // score_vector.sort_by(|(_i, a), (_ii, b)| b.0.hyperscore.total_cmp(&a.0.hyperscore));
+        score_vector.sort_by(|(a, _i), (b, _ii)| b.0.hyperscore.total_cmp(&a.0.hyperscore));
 
         // Expected value for poisson distribution
         // (average # of matches peaks/peptide candidate)
         let lambda = hits.matched_peaks as f64 / hits.scored_candidates as f64;
 
         for idx in 0..report_psms.min(score_vector.len()) {
-            let (_, (score_index, score), _) = score_vector.select_nth_unstable_by(idx, |(_i, a), (_ii, b)| b.0.hyperscore.total_cmp(&a.0.hyperscore));
-            let score_index = *score_index as usize;
-            let score = (*score).0;
-            // let score = score_vector[idx].1.0;
-            // let score_index = score_vector[idx].0 as usize;
+            let score = score_vector[idx].0.0;
+            let score_index = score_vector[idx].1 as usize;
             let mut precursor_index: usize = 0;
             while score_index >= index_rle[precursor_index as usize] {
                 precursor_index += 1;
             }
 
-            let fragments: Option<Fragments> = score_vector[idx].1.1.take();
+            let fragments: Option<Fragments> = score_vector[idx].0.1.take();
             let psm_id = increment_psm_counter();
 
             let peptide = &self.db[score.peptide];
 
             let next = score_vector
                 .get(idx + 1)
-                .map(|score| score.1.0.hyperscore)
+                .map(|score| score.0.0.hyperscore)
                 .unwrap_or_default();
 
             let best = score_vector
                 .get(0)
-                .map(|score| score.1.0.hyperscore)
+                .map(|score| score.0.0.hyperscore)
                 .expect("we know that index 0 is valid");
 
             // Poisson distribution probability mass function
