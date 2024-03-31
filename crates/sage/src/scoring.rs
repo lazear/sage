@@ -241,7 +241,7 @@ impl<'db> Scorer<'db> {
         );
         bounded_min_heapify(&mut hits.preliminary, k);
         hits.preliminary.truncate(k);
-        hits.preliminary.retain(|score| score.peptide != PeptideIx::default());
+        // Q: could default peptide idx be done here?
     }
 
     /// Preliminary Score, return # of matched peaks per candidate
@@ -386,7 +386,7 @@ impl<'db> Scorer<'db> {
             let precursor_hits = self.initial_hits(query, precursor);
             cumsum += precursor_hits.preliminary.len();
             hits += precursor_hits;
-            cum_match_lengths.push(cumsum.clone());
+            cum_match_lengths.push(cumsum);
         }
 
         (hits, cum_match_lengths)
@@ -415,13 +415,15 @@ impl<'db> Scorer<'db> {
         features: &mut Vec<Feature>,
         index_rle: &[usize],
     ) {
-        let mut score_vector = hits
-            .preliminary
-            .iter()
-            .map(|pre| self.score_candidate(query, pre))
-            .zip(0u8..)
-            .filter(|(s, _i)| (s.0.matched_b + s.0.matched_y) >= self.min_matched_peaks)
-            .collect::<Vec<_>>();
+        let mut score_vector = Vec::with_capacity(hits.preliminary.len());
+        for (idx, pre) in (0u8..).zip(hits.preliminary.iter()) {
+            if pre.peptide != PeptideIx::default() {
+                let score = self.score_candidate(query, pre);
+                if (score.0.matched_b + score.0.matched_y) >= self.min_matched_peaks {
+                    score_vector.push((score, idx));
+                }
+            }
+        };
 
         // Hyperscore is our primary score function for PSMs
         score_vector.sort_by(|(a, _i), (b, _ii)| b.0.hyperscore.total_cmp(&a.0.hyperscore));
@@ -434,7 +436,7 @@ impl<'db> Scorer<'db> {
             let score = score_vector[idx].0.0;
             let score_index = score_vector[idx].1 as usize;
             let mut precursor_index: usize = 0;
-            while score_index >= index_rle[precursor_index as usize] {
+            while score_index >= index_rle[precursor_index] {
                 precursor_index += 1;
             }
 
