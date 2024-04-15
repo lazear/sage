@@ -1630,6 +1630,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "523dc4f511e55ab87b694dc30d0f820d60906ef06413f93d4d7a1385599cc149"
 
 [[package]]
+name = "memmap2"
+version = "0.9.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe751422e4a8caa417e13c3ea66452215d7d63e19e604f4980461212f3ae1322"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2627,13 +2636,14 @@ dependencies = [
 
 [[package]]
 name = "timsrust"
-version = "0.2.3"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d35d63d446ce6278d71949dfdf2d618c5891cdb4de7c1306e9631997d7916779"
+checksum = "9301709a549fabb2d79f564c528b0af5ca0002bdf0055341cfcc07950a44290b"
 dependencies = [
  "bytemuck",
  "byteorder",
  "linreg",
+ "memmap2",
  "parquet 42.0.0",
  "rayon",
  "rusqlite",

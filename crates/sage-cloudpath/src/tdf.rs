@@ -33,7 +33,7 @@ impl TdfReader {
                     total_ion_current: 0.0,
                     mz: dda_spectrum.mz_values.iter().map(|&x| x as f32).collect(),
                     ms_level: 2,
-                    id: dda_precursor.index.to_string(),
+                    id: dda_spectrum.index.to_string(),
                     // precursor_id: dda_precursor.index as u32,
                     // frame_id: dda_precursor.frame_index as u32,
                     intensity: dda_spectrum.intensities.iter().map(|&x| x as f32).collect(),
