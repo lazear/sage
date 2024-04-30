@@ -209,7 +209,7 @@ impl Input {
             input.annotate_matches = Some(annotate_matches);
         }
 
-        // avoid to later panic if these parameters are not set
+        // avoid to later panic if these parameters are not set (but doesn't check if files exist)
 
         ensure!(
             input.database.fasta.is_some(),
@@ -224,20 +224,6 @@ impl Input {
                 > 0,
             "`mzml_paths` must be set. For more information try '--help'"
         );
-        if let Some(fasta) = &input.database.fasta {
-            ensure!(
-                std::path::Path::new(&fasta).exists(),
-                "Specified FASTA file does not exist"
-            );
-        }
-        if let Some(paths) = &input.mzml_paths {
-            for path in paths {
-                ensure!(
-                    std::path::Path::new(path).exists(),
-                    "One or more specified mzML files do not exist."
-                );
-            }
-        }
 
         Ok(input)
     }
