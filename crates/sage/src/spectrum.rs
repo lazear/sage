@@ -41,6 +41,7 @@ pub struct SpectrumProcessor {
     pub take_top_n: usize,
     pub max_fragment_mz: f32,
     pub min_fragment_mz: f32,
+    pub min_deisotope_mz: f32,
     pub deisotope: bool,
 }
 
@@ -176,7 +177,13 @@ pub fn select_most_intense_peak(
 // }
 
 /// Deisotope a set of peaks by attempting to find C13 peaks under a given `ppm` tolerance
-pub fn deisotope(mz: &[f32], int: &[f32], max_charge: u8, ppm: f32) -> Vec<Deisotoped> {
+pub fn deisotope(
+    mz: &[f32],
+    int: &[f32],
+    max_charge: u8,
+    ppm: f32,
+    min_mz: f32,
+) -> Vec<Deisotoped> {
     let mut peaks = mz
         .iter()
         .zip(int.iter())
@@ -192,7 +199,8 @@ pub fn deisotope(mz: &[f32], int: &[f32], max_charge: u8, ppm: f32) -> Vec<Deiso
     for i in (0..mz.len()).rev() {
         // Two pointer approach, j is fast pointer
         let mut j = i.saturating_sub(1);
-        while mz[i] - mz[j] <= NEUTRON + Tolerance::ppm_to_delta_mass(mz[i], ppm) {
+        while mz[i] - mz[j] <= NEUTRON + Tolerance::ppm_to_delta_mass(mz[i], ppm) && mz[j] >= min_mz
+        {
             let delta = mz[i] - mz[j];
             let tol = Tolerance::ppm_to_delta_mass(mz[i], ppm);
             for charge in 1..=max_charge {
@@ -259,11 +267,13 @@ impl SpectrumProcessor {
         min_fragment_mz: f32,
         max_fragment_mz: f32,
         deisotope: bool,
+        min_deisotope_mz: f32,
     ) -> Self {
         Self {
             take_top_n,
             min_fragment_mz,
             max_fragment_mz,
+            min_deisotope_mz,
             deisotope,
         }
     }
@@ -285,7 +295,13 @@ impl SpectrumProcessor {
             .unwrap_or(3);
 
         if should_deisotope {
-            let mut peaks = deisotope(&spectrum.mz, &spectrum.intensity, charge, 10.0);
+            let mut peaks = deisotope(
+                &spectrum.mz,
+                &spectrum.intensity,
+                charge,
+                10.0,
+                self.min_deisotope_mz,
+            );
             peaks.sort_unstable_by(|a, b| {
                 b.intensity
                     .total_cmp(&a.intensity)
@@ -364,6 +380,8 @@ mod test {
     fn test_deisotope() {
         let mut mz = [
             800.9,
+            800.9 + NEUTRON * 1.0,
+            800.9 + NEUTRON * 2.0,
             803.4080,
             804.4108,
             805.4106,
@@ -372,17 +390,29 @@ mod test {
             812.0,
             812.0 + NEUTRON / 2.0,
         ];
-        let mut int = [1., 4., 3., 2., 1., 1., 9.0, 4.5];
-        let mut peaks = deisotope(&mut mz, &mut int, 2, 5.0);
+        let mut int = [2., 1.5, 1., 4., 3., 2., 1., 1., 9.0, 4.5];
+        let mut peaks = deisotope(&mut mz, &mut int, 2, 5.0, 800.91);
 
         assert_eq!(
             peaks,
             vec![
                 Deisotoped {
                     mz: 800.9,
-                    intensity: 1.0,
+                    intensity: 2.0,
                     charge: None,
                     envelope: None,
+                },
+                Deisotoped {
+                    mz: 800.9 + NEUTRON * 1.0,
+                    intensity: 2.5,
+                    charge: Some(1),
+                    envelope: None,
+                },
+                Deisotoped {
+                    mz: 800.9 + NEUTRON * 2.0,
+                    intensity: 1.0,
+                    charge: Some(1),
+                    envelope: Some(1),
                 },
                 Deisotoped {
                     mz: 803.4080,
@@ -394,19 +424,19 @@ mod test {
                     mz: 804.4108,
                     intensity: 6.0,
                     charge: Some(1),
-                    envelope: Some(1),
+                    envelope: Some(3),
                 },
                 Deisotoped {
                     mz: 805.4106,
                     intensity: 3.0,
                     charge: Some(1),
-                    envelope: Some(2),
+                    envelope: Some(4),
                 },
                 Deisotoped {
                     mz: 806.4116,
                     intensity: 1.0,
                     charge: Some(1),
-                    envelope: Some(3),
+                    envelope: Some(5),
                 },
                 Deisotoped {
                     mz: 810.0,
@@ -424,7 +454,7 @@ mod test {
                     mz: 812.0 + NEUTRON / 2.0,
                     intensity: 4.5,
                     charge: Some(2),
-                    envelope: Some(6),
+                    envelope: Some(8),
                 }
             ]
         );
@@ -435,9 +465,21 @@ mod test {
             vec![
                 Deisotoped {
                     mz: 800.9,
-                    intensity: 1.0,
+                    intensity: 2.0,
                     charge: None,
                     envelope: None,
+                },
+                Deisotoped {
+                    mz: 800.9 + NEUTRON * 1.0,
+                    intensity: 2.5,
+                    charge: Some(1),
+                    envelope: None,
+                },
+                Deisotoped {
+                    mz: 800.9 + NEUTRON * 2.0,
+                    intensity: 0.0,
+                    charge: Some(1),
+                    envelope: Some(1),
                 },
                 Deisotoped {
                     mz: 803.4080,
@@ -449,19 +491,19 @@ mod test {
                     mz: 804.4108,
                     intensity: 0.0,
                     charge: Some(1),
-                    envelope: Some(1),
+                    envelope: Some(3),
                 },
                 Deisotoped {
                     mz: 805.4106,
                     intensity: 0.0,
                     charge: Some(1),
-                    envelope: Some(1),
+                    envelope: Some(3),
                 },
                 Deisotoped {
                     mz: 806.4116,
                     intensity: 0.0,
                     charge: Some(1),
-                    envelope: Some(1),
+                    envelope: Some(3),
                 },
                 Deisotoped {
                     mz: 810.0,
@@ -479,7 +521,7 @@ mod test {
                     mz: 812.0 + NEUTRON / 2.0,
                     intensity: 0.0,
                     charge: Some(2),
-                    envelope: Some(6),
+                    envelope: Some(8),
                 }
             ]
         );

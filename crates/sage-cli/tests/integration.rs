@@ -1,7 +1,5 @@
 use sage_core::database::Builder;
-use sage_core::enzyme::Digest;
 use sage_core::mass::Tolerance;
-use sage_core::peptide::Peptide;
 use sage_core::scoring::Scorer;
 use sage_core::spectrum::SpectrumProcessor;
 
@@ -15,7 +13,7 @@ fn integration() -> anyhow::Result<()> {
     let spectra = sage_cloudpath::util::read_mzml("../../tests/LQSRPAAPPAPGPGQLTLR.mzML", 0, None)?;
     assert_eq!(spectra.len(), 1);
 
-    let sp = SpectrumProcessor::new(100, 0.0, 1500.0, true);
+    let sp = SpectrumProcessor::new(100, 0.0, 1500.0, true, 0.0);
     let processed = sp.process(spectra[0].clone());
     assert!(processed.peaks.len() <= 300);
 

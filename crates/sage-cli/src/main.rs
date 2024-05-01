@@ -184,11 +184,23 @@ impl Runner {
             .sn
             .then_some(self.parameters.quant.tmt_settings.level);
 
+        let (min_fragment_mz, min_deisotope_mz) = match &self.parameters.quant.tmt {
+            Some(i) => match self.parameters.quant.tmt_settings.level {
+                2 => (
+                    i.reporter_masses().first().map(|x| x * (1.0 - 20E-6)),
+                    i.reporter_masses().last().map(|x| x * (1.0 + 20E-6)),
+                ),
+                _ => (None, None),
+            },
+            None => (None, None),
+        };
+
         let sp = SpectrumProcessor::new(
             self.parameters.max_peaks,
-            self.parameters.database.fragment_min_mz,
+            min_fragment_mz.unwrap_or(self.parameters.database.fragment_min_mz),
             self.parameters.database.fragment_max_mz,
             self.parameters.deisotope,
+            min_deisotope_mz.unwrap_or(0.0),
         );
 
         let bruker_extensions = [".d", ".tdf", ".tdf_bin"];
