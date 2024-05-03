@@ -188,14 +188,14 @@ impl Input {
                                     if let Some(path_str) = path.to_str() {
                                         paths.push(path_str.to_string());
                                     } else {
-                                        eprintln!("Error converting path to string: {:?}", path);
+                                        log::error!("Error converting path to string: {:?}", path);
                                     }
                                 },
-                                Err(e) => eprintln!("Error processing path: {}", e),
+                                Err(e) => log::error!("Error processing path: {}", e),
                             }
                         }
                     },
-                    Err(e) => eprintln!("Glob pattern error: {}", e),
+                    Err(e) => log::error!("Glob pattern error: {}", e),
                 }
             }
             input.mzml_paths = Some(paths);
