@@ -28,6 +28,10 @@ pub struct Peptide {
     pub position: Position,
 
     pub proteins: Vec<Arc<String>>,
+    /// What residue does this peptide start at in the protein (1-based inclusive)?
+    pub start_position: Vec<Arc<usize>>,
+    /// What residue does this peptide end at in the protein (1-based inclusive)?
+    pub end_position: Vec<Arc<usize>>,
 }
 
 impl Peptide {
@@ -66,6 +70,8 @@ impl Debug for Peptide {
             .field("monoisotopic", &self.monoisotopic)
             .field("missed_cleavages", &self.missed_cleavages)
             .field("position", &self.position)
+            .field("start_position", &self.start_position)
+            .field("end_position", &self.end_position)
             .finish()
     }
 }
@@ -313,6 +319,7 @@ impl Peptide {
             s[1..n].reverse();
             pep.sequence = Arc::from(s.into_boxed_slice());
             pep.modifications[1..n].reverse();
+            pep.start_position = pep.prot
         }
         pep
     }
@@ -373,6 +380,8 @@ impl TryFrom<Digest> for Peptide {
             missed_cleavages: value.missed_cleavages,
             semi_enzymatic: value.semi_enzymatic,
             proteins: vec![value.protein],
+            start_position: value.start_position,
+            end_position: value.end_position,
         })
     }
 }

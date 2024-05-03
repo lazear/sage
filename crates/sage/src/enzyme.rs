@@ -23,6 +23,10 @@ pub struct Digest {
     pub missed_cleavages: u8,
     /// Is this an N-terminal peptide of the protein?
     pub position: Position,
+    /// What residue position does this start at (1-based inclusive)?
+    pub start_position: usize,
+    /// What residue position does this end at (1-based inclusive)?
+    pub end_position: usize
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
@@ -58,6 +62,8 @@ impl Digest {
             sequence: sequence.into_iter().collect(),
             missed_cleavages: self.missed_cleavages,
             position: self.position,
+            start_position: self.start_position,
+            end_position: self.end_position
         }
     }
 }
@@ -76,6 +82,7 @@ impl std::hash::Hash for Digest {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.sequence.hash(state);
         self.position.hash(state);
+        self.start_position.hash(state);
     }
 }
 
@@ -306,6 +313,8 @@ impl EnzymeParameters {
                     semi_enzymatic: site.semi_enzymatic,
                     position,
                     protein: protein.clone(),
+                    start_position: start + 1,
+                    end_position: end
                 });
             }
         }
@@ -330,6 +339,8 @@ mod test {
                 missed_cleavages: 0,
                 position: Position::Nterm,
                 protein: Arc::new(String::default()),
+                start_position: 1,
+                end_position: 6
             },
             Digest {
                 decoy: false,
@@ -338,6 +349,8 @@ mod test {
                 missed_cleavages: 0,
                 position: Position::Nterm,
                 protein: Arc::new(String::default()),
+                start_position: 1,
+                end_position: 6
             },
         ];
 
@@ -353,6 +366,8 @@ mod test {
                 missed_cleavages: 0,
                 position: Position::Nterm,
                 protein: Arc::new(String::default()),
+                start_position: 1,
+                end_position: 6
             },
             Digest {
                 decoy: false,
@@ -361,6 +376,8 @@ mod test {
                 missed_cleavages: 0,
                 position: Position::Internal,
                 protein: Arc::new(String::default()),
+                start_position: 7,
+                end_position: 12
             },
         ];
 
@@ -373,11 +390,11 @@ mod test {
     fn trypsin() {
         let sequence = "MADEEKLPPGWEKRMSRSSGRVYYFNHITNASQWERPSGN";
         let expected = vec![
-            ("MADEEK".into(), Position::Nterm),
-            ("LPPGWEK".into(), Position::Internal),
-            ("MSR".into(), Position::Internal),
-            ("SSGR".into(), Position::Internal),
-            ("VYYFNHITNASQWERPSGN".into(), Position::Cterm),
+            ("MADEEK".into(), Position::Nterm, 1, 6),
+            ("LPPGWEK".into(), Position::Internal, 7, 13),
+            ("MSR".into(), Position::Internal, 14, 16),
+            ("SSGR".into(), Position::Internal, 17, 20),
+            ("VYYFNHITNASQWERPSGN".into(), Position::Cterm, 21, 40),
         ];
 
         let tryp = EnzymeParameters {
@@ -391,7 +408,7 @@ mod test {
             expected,
             tryp.digest(sequence, Arc::default())
                 .into_iter()
-                .map(|d| (d.sequence, d.position))
+                .map(|d| (d.sequence, d.position, d.start_position, d.end_position))
                 .collect::<Vec<_>>()
         );
     }

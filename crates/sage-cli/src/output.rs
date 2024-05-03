@@ -30,6 +30,8 @@ impl Runner {
                 .format(peptide.proteins.len())
                 .as_bytes(),
         );
+        record.push_field(itoa::Buffer::new().format(peptide.start_position).as_bytes());
+        record.push_field(itoa::Buffer::new().format(peptide.end_position).as_bytes());
         record.push_field(filenames[feature.file_id].as_bytes());
         record.push_field(feature.spec_id.as_bytes());
         record.push_field(itoa::Buffer::new().format(feature.rank).as_bytes());
@@ -161,12 +163,14 @@ impl Runner {
             "peptide",
             "proteins",
             "num_proteins",
+            "start_positions",
+            "end_positions",
             "filename",
-            "scannr",
+            "scan",
             "rank",
             "label",
-            "expmass",
-            "calcmass",
+            "measured_mass",
+            "calculated_mass",
             "charge",
             "peptide_len",
             "missed_cleavages",
