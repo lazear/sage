@@ -1,7 +1,5 @@
 use sage_core::database::Builder;
-use sage_core::enzyme::Digest;
 use sage_core::mass::Tolerance;
-use sage_core::peptide::Peptide;
 use sage_core::scoring::Scorer;
 use sage_core::spectrum::SpectrumProcessor;
 

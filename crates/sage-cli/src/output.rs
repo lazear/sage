@@ -30,8 +30,8 @@ impl Runner {
                 .format(peptide.proteins.len())
                 .as_bytes(),
         );
-        record.push_field(itoa::Buffer::new().format(peptide.start_position).as_bytes());
-        record.push_field(itoa::Buffer::new().format(peptide.end_position).as_bytes());
+        record.push_field(peptide.start_position.iter().map(|&x| x.to_string()).collect::<Vec<String>>().join(";").as_bytes());
+        record.push_field(peptide.end_position.iter().map(|&x| x.to_string()).collect::<Vec<String>>().join(";").as_bytes());
         record.push_field(filenames[feature.file_id].as_bytes());
         record.push_field(feature.spec_id.as_bytes());
         record.push_field(itoa::Buffer::new().format(feature.rank).as_bytes());

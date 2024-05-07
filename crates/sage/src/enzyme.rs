@@ -18,15 +18,22 @@ pub struct Digest {
     /// Cleaved peptide sequence
     pub sequence: String,
     /// Protein accession
-    pub protein: Arc<String>,
+    pub protein: ProteinAssignment,
     /// Missed cleavages
     pub missed_cleavages: u8,
     /// Is this an N-terminal peptide of the protein?
     pub position: Position,
     /// What residue position does this start at (1-based inclusive)?
-    pub start_position: usize,
+    pub start_position: u32,
     /// What residue position does this end at (1-based inclusive)?
-    pub end_position: usize
+    pub end_position: u32
+}
+
+#[derive(Clone, PartialOrd, Ord, Debug, Default)]
+pub struct ProteinAssignment {
+    identifier: Arc<String>,
+    start_position: u32,
+    end_position: u32    
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
@@ -82,7 +89,6 @@ impl std::hash::Hash for Digest {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.sequence.hash(state);
         self.position.hash(state);
-        self.start_position.hash(state);
     }
 }
 
@@ -313,8 +319,8 @@ impl EnzymeParameters {
                     semi_enzymatic: site.semi_enzymatic,
                     position,
                     protein: protein.clone(),
-                    start_position: start + 1,
-                    end_position: end
+                    start_position: (start + 1) as u32,
+                    end_position: end as u32
                 });
             }
         }
