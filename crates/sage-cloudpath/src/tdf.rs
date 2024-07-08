@@ -1,5 +1,8 @@
 use rayon::prelude::*;
-use sage_core::spectrum::{Precursor, RawSpectrum, Representation};
+use sage_core::{
+    mass::Tolerance,
+    spectrum::{Precursor, RawSpectrum, Representation},
+};
 
 pub struct TdfReader;
 
@@ -9,21 +12,28 @@ impl TdfReader {
         path_name: impl AsRef<str>,
         file_id: usize,
     ) -> Result<Vec<RawSpectrum>, timsrust::Error> {
-        let dda_spectra: Vec<timsrust::Spectrum> =
-            timsrust::FileReader::new(path_name.as_ref())?.read_all_spectra();
-        let spectra: Vec<RawSpectrum> = (0..dda_spectra.len())
+        let spectrum_reader = timsrust::io::readers::SpectrumReader::new(path_name.as_ref());
+        let spectra: Vec<RawSpectrum> = (0..spectrum_reader.len())
             .into_par_iter()
             .map(|index| {
-                let dda_spectrum = &dda_spectra[index];
+                let dda_spectrum = spectrum_reader.get(index);
                 let mut precursor: Precursor = Precursor::default();
-                let dda_precursor: timsrust::Precursor =
-                    dda_spectrum.precursor.unwrap_as_precursor();
+                let dda_precursor: timsrust::ms_data::Precursor = dda_spectrum.precursor;
                 precursor.mz = dda_precursor.mz as f32;
-                precursor.charge = Option::from(dda_precursor.charge as u8);
-                // precursor.ion_mobility = Option::from(dda_precursor.im as f32);
-                precursor.intensity = Option::from(dda_precursor.intensity as f32);
+                precursor.charge = match dda_precursor.charge {
+                    Some(x) => Some(x as u8),
+                    None => None,
+                };
+                precursor.intensity = match dda_precursor.intensity {
+                    Some(x) => Some(x as f32),
+                    None => None,
+                };
                 precursor.spectrum_ref = Option::from(dda_precursor.frame_index.to_string());
                 precursor.inverse_ion_mobility = Option::from(dda_precursor.im as f32);
+                precursor.isolation_window = Option::from(Tolerance::Da(
+                    -dda_spectrum.isolation_width as f32 / 2.0,
+                    dda_spectrum.isolation_width as f32 / 2.0,
+                ));
                 let spectrum: RawSpectrum = RawSpectrum {
                     file_id,
                     precursors: vec![precursor],

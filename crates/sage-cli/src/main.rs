@@ -203,7 +203,7 @@ impl Runner {
             min_deisotope_mz.unwrap_or(0.0),
         );
 
-        let bruker_extensions = [".d", ".tdf", ".tdf_bin"];
+        let bruker_extensions = [".d", ".tdf", ".tdf_bin", "ms2", "raw"];
         let spectra = chunk
             .par_iter()
             .enumerate()
@@ -213,10 +213,16 @@ impl Runner {
                 let path_lower = path.to_lowercase();
                 let res = if path_lower.ends_with(".mgf.gz") || path_lower.ends_with(".mgf") {
                     sage_cloudpath::util::read_mgf(path, file_id)
-                } else if bruker_extensions
-                    .iter()
-                    .any(|ext| path_lower.ends_with(ext))
-                {
+                } else if bruker_extensions.iter().any(|ext| {
+                    if path_lower.ends_with(std::path::MAIN_SEPARATOR) {
+                        path_lower
+                            .strip_suffix(std::path::MAIN_SEPARATOR)
+                            .unwrap()
+                            .ends_with(ext)
+                    } else {
+                        path_lower.ends_with(ext)
+                    }
+                }) {
                     sage_cloudpath::util::read_tdf(path, file_id)
                 } else {
                     sage_cloudpath::util::read_mzml(path, file_id, sn)
