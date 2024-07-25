@@ -8,26 +8,10 @@ use serde::Serialize;
 use std::ops::AddAssign;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-#[derive(Copy, Clone, Debug, Serialize)]
+#[derive(Copy, Clone, Debug)]
 pub enum ScoreType {
     SageHyperScore,
     OpenMSHyperScore,
-}
-
-impl ScoreType {
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "sage_hyperscore" => ScoreType::SageHyperScore,
-            "openms_hyperscore" => ScoreType::OpenMSHyperScore,
-            _ => panic!("unknown score type."),
-        }
-    }
-    pub fn to_str(&self) -> &str {
-        match self {
-            ScoreType::SageHyperScore => "SageHyperscore",
-            ScoreType::OpenMSHyperScore => "OpenMSHyperscore",
-        }
-    }
 }
 
 /// Structure to hold temporary scores
