@@ -75,7 +75,7 @@ pub struct Builder {
     /// Static modifications to add to matching amino acids
     pub static_mods: Option<HashMap<String, f32>>,
     /// Variable modifications to add to matching amino acids
-    pub variable_mods: Option<HashMap<String, crate::modification::ValueOrVec>>,
+    pub variable_mods: Option<HashMap<String, Vec<f32>>>,
     /// Limit number of variable modifications on a peptide
     pub max_variable_mods: Option<usize>,
     /// Use this prefix for decoy proteins
