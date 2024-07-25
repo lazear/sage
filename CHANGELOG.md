@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [v0.15.0-alpha] (unreleased)
 ### Added
 - Initial support for searching diaPASEF data
+- `override_precursor_charge` setting that forces multiple charge states to be searched
 ### Breaking Changes
 - `precursor_ppm` field reports the non-absoluted average mass error, rather than the absoluted average mass error.
 - Don't deisotope reporter ion regions if MS2-based TMT/iTRAQ is used

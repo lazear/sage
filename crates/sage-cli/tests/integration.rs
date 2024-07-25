@@ -26,6 +26,7 @@ fn integration() -> anyhow::Result<()> {
         max_isotope_err: 3,
         min_precursor_charge: 2,
         max_precursor_charge: 4,
+        override_precursor_charge: false,
         max_fragment_charge: Some(1),
         chimera: false,
         report_psms: 1,

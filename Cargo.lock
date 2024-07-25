@@ -2259,7 +2259,7 @@ checksum = "f3cb5ba0dc43242ce17de99c180e96db90b235b8a9fdc9543c96d2209116bd9f"
 
 [[package]]
 name = "sage-cli"
-version = "0.14.7"
+version = "0.15.0-alpha"
 dependencies = [
  "anyhow",
  "clap",

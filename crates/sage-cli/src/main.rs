@@ -262,6 +262,7 @@ impl Runner {
             max_isotope_err: self.parameters.isotope_errors.1,
             min_precursor_charge: self.parameters.precursor_charge.0,
             max_precursor_charge: self.parameters.precursor_charge.1,
+            override_precursor_charge: self.parameters.override_precursor_charge,
             max_fragment_charge: self.parameters.max_fragment_charge,
             chimera: self.parameters.chimera,
             report_psms: self.parameters.report_psms,

@@ -182,6 +182,7 @@ pub struct Scorer<'db> {
     pub max_isotope_err: i8,
     pub min_precursor_charge: u8,
     pub max_precursor_charge: u8,
+    pub override_precursor_charge: bool,
     pub max_fragment_charge: Option<u8>,
     pub chimera: bool,
     pub report_psms: usize,
@@ -346,12 +347,14 @@ impl<'db> Scorer<'db> {
             );
             self.trim_hits(&mut hits);
             hits
-        } else if let Some(charge) = precursor.charge {
+        } else if precursor.charge.is_some() && self.override_precursor_charge == false {
+            let charge = precursor.charge.unwrap();
             // Charge state is already annotated for this precusor, only search once
             let precursor_mass = mz * charge as f32;
             self.matched_peaks(query, precursor_mass, charge, self.precursor_tol)
         } else {
-            // Not all selected ion precursors have charge states annotated -
+            // Not all selected ion precursors have charge states annotated (or user has set
+            // `override_precursor_charge`)
             // assume it could be z=2, z=3, z=4 and search all three
             let mut hits = (self.min_precursor_charge..=self.max_precursor_charge).fold(
                 InitialHits::default(),
