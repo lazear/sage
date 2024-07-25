@@ -12,15 +12,15 @@ impl Eq for Peak {}
 
 impl PartialOrd for Peak {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.intensity
-            .partial_cmp(&other.intensity)
-            .or_else(|| self.mass.partial_cmp(&other.mass))
+        Some(self.cmp(other))
     }
 }
 
 impl Ord for Peak {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.partial_cmp(other).unwrap_or(std::cmp::Ordering::Equal)
+        self.intensity
+            .total_cmp(&other.intensity)
+            .then_with(|| self.mass.total_cmp(&other.mass))
     }
 }
 
@@ -241,14 +241,14 @@ pub fn path_compression(peaks: &mut [Deisotoped]) {
 
 impl ProcessedSpectrum {
     pub fn extract_ms1_precursor(&self) -> Option<(f32, u8)> {
-        let precursor = self.precursors.get(0)?;
+        let precursor = self.precursors.first()?;
         let charge = precursor.charge?;
         let mass = (precursor.mz - PROTON) * charge as f32;
         Some((mass, charge))
     }
 
     pub fn in_isolation_window(&self, mz: f32) -> Option<bool> {
-        let precursor = self.precursors.get(0)?;
+        let precursor = self.precursors.first()?;
         let (lo, hi) = precursor.isolation_window?.bounds(precursor.mz - PROTON);
         Some(mz >= lo && mz <= hi)
     }
@@ -290,7 +290,7 @@ impl SpectrumProcessor {
         // If there is no precursor charge from the mzML file, then deisotope fragments up to z=3
         let charge = spectrum
             .precursors
-            .get(0)
+            .first()
             .and_then(|p| p.charge)
             .unwrap_or(3);
 

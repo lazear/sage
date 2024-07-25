@@ -261,25 +261,6 @@ impl FeatureMap {
                 let mut traces = grid.summarize_traces();
                 let (peak, data) = traces.integrate(&self.settings)?;
 
-                #[cfg(debug)]
-                {
-                    let writer =
-                        std::fs::File::create(format!("dotp/{}.json", db[peptide_ix])).unwrap();
-                    let writer = std::io::BufWriter::new(writer);
-                    serde_json::to_writer_pretty(
-                        writer,
-                        &serde_json::json!({
-                            "dist": &grid.distribution,
-                            "data": &data,
-                            "cosine": &traces.spectral_angle.data,
-                            "dotp": &traces.dot_product.data,
-                            "left": traces.left,
-                            "right": traces.right,
-                        }),
-                    )
-                    .unwrap();
-                }
-
                 Some((peptide_ix, (peak, data)))
             })
             .collect::<HashMap<_, _, _>>()

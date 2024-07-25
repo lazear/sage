@@ -375,7 +375,7 @@ impl<'db> Scorer<'db> {
 
     /// Score a single [`ProcessedSpectrum`] against the database
     pub fn score_standard(&self, query: &ProcessedSpectrum) -> Vec<Feature> {
-        let precursor = query.precursors.get(0).unwrap_or_else(|| {
+        let precursor = query.precursors.first().unwrap_or_else(|| {
             panic!("missing MS1 precursor for {}", query.id);
         });
 
@@ -427,7 +427,7 @@ impl<'db> Scorer<'db> {
                 .unwrap_or_default();
 
             let best = score_vector
-                .get(0)
+                .first()
                 .map(|score| score.0.hyperscore)
                 .expect("we know that index 0 is valid");
 
@@ -461,7 +461,7 @@ impl<'db> Scorer<'db> {
                 rt: query.scan_start_time,
                 ims: query
                     .precursors
-                    .get(0)
+                    .first()
                     .unwrap()
                     .inverse_ion_mobility
                     .unwrap_or(0.0),
@@ -539,7 +539,7 @@ impl<'db> Scorer<'db> {
     /// Return multiple PSMs for each spectra - first is the best match, second PSM is the best match
     /// after all theoretical peaks assigned to the best match are removed, etc
     pub fn score_chimera_fast(&self, query: &ProcessedSpectrum) -> Vec<Feature> {
-        let precursor = query.precursors.get(0).unwrap_or_else(|| {
+        let precursor = query.precursors.first().unwrap_or_else(|| {
             panic!("missing MS1 precursor for {}", query.id);
         });
 
