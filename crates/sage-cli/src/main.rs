@@ -6,7 +6,7 @@ use rayon::prelude::*;
 use sage_cloudpath::CloudPath;
 use sage_core::database::IndexedDatabase;
 use sage_core::mass::Tolerance;
-use sage_core::scoring::{Feature, Scorer};
+use sage_core::scoring::{Feature, Scorer, ScoreType};
 use sage_core::spectrum::{ProcessedSpectrum, SpectrumProcessor};
 use sage_core::tmt::TmtQuant;
 use std::time::Instant;
@@ -272,6 +272,7 @@ impl Runner {
             report_psms: self.parameters.report_psms,
             wide_window: self.parameters.wide_window,
             annotate_matches: self.parameters.annotate_matches,
+            score_type: ScoreType::SageHyperScore,
         };
 
         //Collect all results into a single container

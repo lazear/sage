@@ -1,6 +1,6 @@
 use sage_core::database::Builder;
 use sage_core::mass::Tolerance;
-use sage_core::scoring::Scorer;
+use sage_core::scoring::{Scorer, ScoreType};
 use sage_core::spectrum::SpectrumProcessor;
 
 #[test]
@@ -32,6 +32,7 @@ fn integration() -> anyhow::Result<()> {
         report_psms: 1,
         wide_window: false,
         annotate_matches: false,
+        score_type: ScoreType::SageHyperScore,
     };
 
     let psm = scorer.score(&processed);
