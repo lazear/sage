@@ -439,7 +439,7 @@ impl<'db> Scorer<'db> {
             }
 
             let isotope_error = score.isotope_error as f32 * NEUTRON;
-            let delta_mass = (precursor_mass - peptide.monoisotopic - isotope_error).abs() * 2E6
+            let delta_mass = (precursor_mass - peptide.monoisotopic - isotope_error) * 2E6
                 / (precursor_mass - isotope_error + peptide.monoisotopic);
 
             // let (num_proteins, proteins) = self.db.assign_proteins(peptide);
