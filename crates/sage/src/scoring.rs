@@ -183,8 +183,6 @@ pub struct Scorer<'db> {
     pub min_precursor_charge: u8,
     pub max_precursor_charge: u8,
     pub max_fragment_charge: Option<u8>,
-    pub min_fragment_mass: f32,
-    pub max_fragment_mass: f32,
     pub chimera: bool,
     pub report_psms: usize,
 
@@ -270,8 +268,7 @@ impl<'db> Scorer<'db> {
 
         for peak in query.peaks.iter() {
             for charge in 1..max_fragment_charge {
-                let mass = peak.mass * charge as f32;
-                for frag in candidates.page_search(mass) {
+                for frag in candidates.page_search(peak.mass, charge) {
                     let idx = frag.peptide_index.0 as usize - candidates.pre_idx_lo;
                     let sc = &mut hits.preliminary[idx];
                     if sc.matched == 0 {
@@ -280,6 +277,7 @@ impl<'db> Scorer<'db> {
                         sc.peptide = frag.peptide_index;
                         sc.isotope_error = isotope_error;
                     }
+
                     sc.matched += 1;
                     hits.matched_peaks += 1;
                 }
@@ -598,6 +596,7 @@ impl<'db> Scorer<'db> {
             for charge in 1..max_fragment_charge {
                 // Experimental peaks are multipled by charge, therefore theoretical are divided
                 let mz = frag.monoisotopic_mass / charge as f32;
+
                 if let Some(peak) = crate::spectrum::select_most_intense_peak(
                     &query.peaks,
                     mz,

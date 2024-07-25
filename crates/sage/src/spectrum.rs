@@ -39,8 +39,6 @@ pub struct Deisotoped {
 #[derive(Debug, Clone)]
 pub struct SpectrumProcessor {
     pub take_top_n: usize,
-    pub max_fragment_mz: f32,
-    pub min_fragment_mz: f32,
     pub min_deisotope_mz: f32,
     pub deisotope: bool,
 }
@@ -262,17 +260,9 @@ impl SpectrumProcessor {
     /// * `min_fragment_mz`: Keep only fragments >= this m/z
     /// * `max_fragment_mz`: Keep only fragments <= this m/z
     /// * `deisotope`: Perform deisotoping & charge state deconvolution
-    pub fn new(
-        take_top_n: usize,
-        min_fragment_mz: f32,
-        max_fragment_mz: f32,
-        deisotope: bool,
-        min_deisotope_mz: f32,
-    ) -> Self {
+    pub fn new(take_top_n: usize, deisotope: bool, min_deisotope_mz: f32) -> Self {
         Self {
             take_top_n,
-            min_fragment_mz,
-            max_fragment_mz,
             min_deisotope_mz,
             deisotope,
         }
@@ -310,11 +300,7 @@ impl SpectrumProcessor {
 
             peaks
                 .into_iter()
-                .filter(|peak| {
-                    peak.envelope.is_none()
-                        && peak.mz >= self.min_fragment_mz
-                        && peak.mz <= self.max_fragment_mz
-                })
+                .filter(|peak| peak.envelope.is_none())
                 .map(|peak| {
                     // Convert from MH* to M
                     let mass = (peak.mz - PROTON) * peak.charge.unwrap_or(1) as f32;
@@ -330,7 +316,6 @@ impl SpectrumProcessor {
                 .mz
                 .iter()
                 .zip(spectrum.intensity.iter())
-                .filter(|&(mz, _)| *mz >= self.min_fragment_mz && *mz <= self.max_fragment_mz)
                 .map(|(mz, &intensity)| {
                     let mass = (mz - PROTON) * 1.0;
                     Peak { mass, intensity }

@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.15.0-alpha] (unreleased)
+### Added
+- Initial support for searching diaPASEF data
+### Changed
+- Don't deisotope reporter ion regions if MS2-based TMT/iTRAQ is used
+- Removed `fragment_min_mz` and `fragment_max_mz` parameters. These were decreasing the accuracy of preliminary scoring estimation when attempting to annotate multiply-charged, high-m/z ions.
+
 ## [v0.14.7]
 ### Added
 - Added columns missing from parquet output: `semi_enzymatic` and `missed_cleavages`
