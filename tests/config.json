@@ -38,5 +38,5 @@
     "mzml_paths": [
         "tests/LQSRPAAPPAPGPGQLTLR.mzML"
     ],
-    "score_type": "sage_hyperscore"
+    "score_type": "SageHyperScore"
 }
