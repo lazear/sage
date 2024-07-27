@@ -189,10 +189,7 @@ impl ScoreType {
 impl Score {
     /// Calculate the hyperscore for a given PSM choosing between implementations based on `score_type`
     fn hyperscore(&self, score_type: ScoreType) -> f64 {
-        match score_type {
-            ScoreType::SageHyperScore =>  ScoreType::SageHyperScore.score(self.matched_b, self.matched_y, self.summed_b, self.summed_y),
-            ScoreType::OpenMSHyperScore => ScoreType::OpenMSHyperScore.score(self.matched_b, self.matched_y, self.summed_b, self.summed_y),
-        }
+        score_type.score(self.matched_b, self.matched_y, self.summed_b, self.summed_y)
     }
 }
 
