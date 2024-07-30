@@ -8,6 +8,7 @@ use sage_core::{
     tmt::Isobaric,
 };
 use serde::{Deserialize, Serialize};
+use sage_core::scoring::ScoreType;
 
 #[derive(Serialize)]
 /// Actual search parameters - may include overrides or default values not set by user
@@ -40,6 +41,8 @@ pub struct Search {
 
     #[serde(skip_serializing)]
     pub annotate_matches: bool,
+
+    pub score_type: ScoreType,
 }
 
 #[derive(Deserialize)]
@@ -66,6 +69,7 @@ pub struct Input {
 
     annotate_matches: Option<bool>,
     write_pin: Option<bool>,
+    score_type: Option<ScoreType>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -285,6 +289,8 @@ impl Input {
             None => CloudPath::Local(std::env::current_dir()?),
         };
 
+        let score_type = self.score_type.unwrap_or(ScoreType::SageHyperScore);
+
         Ok(Search {
             version: clap::crate_version!().into(),
             database,
@@ -308,6 +314,7 @@ impl Input {
             predict_rt: self.predict_rt.unwrap_or(true),
             output_paths: Vec::new(),
             write_pin: self.write_pin.unwrap_or(false),
+            score_type,
         })
     }
 }

@@ -268,6 +268,7 @@ impl Runner {
             report_psms: self.parameters.report_psms,
             wide_window: self.parameters.wide_window,
             annotate_matches: self.parameters.annotate_matches,
+            score_type: self.parameters.score_type,
         };
 
         //Collect all results into a single container

@@ -3,9 +3,15 @@ use crate::heap::bounded_min_heapify;
 use crate::ion_series::{IonSeries, Kind};
 use crate::mass::{Tolerance, NEUTRON, PROTON};
 use crate::spectrum::{Precursor, ProcessedSpectrum};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::ops::AddAssign;
 use std::sync::atomic::{AtomicUsize, Ordering};
+
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+pub enum ScoreType {
+    SageHyperScore,
+    OpenMSHyperScore,
+}
 
 /// Structure to hold temporary scores
 #[derive(Copy, Clone, Default, Debug)]
@@ -156,17 +162,34 @@ fn lnfact(n: u16) -> f64 {
     }
 }
 
-impl Score {
-    /// Calculate the X!Tandem hyperscore
-    /// * `fact_table` is a precomputed vector of factorials
-    fn hyperscore(&self) -> f64 {
-        let i = (self.summed_b + 1.0) as f64 * (self.summed_y + 1.0) as f64;
-        let score = i.ln() + lnfact(self.matched_b) + lnfact(self.matched_y);
+impl ScoreType {
+    pub fn score(&self, matched_b: u16, matched_y: u16, summed_b: f32, summed_y: f32) -> f64 {
+        let score = match self {
+            // Calculate the X!Tandem hyperscore
+            Self::SageHyperScore => {
+                let i = (summed_b + 1.0) as f64 * (summed_y + 1.0) as f64;
+                let score = i.ln() + lnfact(matched_b) + lnfact(matched_y);
+                score
+            }
+            // Calculate the OpenMS flavour hyperscore
+            Self::OpenMSHyperScore => {
+                let summed_intensity = summed_b + summed_y;
+                let score = summed_intensity.ln_1p() as f64 + lnfact(matched_b) + lnfact(matched_y);
+                score
+            }
+        };
         if score.is_finite() {
             score
         } else {
             255.0
         }
+    }
+}
+
+impl Score {
+    /// Calculate the hyperscore for a given PSM choosing between implementations based on `score_type`
+    fn hyperscore(&self, score_type: ScoreType) -> f64 {
+        score_type.score(self.matched_b, self.matched_y, self.summed_b, self.summed_y)
     }
 }
 
@@ -191,6 +214,7 @@ pub struct Scorer<'db> {
     // the precursor tolerance window based on MS2 isolation window and charge
     pub wide_window: bool,
     pub annotate_matches: bool,
+    pub score_type: ScoreType,
 }
 
 #[inline(always)]
@@ -643,7 +667,7 @@ impl<'db> Scorer<'db> {
             }
         }
 
-        score.hyperscore = score.hyperscore();
+        score.hyperscore = score.hyperscore(self.score_type);
         score.longest_b = b_run.longest;
         score.longest_y = y_run.longest;
         score.ppm_difference /= score.summed_b + score.summed_y;
