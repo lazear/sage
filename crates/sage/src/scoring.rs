@@ -2,7 +2,7 @@ use crate::database::{IndexedDatabase, PeptideIx};
 use crate::heap::bounded_min_heapify;
 use crate::ion_series::{IonSeries, Kind};
 use crate::mass::{Tolerance, NEUTRON, PROTON};
-use crate::spectrum::{Precursor, ProcessedSpectrum};
+use crate::spectrum::{BrukerSpectrumProcessor, Precursor, ProcessedSpectrum};
 use serde::Serialize;
 use std::ops::AddAssign;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -191,6 +191,7 @@ pub struct Scorer<'db> {
     // the precursor tolerance window based on MS2 isolation window and charge
     pub wide_window: bool,
     pub annotate_matches: bool,
+    pub bruker_spectrum_processor: BrukerSpectrumProcessor,
 }
 
 #[inline(always)]

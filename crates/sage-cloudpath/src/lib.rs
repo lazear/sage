@@ -282,7 +282,7 @@ pub enum Error {
     #[error("MzML error: {0}")]
     MzML(#[from] mzml::MzMLError),
     #[error("TDF error: {0}")]
-    TDF(#[from] timsrust::Error),
+    TDF(#[from] timsrust::TimsRustError),
     #[error("MGF error: {0}")]
     MGF(#[from] mgf::MgfError),
 }
