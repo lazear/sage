@@ -1,7 +1,7 @@
 use sage_core::database::Builder;
 use sage_core::mass::Tolerance;
 use sage_core::scoring::Scorer;
-use sage_core::spectrum::SpectrumProcessor;
+use sage_core::spectrum::{BrukerSpectrumProcessor, SpectrumProcessor};
 
 #[test]
 fn integration() -> anyhow::Result<()> {
@@ -32,6 +32,7 @@ fn integration() -> anyhow::Result<()> {
         report_psms: 1,
         wide_window: false,
         annotate_matches: false,
+        bruker_spectrum_processor: BrukerSpectrumProcessor::default(),
     };
 
     let psm = scorer.score(&processed);

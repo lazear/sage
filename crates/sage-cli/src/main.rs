@@ -218,7 +218,7 @@ impl Runner {
                         path_lower.ends_with(ext)
                     }
                 }) {
-                    sage_cloudpath::util::read_tdf(path, file_id)
+                    sage_cloudpath::util::read_tdf(path, file_id, scorer.bruker_spectrum_processor)
                 } else {
                     sage_cloudpath::util::read_mzml(path, file_id, sn)
                 };
@@ -268,6 +268,7 @@ impl Runner {
             report_psms: self.parameters.report_psms,
             wide_window: self.parameters.wide_window,
             annotate_matches: self.parameters.annotate_matches,
+            bruker_spectrum_processor: self.parameters.bruker_spectrum_processor,
         };
 
         //Collect all results into a single container

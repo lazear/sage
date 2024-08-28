@@ -5,6 +5,7 @@ use sage_core::{
     database::{Builder, Parameters},
     lfq::LfqSettings,
     mass::Tolerance,
+    spectrum::BrukerSpectrumProcessor,
     tmt::Isobaric,
 };
 use serde::{Deserialize, Serialize};
@@ -31,6 +32,7 @@ pub struct Search {
     pub predict_rt: bool,
     pub mzml_paths: Vec<String>,
     pub output_paths: Vec<String>,
+    pub bruker_spectrum_processor: BrukerSpectrumProcessor,
 
     #[serde(skip_serializing)]
     pub output_directory: CloudPath,
@@ -63,6 +65,7 @@ pub struct Input {
     predict_rt: Option<bool>,
     output_directory: Option<String>,
     mzml_paths: Option<Vec<String>>,
+    bruker_spectrum_processor: Option<BrukerSpectrumProcessor>,
 
     annotate_matches: Option<bool>,
     write_pin: Option<bool>,
@@ -308,6 +311,7 @@ impl Input {
             predict_rt: self.predict_rt.unwrap_or(true),
             output_paths: Vec::new(),
             write_pin: self.write_pin.unwrap_or(false),
+            bruker_spectrum_processor: self.bruker_spectrum_processor.unwrap_or_default(),
         })
     }
 }
