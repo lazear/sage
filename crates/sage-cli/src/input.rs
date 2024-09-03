@@ -1,11 +1,10 @@
 use anyhow::{ensure, Context};
 use clap::ArgMatches;
-use sage_cloudpath::CloudPath;
+use sage_cloudpath::{tdf::BrukerSpectrumProcessor, CloudPath};
 use sage_core::{
     database::{Builder, Parameters},
     lfq::LfqSettings,
     mass::Tolerance,
-    spectrum::BrukerSpectrumProcessor,
     tmt::Isobaric,
 };
 use serde::{Deserialize, Serialize};
