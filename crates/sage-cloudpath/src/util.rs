@@ -1,5 +1,5 @@
-use crate::{read_and_execute, Error};
-use sage_core::spectrum::{BrukerSpectrumProcessor, RawSpectrum};
+use crate::{read_and_execute, tdf::BrukerSpectrumProcessor, Error};
+use sage_core::spectrum::RawSpectrum;
 use serde::Serialize;
 use tokio::io::AsyncReadExt;
 

@@ -1,5 +1,3 @@
-use serde::{Deserialize, Serialize};
-
 use crate::database::binary_search_slice;
 use crate::mass::{Tolerance, NEUTRON, PROTON};
 
@@ -357,32 +355,6 @@ impl SpectrumProcessor {
             total_ion_current,
         }
     }
-}
-
-#[derive(Clone, Copy, Serialize, Deserialize, Default)]
-pub struct BrukerSpectrumProcessor {
-    pub smoothing_window: Option<u32>,
-    pub centroiding_window: Option<u32>,
-    pub calibration_tolerance: Option<f64>,
-    pub calibrate: Option<bool>,
-    pub dia_strategy: Option<FrameWindowSplittingStrategy>,
-}
-
-type ScanSpanStep = (usize, usize);
-type MobilitySpanStep = (f64, f64);
-
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
-pub enum QuadWindowExpansionStrategy {
-    None,
-    Even(usize),
-    UniformMobility(MobilitySpanStep),
-    UniformScan(ScanSpanStep),
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub enum FrameWindowSplittingStrategy {
-    Quadrupole(QuadWindowExpansionStrategy),
-    Window(QuadWindowExpansionStrategy),
 }
 
 #[cfg(test)]

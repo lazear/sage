@@ -1,11 +1,10 @@
 use rayon::prelude::*;
 use sage_core::{
     mass::Tolerance,
-    spectrum::{
-        BrukerSpectrumProcessor, FrameWindowSplittingStrategy, QuadWindowExpansionStrategy,
-    },
     spectrum::{Precursor, RawSpectrum, Representation},
 };
+use serde::{Deserialize, Serialize};
+use timsrust::readers::SpectrumReaderConfig;
 
 pub struct TdfReader;
 
@@ -18,9 +17,7 @@ impl TdfReader {
     ) -> Result<Vec<RawSpectrum>, timsrust::TimsRustError> {
         let spectrum_reader = timsrust::readers::SpectrumReader::build()
             .with_path(path_name.as_ref())
-            .with_config(Self::parse_bruker_spectrum_config(
-                bruker_spectrum_processor,
-            ))
+            .with_config(bruker_spectrum_processor.spectrum_reader_config)
             .finalize()?;
         let spectra: Vec<RawSpectrum> = (0..spectrum_reader.len())
             .into_par_iter()
@@ -69,67 +66,9 @@ impl TdfReader {
         precursor.inverse_ion_mobility = Option::from(dda_precursor.im as f32);
         precursor
     }
+}
 
-    fn parse_bruker_spectrum_config(
-        config: BrukerSpectrumProcessor,
-    ) -> timsrust::readers::SpectrumReaderConfig {
-        let mut spectrum_processing_params = timsrust::readers::SpectrumProcessingParams::default();
-        if let Some(smoothing_window) = config.smoothing_window {
-            spectrum_processing_params.smoothing_window = smoothing_window;
-        }
-        if let Some(centroiding_window) = config.centroiding_window {
-            spectrum_processing_params.centroiding_window = centroiding_window;
-        }
-        if let Some(calibration_tolerance) = config.calibration_tolerance {
-            spectrum_processing_params.calibration_tolerance = calibration_tolerance;
-        }
-        if let Some(calibrate) = config.calibrate {
-            spectrum_processing_params.calibrate = calibrate;
-        }
-        let frame_splitting_params: timsrust::readers::FrameWindowSplittingConfiguration;
-        if let Some(dia_strategy) = config.dia_strategy {
-            frame_splitting_params = match dia_strategy {
-                FrameWindowSplittingStrategy::Quadrupole(q) => {
-                    timsrust::readers::FrameWindowSplittingConfiguration::Quadrupole(match q {
-                        QuadWindowExpansionStrategy::None => {
-                            timsrust::readers::QuadWindowExpansionStrategy::None
-                        }
-                        QuadWindowExpansionStrategy::Even(n) => {
-                            timsrust::readers::QuadWindowExpansionStrategy::Even(n)
-                        }
-                        QuadWindowExpansionStrategy::UniformScan(x) => {
-                            timsrust::readers::QuadWindowExpansionStrategy::UniformScan(x)
-                        }
-                        QuadWindowExpansionStrategy::UniformMobility(x) => {
-                            timsrust::readers::QuadWindowExpansionStrategy::UniformMobility(x, None)
-                        }
-                    })
-                }
-                FrameWindowSplittingStrategy::Window(q) => {
-                    timsrust::readers::FrameWindowSplittingConfiguration::Window(match q {
-                        QuadWindowExpansionStrategy::None => {
-                            timsrust::readers::QuadWindowExpansionStrategy::None
-                        }
-
-                        QuadWindowExpansionStrategy::Even(n) => {
-                            timsrust::readers::QuadWindowExpansionStrategy::Even(n)
-                        }
-
-                        QuadWindowExpansionStrategy::UniformScan(x) => {
-                            timsrust::readers::QuadWindowExpansionStrategy::UniformScan(x)
-                        }
-                        QuadWindowExpansionStrategy::UniformMobility(x) => {
-                            timsrust::readers::QuadWindowExpansionStrategy::UniformMobility(x, None)
-                        }
-                    })
-                }
-            };
-        } else {
-            frame_splitting_params = timsrust::readers::FrameWindowSplittingConfiguration::default()
-        }
-        timsrust::readers::SpectrumReaderConfig {
-            spectrum_processing_params,
-            frame_splitting_params,
-        }
-    }
+#[derive(Clone, Copy, Serialize, Deserialize, Default)]
+pub struct BrukerSpectrumProcessor {
+    pub spectrum_reader_config: SpectrumReaderConfig,
 }
