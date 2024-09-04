@@ -3,8 +3,7 @@ use sage_core::{
     mass::Tolerance,
     spectrum::{Precursor, RawSpectrum, Representation},
 };
-use serde::{Deserialize, Serialize};
-use timsrust::readers::SpectrumReaderConfig;
+pub use timsrust::readers::SpectrumReaderConfig as BrukerSpectrumProcessor;
 
 pub struct TdfReader;
 
@@ -17,7 +16,7 @@ impl TdfReader {
     ) -> Result<Vec<RawSpectrum>, timsrust::TimsRustError> {
         let spectrum_reader = timsrust::readers::SpectrumReader::build()
             .with_path(path_name.as_ref())
-            .with_config(bruker_spectrum_processor.spectrum_reader_config)
+            .with_config(bruker_spectrum_processor)
             .finalize()?;
         let spectra: Vec<RawSpectrum> = (0..spectrum_reader.len())
             .into_par_iter()
@@ -66,9 +65,4 @@ impl TdfReader {
         precursor.inverse_ion_mobility = Option::from(dda_precursor.im as f32);
         precursor
     }
-}
-
-#[derive(Clone, Copy, Serialize, Deserialize, Default)]
-pub struct BrukerSpectrumProcessor {
-    pub spectrum_reader_config: SpectrumReaderConfig,
 }
