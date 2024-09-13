@@ -9,7 +9,7 @@ use sage_core::{
 };
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 /// Actual search parameters - may include overrides or default values not set by user
 pub struct Search {
     pub version: String,
@@ -144,7 +144,7 @@ pub struct QuantOptions {
     pub lfq_options: Option<LfqOptions>,
 }
 
-#[derive(Serialize, Default)]
+#[derive(Serialize, Default, Clone)]
 pub struct QuantSettings {
     pub tmt: Option<Isobaric>,
     pub tmt_settings: TmtSettings,
