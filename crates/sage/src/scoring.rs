@@ -182,9 +182,8 @@ pub struct Scorer<'db> {
     pub max_isotope_err: i8,
     pub min_precursor_charge: u8,
     pub max_precursor_charge: u8,
+    pub override_precursor_charge: bool,
     pub max_fragment_charge: Option<u8>,
-    pub min_fragment_mass: f32,
-    pub max_fragment_mass: f32,
     pub chimera: bool,
     pub report_psms: usize,
 
@@ -270,8 +269,7 @@ impl<'db> Scorer<'db> {
 
         for peak in query.peaks.iter() {
             for charge in 1..max_fragment_charge {
-                let mass = peak.mass * charge as f32;
-                for frag in candidates.page_search(mass) {
+                for frag in candidates.page_search(peak.mass, charge) {
                     let idx = frag.peptide_index.0 as usize - candidates.pre_idx_lo;
                     let sc = &mut hits.preliminary[idx];
                     if sc.matched == 0 {
@@ -280,6 +278,7 @@ impl<'db> Scorer<'db> {
                         sc.peptide = frag.peptide_index;
                         sc.isotope_error = isotope_error;
                     }
+
                     sc.matched += 1;
                     hits.matched_peaks += 1;
                 }
@@ -348,12 +347,14 @@ impl<'db> Scorer<'db> {
             );
             self.trim_hits(&mut hits);
             hits
-        } else if let Some(charge) = precursor.charge {
+        } else if precursor.charge.is_some() && self.override_precursor_charge == false {
+            let charge = precursor.charge.unwrap();
             // Charge state is already annotated for this precusor, only search once
             let precursor_mass = mz * charge as f32;
             self.matched_peaks(query, precursor_mass, charge, self.precursor_tol)
         } else {
-            // Not all selected ion precursors have charge states annotated -
+            // Not all selected ion precursors have charge states annotated (or user has set
+            // `override_precursor_charge`)
             // assume it could be z=2, z=3, z=4 and search all three
             let mut hits = (self.min_precursor_charge..=self.max_precursor_charge).fold(
                 InitialHits::default(),
@@ -375,7 +376,7 @@ impl<'db> Scorer<'db> {
 
     /// Score a single [`ProcessedSpectrum`] against the database
     pub fn score_standard(&self, query: &ProcessedSpectrum) -> Vec<Feature> {
-        let precursor = query.precursors.get(0).unwrap_or_else(|| {
+        let precursor = query.precursors.first().unwrap_or_else(|| {
             panic!("missing MS1 precursor for {}", query.id);
         });
 
@@ -427,7 +428,7 @@ impl<'db> Scorer<'db> {
                 .unwrap_or_default();
 
             let best = score_vector
-                .get(0)
+                .first()
                 .map(|score| score.0.hyperscore)
                 .expect("we know that index 0 is valid");
 
@@ -441,7 +442,7 @@ impl<'db> Scorer<'db> {
             }
 
             let isotope_error = score.isotope_error as f32 * NEUTRON;
-            let delta_mass = (precursor_mass - peptide.monoisotopic - isotope_error).abs() * 2E6
+            let delta_mass = (precursor_mass - peptide.monoisotopic - isotope_error) * 2E6
                 / (precursor_mass - isotope_error + peptide.monoisotopic);
 
             // let (num_proteins, proteins) = self.db.assign_proteins(peptide);
@@ -461,7 +462,7 @@ impl<'db> Scorer<'db> {
                 rt: query.scan_start_time,
                 ims: query
                     .precursors
-                    .get(0)
+                    .first()
                     .unwrap()
                     .inverse_ion_mobility
                     .unwrap_or(0.0),
@@ -539,7 +540,7 @@ impl<'db> Scorer<'db> {
     /// Return multiple PSMs for each spectra - first is the best match, second PSM is the best match
     /// after all theoretical peaks assigned to the best match are removed, etc
     pub fn score_chimera_fast(&self, query: &ProcessedSpectrum) -> Vec<Feature> {
-        let precursor = query.precursors.get(0).unwrap_or_else(|| {
+        let precursor = query.precursors.first().unwrap_or_else(|| {
             panic!("missing MS1 precursor for {}", query.id);
         });
 
@@ -598,6 +599,7 @@ impl<'db> Scorer<'db> {
             for charge in 1..max_fragment_charge {
                 // Experimental peaks are multipled by charge, therefore theoretical are divided
                 let mz = frag.monoisotopic_mass / charge as f32;
+
                 if let Some(peak) = crate::spectrum::select_most_intense_peak(
                     &query.peaks,
                     mz,

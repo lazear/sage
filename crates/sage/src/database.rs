@@ -63,10 +63,6 @@ pub struct Builder {
     pub bucket_size: Option<usize>,
 
     pub enzyme: Option<EnzymeBuilder>,
-    /// Minimum fragment m/z that will be stored in the database
-    pub fragment_min_mz: Option<f32>,
-    /// Maximum fragment m/z that will be stored in the database
-    pub fragment_max_mz: Option<f32>,
     /// Minimum peptide monoisotopic mass that will be fragmented
     pub peptide_min_mass: Option<f32>,
     /// Maximum peptide monoisotopic mass that will be fragmented
@@ -79,7 +75,7 @@ pub struct Builder {
     /// Static modifications to add to matching amino acids
     pub static_mods: Option<HashMap<String, f32>>,
     /// Variable modifications to add to matching amino acids
-    pub variable_mods: Option<HashMap<String, crate::modification::ValueOrVec>>,
+    pub variable_mods: Option<HashMap<String, Vec<f32>>>,
     /// Limit number of variable modifications on a peptide
     pub max_variable_mods: Option<usize>,
     /// Use this prefix for decoy proteins
@@ -95,8 +91,6 @@ impl Builder {
         let bucket_size = self.bucket_size.unwrap_or(8192).next_power_of_two();
         Parameters {
             bucket_size,
-            fragment_min_mz: self.fragment_min_mz.unwrap_or(150.0),
-            fragment_max_mz: self.fragment_max_mz.unwrap_or(2000.0),
             peptide_min_mass: self.peptide_min_mass.unwrap_or(500.0),
             peptide_max_mass: self.peptide_max_mass.unwrap_or(5000.0),
             ion_kinds: self.ion_kinds.unwrap_or(vec![Kind::B, Kind::Y]),
@@ -120,8 +114,6 @@ impl Builder {
 pub struct Parameters {
     pub bucket_size: usize,
     pub enzyme: EnzymeBuilder,
-    pub fragment_min_mz: f32,
-    pub fragment_max_mz: f32,
     pub peptide_min_mass: f32,
     pub peptide_max_mass: f32,
     pub ion_kinds: Vec<Kind>,
@@ -236,8 +228,6 @@ impl Parameters {
                             }
                         };
                         ion_idx_filter
-                            && ion.monoisotopic_mass >= self.fragment_min_mz
-                            && ion.monoisotopic_mass <= self.fragment_max_mz
                     })
                     .map(move |(_, ion)| Theoretical {
                         peptide_index: PeptideIx(idx as u32),
@@ -426,8 +416,17 @@ pub struct IndexedQuery<'d> {
 
 impl<'d> IndexedQuery<'d> {
     /// Search for a specified `fragment_mz` within the database
-    pub fn page_search(&self, fragment_mz: f32) -> impl Iterator<Item = &Theoretical> {
-        let (fragment_lo, fragment_hi) = self.fragment_tol.bounds(fragment_mz);
+    pub fn page_search(&self, fragment_mz: f32, charge: u8) -> impl Iterator<Item = &Theoretical> {
+        let mass = fragment_mz * charge as f32;
+
+        // Account for multiplication of observed decharged mass
+        // - relative tolerance needs to be proportionally decreased
+        let tol = match self.fragment_tol {
+            Tolerance::Ppm(lo, hi) => Tolerance::Ppm(lo / charge as f32, hi / charge as f32),
+            Tolerance::Da(_, _) => self.fragment_tol,
+        };
+
+        let (fragment_lo, fragment_hi) = tol.bounds(mass);
         let (precursor_lo, precursor_hi) = self.precursor_tol.bounds(self.precursor_mass);
 
         // Locate the left and right page indices that contain matching fragments
@@ -587,8 +586,6 @@ mod test {
                 max_len: Some(10),
                 ..Default::default()
             },
-            fragment_min_mz: 100.0,
-            fragment_max_mz: 1000.0,
             peptide_min_mass: 150.0,
             peptide_max_mass: 5000.0,
             ion_kinds: vec![Kind::B, Kind::Y],

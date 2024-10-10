@@ -62,6 +62,7 @@ Sage is well-integrated into the open-source proteomics ecosystem. The following
 - [quantms](https://github.com/bigbio/quantms): nextflow pipeline for running searches with Sage
 - [OpenMS](https://github.com/OpenMS/OpenMS): Sage is included as a "TOPP" tool in OpenMS
 - [sager](https://github.com/UCLouvain-CBIO/sager): R package for analyzing results from Sage searches
+- [Sage results to mzIdentML](https://github.com/magnuspalmblad/shic/blob/main/shims/Peptide_identification_in_TSV_to_Peptide_identification_in_mzIdentML.sh): Bash script to convert `results.sage.tsv` files to mzIdentML
 - If your project supports Sage and it's not listed, please open a pull request! If you need help integrating or interfacing with Sage in some way, please reach out.
 
 Check out the (now outdated) [blog post introducing the first version of Sage](https://lazear.github.io/sage/) for more information and full benchmarks!

@@ -184,14 +184,21 @@ impl Runner {
             .sn
             .then_some(self.parameters.quant.tmt_settings.level);
 
+        let min_deisotope_mz = match &self.parameters.quant.tmt {
+            Some(i) => match self.parameters.quant.tmt_settings.level {
+                2 => i.reporter_masses().last().map(|x| x * (1.0 + 20E-6)),
+                _ => None,
+            },
+            None => None,
+        };
+
         let sp = SpectrumProcessor::new(
             self.parameters.max_peaks,
-            self.parameters.database.fragment_min_mz,
-            self.parameters.database.fragment_max_mz,
             self.parameters.deisotope,
+            min_deisotope_mz.unwrap_or(0.0),
         );
 
-        let bruker_extensions = [".d", ".tdf", ".tdf_bin"];
+        let bruker_extensions = [".d", ".tdf", ".tdf_bin", "ms2", "raw"];
         let spectra = chunk
             .par_iter()
             .enumerate()
@@ -200,12 +207,22 @@ impl Runner {
 
                 let path_lower = path.to_lowercase();
                 let res = if path_lower.ends_with(".mgf.gz") || path_lower.ends_with(".mgf") {
-                    sage_cloudpath::util::read_mgf(path_lower, file_id)
-                } else if bruker_extensions
-                    .iter()
-                    .any(|ext| path_lower.ends_with(ext))
-                {
-                    sage_cloudpath::util::read_tdf(path, file_id)
+                    sage_cloudpath::util::read_mgf(path, file_id)
+                } else if bruker_extensions.iter().any(|ext| {
+                    if path_lower.ends_with(std::path::MAIN_SEPARATOR) {
+                        path_lower
+                            .strip_suffix(std::path::MAIN_SEPARATOR)
+                            .unwrap()
+                            .ends_with(ext)
+                    } else {
+                        path_lower.ends_with(ext)
+                    }
+                }) {
+                    sage_cloudpath::util::read_tdf(
+                        path,
+                        file_id,
+                        self.parameters.bruker_spectrum_processor,
+                    )
                 } else {
                     sage_cloudpath::util::read_mzml(path, file_id, sn)
                 };
@@ -249,9 +266,8 @@ impl Runner {
             max_isotope_err: self.parameters.isotope_errors.1,
             min_precursor_charge: self.parameters.precursor_charge.0,
             max_precursor_charge: self.parameters.precursor_charge.1,
+            override_precursor_charge: self.parameters.override_precursor_charge,
             max_fragment_charge: self.parameters.max_fragment_charge,
-            min_fragment_mass: self.parameters.database.fragment_min_mz,
-            max_fragment_mass: self.parameters.database.fragment_max_mz,
             chimera: self.parameters.chimera,
             report_psms: self.parameters.report_psms,
             wide_window: self.parameters.wide_window,

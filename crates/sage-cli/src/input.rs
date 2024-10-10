@@ -1,6 +1,6 @@
 use anyhow::{ensure, Context};
 use clap::ArgMatches;
-use sage_cloudpath::CloudPath;
+use sage_cloudpath::{tdf::BrukerSpectrumProcessor, CloudPath};
 use sage_core::{
     database::{Builder, Parameters},
     lfq::LfqSettings,
@@ -18,6 +18,7 @@ pub struct Search {
     pub precursor_tol: Tolerance,
     pub fragment_tol: Tolerance,
     pub precursor_charge: (u8, u8),
+    pub override_precursor_charge: bool,
     pub isotope_errors: (i8, i8),
     pub deisotope: bool,
     pub chimera: bool,
@@ -30,6 +31,7 @@ pub struct Search {
     pub predict_rt: bool,
     pub mzml_paths: Vec<String>,
     pub output_paths: Vec<String>,
+    pub bruker_spectrum_processor: BrukerSpectrumProcessor,
 
     #[serde(skip_serializing)]
     pub output_directory: CloudPath,
@@ -55,12 +57,14 @@ pub struct Input {
     max_fragment_charge: Option<u8>,
     min_matched_peaks: Option<u16>,
     precursor_charge: Option<(u8, u8)>,
+    override_precursor_charge: Option<bool>,
     isotope_errors: Option<(i8, i8)>,
     deisotope: Option<bool>,
     quant: Option<QuantOptions>,
     predict_rt: Option<bool>,
     output_directory: Option<String>,
     mzml_paths: Option<Vec<String>>,
+    bruker_spectrum_processor: Option<BrukerSpectrumProcessor>,
 
     annotate_matches: Option<bool>,
     write_pin: Option<bool>,
@@ -298,6 +302,7 @@ impl Input {
             max_fragment_charge: self.max_fragment_charge,
             annotate_matches: self.annotate_matches.unwrap_or(false),
             precursor_charge: self.precursor_charge.unwrap_or((2, 4)),
+            override_precursor_charge: self.override_precursor_charge.unwrap_or(false),
             isotope_errors: self.isotope_errors.unwrap_or((0, 0)),
             deisotope: self.deisotope.unwrap_or(true),
             chimera: self.chimera.unwrap_or(false),
@@ -305,6 +310,7 @@ impl Input {
             predict_rt: self.predict_rt.unwrap_or(true),
             output_paths: Vec::new(),
             write_pin: self.write_pin.unwrap_or(false),
+            bruker_spectrum_processor: self.bruker_spectrum_processor.unwrap_or_default(),
         })
     }
 }

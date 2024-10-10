@@ -61,7 +61,7 @@ fn check_all_ions_visited(target_fragment_mz: f32, bucket_size: usize) {
     // are returned to us by searching the database.
     let query = database.query(1000.0, Tolerance::Da(-5000.0, 5000.0), fragment_tol);
 
-    for fragment in query.page_search(target_fragment_mz) {
+    for fragment in query.page_search(target_fragment_mz, 1) {
         visited[fragment.peptide_index.0 as usize] += 1;
     }
 

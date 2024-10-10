@@ -127,14 +127,14 @@ pub fn validate_mods(input: Option<HashMap<String, f32>>) -> HashMap<Modificatio
 }
 
 pub fn validate_var_mods(
-    input: Option<HashMap<String, ValueOrVec>>,
+    input: Option<HashMap<String, Vec<f32>>>,
 ) -> HashMap<ModificationSpecificity, Vec<f32>> {
     let mut output = HashMap::new();
     if let Some(input) = input {
         for (s, mass) in input {
             match ModificationSpecificity::from_str(&s) {
                 Ok(m) => {
-                    output.insert(m, mass.data);
+                    output.insert(m, mass);
                 }
                 Err(InvalidModification::Empty) => {
                     log::error!("Skipping invalid modification string: empty")
@@ -152,56 +152,6 @@ pub fn validate_var_mods(
         }
     }
     output
-}
-
-#[derive(Default)]
-pub struct ValueOrVec {
-    data: Vec<f32>,
-}
-
-impl<'de> Deserialize<'de> for ValueOrVec {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        deserializer.deserialize_any(ValueOrVec::default())
-    }
-}
-
-impl<'de> Visitor<'de> for ValueOrVec {
-    type Value = ValueOrVec;
-
-    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        formatter.write_str("Expected floating point value, or list of floating point values")
-    }
-
-    fn visit_seq<A>(mut self, mut seq: A) -> Result<Self::Value, A::Error>
-    where
-        A: serde::de::SeqAccess<'de>,
-    {
-        while let Some(val) = seq.next_element::<f32>()? {
-            self.data.push(val);
-        }
-        Ok(self)
-    }
-
-    fn visit_f64<E>(mut self, v: f64) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        log::warn!("Variable modifications must be specified as a list of modifications: [{v}]. This will become a HARD ERROR by v0.15");
-        self.data.push(v as f32);
-        Ok(self)
-    }
-
-    fn visit_i64<E>(mut self, v: i64) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        log::warn!("Variable modifications must be specified as a list of modifications: [{v}]. This will become a HARD ERROR by v0.15");
-        self.data.push(v as f32);
-        Ok(self)
-    }
 }
 
 #[cfg(test)]
