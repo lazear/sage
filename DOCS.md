@@ -164,8 +164,6 @@ For additional information about configuration options and output file formats, 
       "c_terminal": false,      // Optional[bool] {default=true}. Cleave at c terminus of matching amino acid
       "semi_enzymatic": false      // Optional[bool] {default=false}. Generate semi-enzymatic peptides
     },
-    "fragment_min_mz": 200.0,       // Optional[float] {default=150.0}, Minimum mass of fragments to search
-    "fragment_max_mz": 2000.0,      // Optional[float] {default=2000.0}, Maximum mass of fragments to search 
     "peptide_min_mass": 500.0,      // Optional[float] {default=500.0}, Minimum monoisotopic mass of peptides to fragment
     "peptide_max_mass": 5000.0,     // Optional[float] {default=5000.0}, Maximum monoisotopic mass of peptides to fragment
     "ion_kinds": ["b", "y"],        // Optional[List[str]] {default=["b","y"]} Which fragment ions to generate and search?
@@ -291,8 +289,6 @@ Example:
 
 ### Fragment Settings
 
-- **fragment_min_mz**: Float. The minimum mass of fragments to search (default: 150.0).
-- **fragment_max_mz**: Float. The maximum mass of fragments to search (default: 2000.0).
 - **peptide_min_mass**: Float. The minimum monoisotopic mass of peptides to fragment *in silico* (default: 500.0).
 - **peptide_max_mass**: Float. The maximum monoisotopic mass of peptides to fragment *in silico* (default: 5000.0).
 - **ion_kinds**: List of strings. Which fragment ions to produce? Allowed values: "a", "b", "c", "x", "y", "z". (default: ["b", "y"])
@@ -301,8 +297,6 @@ Example:
 Example:
 ```json
 "database": {
-  "fragment_min_mz": 150.0,
-  "fragment_max_mz": 2000.0,
   "peptide_min_mass": 500.0,
   "peptide_max_mass": 5000.0,
   "ion_kinds": ["b", "y"],
