@@ -10,6 +10,10 @@ license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[lib]
+name = "sage_cli"
+path = "src/lib.rs"
+
 [[bin]]
 name = "sage"
 path = "src/main.rs"
@@ -20,7 +24,7 @@ sage-cloudpath = { path = "../sage-cloudpath", features = ["parquet"] }
 
 anyhow = "1.0"
 csv = "1"
-clap = { version="4.0", features = ["cargo", "unicode"] }
+clap = { version = "4.0", features = ["cargo", "unicode"] }
 env_logger = "0.8.4"
 fnv = "1.0"
 log = "0.4.0"
@@ -29,6 +33,6 @@ num_cpus = "1.13"
 rayon = "1.5"
 regex = "1.0"
 ryu = "1.0"
-serde = { version="1.0", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sysinfo = "0.29"

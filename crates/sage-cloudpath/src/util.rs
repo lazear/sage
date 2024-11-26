@@ -3,6 +3,55 @@ use sage_core::spectrum::RawSpectrum;
 use serde::Serialize;
 use tokio::io::AsyncReadExt;
 
+#[derive(Debug, PartialEq, Eq)]
+enum FileFormat {
+    MzML,
+    MGF,
+    TDF,
+    Unidentified,
+}
+
+const BRUKER_EXTENSIONS: [&str; 5] = [".d", ".tdf", ".tdf_bin", "ms2", "raw"];
+
+fn is_bruker(path: &str) -> bool {
+    BRUKER_EXTENSIONS.iter().any(|ext| {
+        if path.ends_with(std::path::MAIN_SEPARATOR) {
+            path.strip_suffix(std::path::MAIN_SEPARATOR)
+                .unwrap()
+                .ends_with(ext)
+        } else {
+            path.ends_with(ext)
+        }
+    })
+}
+
+fn identify_format(s: &str) -> FileFormat {
+    let path_lower = s.to_lowercase();
+    if path_lower.ends_with(".mgf.gz") || path_lower.ends_with(".mgf") {
+        FileFormat::MGF
+    } else if is_bruker(&path_lower) {
+        FileFormat::TDF
+    } else if path_lower.ends_with(".mzml.gz") || path_lower.ends_with(".mzml") {
+        FileFormat::MzML
+    } else {
+        FileFormat::Unidentified
+    }
+}
+
+pub fn read_spectra<S: AsRef<str>>(
+    path: S,
+    file_id: usize,
+    sn: Option<u8>,
+    bruker_processor: BrukerSpectrumProcessor,
+) -> Result<Vec<RawSpectrum>, Error> {
+    match identify_format(path.as_ref()) {
+        FileFormat::MzML => read_mzml(path, file_id, sn),
+        FileFormat::MGF => read_mgf(path, file_id),
+        FileFormat::TDF => read_tdf(path, file_id, bruker_processor),
+        FileFormat::Unidentified => panic!("Unable to get type for '{}'", path.as_ref()), // read_mzml(path, file_id, sn),
+    }
+}
+
 pub fn read_mzml<S: AsRef<str>>(
     s: S,
     file_id: usize,
@@ -90,4 +139,20 @@ where
         res.error_for_status()?;
         Ok(())
     })
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_identify_format() {
+        assert_eq!(identify_format("foo.mzml"), FileFormat::MzML);
+        assert_eq!(identify_format("foo.mzML"), FileFormat::MzML);
+        assert_eq!(identify_format("foo.mgf"), FileFormat::MGF);
+        assert_eq!(identify_format("foo.mgf.gz"), FileFormat::MGF);
+        assert_eq!(identify_format("foo.tdf"), FileFormat::TDF);
+        assert_eq!(identify_format("./tomato/foo.d"), FileFormat::TDF);
+        assert_eq!(identify_format("./tomato/foo.d/"), FileFormat::TDF);
+    }
 }
