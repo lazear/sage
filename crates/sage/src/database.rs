@@ -1,4 +1,4 @@
-use crate::enzyme::{Enzyme, EnzymeParameters};
+use crate::enzyme::{group_digests, Enzyme, EnzymeParameters};
 use crate::fasta::Fasta;
 use crate::ion_series::{IonSeries, Kind};
 use crate::mass::Tolerance;
@@ -166,6 +166,15 @@ impl Parameters {
         // and missed cleavages, if applicable.
         let digests = fasta.digest(&enzyme);
 
+        log::trace!("grouping digests");
+        let start_num = digests.len();
+        let digests = group_digests(digests);
+        log::trace!(
+            "grouped {} digests into {} groups",
+            start_num,
+            digests.len()
+        );
+
         let mods = self
             .variable_mods
             .iter()
@@ -175,9 +184,9 @@ impl Parameters {
         let targets: DashSet<_, FnvBuildHasher> = DashSet::default();
         digests
             .par_iter()
-            .filter(|digest| !digest.decoy)
+            .filter(|digest| !digest.reference.decoy)
             .for_each(|digest| {
-                targets.insert(digest.sequence.clone().into_bytes());
+                targets.insert(digest.reference.sequence.clone().into_bytes());
             });
 
         log::trace!("modifying peptides");
@@ -212,6 +221,7 @@ impl Parameters {
     pub fn reorder_peptides(target_decoys: &mut Vec<Peptide>) {
         log::trace!("sorting and deduplicating peptides");
 
+        let init_size = target_decoys.len();
         // This is equivalent to a stable sort
         target_decoys.par_sort_unstable_by(|a, b| {
             a.monoisotopic
@@ -219,7 +229,9 @@ impl Parameters {
                 .then_with(|| a.initial_sort(b))
         });
         target_decoys.dedup_by(|remove, keep| {
-            if remove.sequence == keep.sequence
+            if remove.monoisotopic == keep.monoisotopic
+            // if remove.sequence == keep.sequence
+                && remove.sequence == keep.sequence
                 && remove.modifications == keep.modifications
                 && remove.nterm == keep.nterm
                 && remove.cterm == keep.cterm
@@ -237,9 +249,20 @@ impl Parameters {
         target_decoys
             .par_iter_mut()
             .for_each(|peptide| peptide.proteins.sort_unstable());
+
+        let num_dropped = init_size - target_decoys.len();
+        let tot_proteins = target_decoys
+            .iter()
+            .map(|x| x.proteins.len())
+            .sum::<usize>();
+        log::trace!(
+            "dropped {} t/d pairs, remaining {}, tot_proteins: {}",
+            num_dropped,
+            target_decoys.len(),
+            tot_proteins
+        );
     }
 
-    // pub fn build(self) -> Result<IndexedDatabase, Box<dyn std::error::Error + Send + Sync + 'static>> {
     pub fn build(self, fasta: Fasta) -> IndexedDatabase {
         let target_decoys = self.digest(&fasta);
         self.build_from_peptides(target_decoys)
@@ -612,11 +635,11 @@ mod test {
             fasta.targets,
             vec![
                 (
-                    Arc::new("sp|AAAAA".to_string()),
+                    Arc::from("sp|AAAAA".to_string()),
                     "MEWKLEQSMREQALLKAQLTQLK".into()
                 ),
                 (
-                    Arc::new("sp|BBBBB".to_string()),
+                    Arc::from("sp|BBBBB".to_string()),
                     "RMEWKLEQSMREQALLKAQLTQLK".into()
                 ),
             ]
@@ -665,7 +688,7 @@ mod test {
 
         // All peptides are shared except for the protein N-term mod
         for peptide in &peptides[..4] {
-            assert_eq!(peptide.proteins.len(), 2);
+            assert_eq!(peptide.proteins.len(), 2, "{:?}", peptide);
         }
         // Ensure that this mod is uniquely called as the first protein
         assert_eq!(
