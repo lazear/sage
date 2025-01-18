@@ -106,10 +106,10 @@ impl Runner {
         };
 
         info!(
-            "generated {} fragments, {} peptides in {}ms",
+            "generated {} fragments, {} peptides in {:#?}",
             database.fragments.len(),
             database.peptides.len(),
-            (Instant::now() - start).as_millis()
+            (start.elapsed())
         );
         Ok(Self {
             database,
