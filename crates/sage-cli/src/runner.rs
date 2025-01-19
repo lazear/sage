@@ -37,10 +37,12 @@ impl FromParallelIterator<RawSpectrum> for RawSpectrumAccumulator {
     where
         I: IntoParallelIterator<Item = RawSpectrum>,
     {
-        let out = par_iter
+        
+
+        par_iter
             .into_par_iter()
             .fold(
-                || RawSpectrumAccumulator::default(),
+                RawSpectrumAccumulator::default,
                 |mut accum, spectrum| {
                     if spectrum.ms_level == 1 {
                         accum.ms1.push(spectrum);
@@ -51,15 +53,13 @@ impl FromParallelIterator<RawSpectrum> for RawSpectrumAccumulator {
                 },
             )
             .reduce(
-                || RawSpectrumAccumulator::default(),
+                RawSpectrumAccumulator::default,
                 |mut a, b| {
                     a.ms1.extend(b.ms1);
                     a.msn.extend(b.msn);
                     a
                 },
-            );
-
-        out
+            )
     }
 }
 
@@ -393,8 +393,10 @@ impl Runner {
         let all_contain_ims = spectra.ms1.iter().all(|x| x.mobility.is_some());
         let ms1_empty = spectra.ms1.is_empty();
         let ms1_spectra = if ms1_empty {
+            log::trace!("no MS1 spectra found");
             MS1Spectra::Empty
         } else if all_contain_ims {
+            log::trace!("Processing MS1 spectra with IMS");
             let spectra = spectra
                 .ms1
                 .into_iter()
@@ -402,6 +404,7 @@ impl Runner {
                 .collect();
             MS1Spectra::WithMobility(spectra)
         } else {
+            log::trace!("Processing MS1 spectra without IMS");
             let spectra = spectra.ms1.into_iter().map(|s| sp.process(s)).collect();
             MS1Spectra::NoMobility(spectra)
         };
@@ -481,6 +484,7 @@ impl Runner {
 
         let areas = alignments.and_then(|alignments| {
             if self.parameters.quant.lfq {
+                log::trace!("performing LFQ");
                 let mut areas = sage_core::lfq::build_feature_map(
                     self.parameters.quant.lfq_settings,
                     self.parameters.precursor_charge,
@@ -875,9 +879,7 @@ impl Runner {
         record.push_field(
             itoa::Buffer::new()
                 .format(
-                    (feature.charge < 2 || feature.charge > 6)
-                        .then_some(feature.charge)
-                        .unwrap_or(0),
+                    if feature.charge < 2 || feature.charge > 6 { feature.charge } else { 0 },
                 )
                 .as_bytes(),
         );
