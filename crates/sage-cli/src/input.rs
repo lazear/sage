@@ -1,6 +1,7 @@
 use anyhow::{ensure, Context};
 use clap::ArgMatches;
 use sage_cloudpath::{tdf::BrukerSpectrumProcessor, CloudPath};
+use sage_core::scoring::ScoreType;
 use sage_core::{
     database::{Builder, Parameters},
     lfq::LfqSettings,
@@ -41,42 +42,45 @@ pub struct Search {
 
     #[serde(skip_serializing)]
     pub annotate_matches: bool,
+
+    pub score_type: ScoreType,
 }
 
 #[derive(Deserialize)]
 /// Input search parameters deserialized from JSON file
 pub struct Input {
-    database: Builder,
-    precursor_tol: Tolerance,
-    fragment_tol: Tolerance,
-    report_psms: Option<usize>,
-    chimera: Option<bool>,
-    wide_window: Option<bool>,
-    min_peaks: Option<usize>,
-    max_peaks: Option<usize>,
-    max_fragment_charge: Option<u8>,
-    min_matched_peaks: Option<u16>,
-    precursor_charge: Option<(u8, u8)>,
-    override_precursor_charge: Option<bool>,
-    isotope_errors: Option<(i8, i8)>,
-    deisotope: Option<bool>,
-    quant: Option<QuantOptions>,
-    predict_rt: Option<bool>,
-    output_directory: Option<String>,
-    mzml_paths: Option<Vec<String>>,
-    bruker_spectrum_processor: Option<BrukerSpectrumProcessor>,
+    pub database: Builder,
+    pub precursor_tol: Tolerance,
+    pub fragment_tol: Tolerance,
+    pub report_psms: Option<usize>,
+    pub chimera: Option<bool>,
+    pub wide_window: Option<bool>,
+    pub min_peaks: Option<usize>,
+    pub max_peaks: Option<usize>,
+    pub max_fragment_charge: Option<u8>,
+    pub min_matched_peaks: Option<u16>,
+    pub precursor_charge: Option<(u8, u8)>,
+    pub override_precursor_charge: Option<bool>,
+    pub isotope_errors: Option<(i8, i8)>,
+    pub deisotope: Option<bool>,
+    pub quant: Option<QuantOptions>,
+    pub predict_rt: Option<bool>,
+    pub output_directory: Option<String>,
+    pub mzml_paths: Option<Vec<String>>,
+    pub bruker_spectrum_processor: Option<BrukerSpectrumProcessor>,
 
-    annotate_matches: Option<bool>,
-    write_pin: Option<bool>,
+    pub annotate_matches: Option<bool>,
+    pub write_pin: Option<bool>,
+    pub score_type: Option<ScoreType>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct LfqOptions {
-    peak_scoring: Option<sage_core::lfq::PeakScoringStrategy>,
-    integration: Option<sage_core::lfq::IntegrationStrategy>,
-    spectral_angle: Option<f64>,
-    ppm_tolerance: Option<f32>,
-    combine_charge_states: Option<bool>,
+    pub peak_scoring: Option<sage_core::lfq::PeakScoringStrategy>,
+    pub integration: Option<sage_core::lfq::IntegrationStrategy>,
+    pub spectral_angle: Option<f64>,
+    pub ppm_tolerance: Option<f32>,
+    pub combine_charge_states: Option<bool>,
 }
 
 impl From<LfqOptions> for LfqSettings {
@@ -104,11 +108,11 @@ impl From<LfqOptions> for LfqSettings {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct TmtOptions {
-    level: Option<u8>,
-    sn: Option<bool>,
+    pub level: Option<u8>,
+    pub sn: Option<bool>,
 }
 
-#[derive(Copy, Clone, Serialize)]
+#[derive(Copy, Clone, Serialize, Debug)]
 pub struct TmtSettings {
     pub level: u8,
     pub sn: bool,
@@ -287,6 +291,8 @@ impl Input {
             None => CloudPath::Local(std::env::current_dir()?),
         };
 
+        let score_type = self.score_type.unwrap_or(ScoreType::SageHyperScore);
+
         Ok(Search {
             version: clap::crate_version!().into(),
             database,
@@ -311,6 +317,7 @@ impl Input {
             output_paths: Vec::new(),
             write_pin: self.write_pin.unwrap_or(false),
             bruker_spectrum_processor: self.bruker_spectrum_processor.unwrap_or_default(),
+            score_type,
         })
     }
 }
