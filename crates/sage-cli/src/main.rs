@@ -1,6 +1,6 @@
 use clap::{value_parser, Arg, Command, ValueHint};
-use input::Input;
-use runner::Runner;
+use sage_cli::input::Input;
+use sage_cli::runner::Runner;
 
 fn main() -> anyhow::Result<()> {
     env_logger::Builder::default()
