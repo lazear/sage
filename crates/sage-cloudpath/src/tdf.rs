@@ -249,10 +249,6 @@ fn dumbcentroid_frame(
 
     for &idx in &order {
         if intensity_array[idx] <= 0.0 {
-            // In theory ... if I set the intensity as mutable
-            // I could remove the use of the 'included' vector
-            // and just set to -1.0 the intensity of the peaks
-            // I have already included.
             continue;
         }
         if agg_buff.len() > MAX_PEAKS {
