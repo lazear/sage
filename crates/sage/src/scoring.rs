@@ -14,7 +14,7 @@ pub enum ScoreType {
 }
 
 /// Structure to hold temporary scores
-#[derive(Copy, Clone, Default, Debug)]
+#[derive(Copy, Clone, Default, Debug, PartialEq, PartialOrd)]
 struct Score {
     peptide: PeptideIx,
     matched_b: u16,
@@ -27,6 +27,16 @@ struct Score {
     ppm_difference: f32,
     precursor_charge: u8,
     isotope_error: i8,
+}
+
+impl Eq for Score {}
+
+impl Ord for Score {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.hyperscore
+            .partial_cmp(&other.hyperscore)
+            .unwrap_or(std::cmp::Ordering::Less)
+    }
 }
 
 /// Preliminary score - # of matched peaks for each candidate peptide
@@ -233,6 +243,47 @@ fn max_fragment_charge(max_fragment_charge: Option<u8>, precursor_charge: u8) ->
 }
 
 impl<'db> Scorer<'db> {
+    pub fn quick_score(
+        &self,
+        query: &ProcessedSpectrum,
+        prefilter_low_memory: bool,
+    ) -> Vec<PeptideIx> {
+        assert_eq!(
+            query.level, 2,
+            "internal bug, trying to score a non-MS2 scan!"
+        );
+        let precursor = query.precursors.first().unwrap_or_else(|| {
+            panic!("missing MS1 precursor for {}", query.id);
+        });
+        let hits = self.initial_hits(&query, precursor);
+
+        if prefilter_low_memory {
+            let mut score_vector = hits
+                .preliminary
+                .iter()
+                .filter_map(|pre| {
+                    if pre.peptide == PeptideIx::default() {
+                        return None;
+                    }
+                    let (score, _) = self.score_candidate(query, pre);
+                    if (score.matched_b + score.matched_y) < self.min_matched_peaks {
+                        return None;
+                    }
+                    Some(score)
+                })
+                .collect::<Vec<_>>();
+            let k = self.report_psms.min(score_vector.len()) + 1;
+            bounded_min_heapify(&mut score_vector, k);
+            score_vector.iter().map(|x| x.peptide).collect()
+        } else {
+            hits.preliminary
+                .iter()
+                .map(|x| x.peptide)
+                .filter(|&peptide| peptide != PeptideIx::default())
+                .collect()
+        }
+    }
+
     pub fn score(&self, query: &ProcessedSpectrum) -> Vec<Feature> {
         assert_eq!(
             query.level, 2,
@@ -355,8 +406,8 @@ impl<'db> Scorer<'db> {
         let mz = precursor.mz - PROTON;
 
         // Search in wide-window/DIA mode
-        if self.wide_window {
-            let mut hits = (self.min_precursor_charge..=self.max_precursor_charge).fold(
+        let mut hits = if self.wide_window {
+            (self.min_precursor_charge..=self.max_precursor_charge).fold(
                 InitialHits::default(),
                 |mut hits, precursor_charge| {
                     let precursor_mass = mz * precursor_charge as f32;
@@ -368,9 +419,7 @@ impl<'db> Scorer<'db> {
                         self.matched_peaks(query, precursor_mass, precursor_charge, precursor_tol);
                     hits
                 },
-            );
-            self.trim_hits(&mut hits);
-            hits
+            )
         } else if precursor.charge.is_some() && self.override_precursor_charge == false {
             let charge = precursor.charge.unwrap();
             // Charge state is already annotated for this precusor, only search once
@@ -380,7 +429,7 @@ impl<'db> Scorer<'db> {
             // Not all selected ion precursors have charge states annotated (or user has set
             // `override_precursor_charge`)
             // assume it could be z=2, z=3, z=4 and search all three
-            let mut hits = (self.min_precursor_charge..=self.max_precursor_charge).fold(
+            (self.min_precursor_charge..=self.max_precursor_charge).fold(
                 InitialHits::default(),
                 |mut hits, precursor_charge| {
                     let precursor_mass = mz * precursor_charge as f32;
@@ -392,10 +441,10 @@ impl<'db> Scorer<'db> {
                     );
                     hits
                 },
-            );
-            self.trim_hits(&mut hits);
-            hits
-        }
+            )
+        };
+        self.trim_hits(&mut hits);
+        hits
     }
 
     /// Score a single [`ProcessedSpectrum`] against the database

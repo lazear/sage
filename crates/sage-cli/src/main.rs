@@ -1,10 +1,6 @@
 use clap::{value_parser, Arg, Command, ValueHint};
-use input::Input;
-
-mod input;
-mod output;
-mod runner;
-mod telemetry;
+use sage_cli::input::Input;
+use sage_cli::runner::Runner;
 
 fn main() -> anyhow::Result<()> {
     env_logger::Builder::default()
@@ -107,9 +103,11 @@ fn main() -> anyhow::Result<()> {
 
     let input = Input::from_arguments(matches)?;
 
-    let runner_ = input.build().and_then(runner::Runner::new)?;
+    let runner = input
+        .build()
+        .and_then(|parameters| Runner::new(parameters, parallel))?;
 
-    let tel = runner_.run(parallel, parquet)?;
+    let tel = runner.run(parallel, parquet)?;
 
     if send_telemetry {
         tel.send();
