@@ -385,7 +385,7 @@ impl Runner {
                 path,
                 file_id,
                 sn,
-                self.parameters.bruker_spectrum_processor,
+                self.parameters.bruker_config.clone(),
                 self.requires_ms1(),
             );
 

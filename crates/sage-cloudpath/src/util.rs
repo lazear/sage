@@ -1,4 +1,4 @@
-use crate::{read_and_execute, tdf::BrukerSpectrumProcessor, Error};
+use crate::{read_and_execute, tdf::BrukerProcessingConfig, Error};
 use sage_core::spectrum::RawSpectrum;
 use serde::Serialize;
 use tokio::io::AsyncReadExt;
@@ -60,7 +60,7 @@ pub fn read_spectra<S: AsRef<str>>(
     path: S,
     file_id: usize,
     sn: Option<u8>,
-    bruker_processor: BrukerSpectrumProcessor,
+    bruker_processor: BrukerProcessingConfig,
     requires_ms1: bool,
 ) -> Result<Vec<RawSpectrum>, Error> {
     match FileFormat::from(path.as_ref()) {
@@ -87,7 +87,7 @@ pub fn read_mzml<S: AsRef<str>>(
 pub fn read_tdf<S: AsRef<str>>(
     s: S,
     file_id: usize,
-    bruker_spectrum_processor: BrukerSpectrumProcessor,
+    bruker_spectrum_processor: BrukerProcessingConfig,
     requires_ms1: bool,
 ) -> Result<Vec<RawSpectrum>, Error> {
     let res = crate::tdf::TdfReader.parse(s, file_id, bruker_spectrum_processor, requires_ms1);

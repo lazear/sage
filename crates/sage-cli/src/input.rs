@@ -1,6 +1,6 @@
 use anyhow::{ensure, Context};
 use clap::ArgMatches;
-use sage_cloudpath::{tdf::BrukerSpectrumProcessor, CloudPath};
+use sage_cloudpath::{tdf::BrukerProcessingConfig, CloudPath};
 use sage_core::scoring::ScoreType;
 use sage_core::{
     database::{Builder, Parameters},
@@ -32,7 +32,7 @@ pub struct Search {
     pub predict_rt: bool,
     pub mzml_paths: Vec<String>,
     pub output_paths: Vec<String>,
-    pub bruker_spectrum_processor: BrukerSpectrumProcessor,
+    pub bruker_config: BrukerProcessingConfig,
 
     #[serde(skip_serializing)]
     pub output_directory: CloudPath,
@@ -67,7 +67,7 @@ pub struct Input {
     pub predict_rt: Option<bool>,
     pub output_directory: Option<String>,
     pub mzml_paths: Option<Vec<String>>,
-    pub bruker_spectrum_processor: Option<BrukerSpectrumProcessor>,
+    pub bruker_config: Option<BrukerProcessingConfig>,
 
     pub annotate_matches: Option<bool>,
     pub write_pin: Option<bool>,
@@ -228,10 +228,15 @@ impl Input {
         sage_cloudpath::util::read_json(path).map_err(anyhow::Error::from)
     }
 
-    fn check_tolerances(tolerance: &Tolerance) {
+    fn check_mass_tolerances(tolerance: &Tolerance) {
         let (lo, hi) = match tolerance {
             Tolerance::Ppm(lo, hi) => (*lo, *hi),
-            Tolerance::Pct(_, _) => unreachable!("Pct tolerance should never be used on mz"),
+            Tolerance::Pct(lo, hi) => {
+                log::warn!(
+                    "Pct tolerances are very rarely used for mass tolerances, did you mean ppm?"
+                );
+                (*lo, *hi)
+            }
             Tolerance::Da(lo, hi) => (*lo, *hi),
         };
         if hi.abs() > lo.abs() {
@@ -260,8 +265,8 @@ impl Input {
     pub fn build(mut self) -> anyhow::Result<Search> {
         let database = self.database.make_parameters();
 
-        Self::check_tolerances(&self.fragment_tol);
-        Self::check_tolerances(&self.precursor_tol);
+        Self::check_mass_tolerances(&self.fragment_tol);
+        Self::check_mass_tolerances(&self.precursor_tol);
 
         if let Some(isotope_errors) = self.isotope_errors {
             if isotope_errors.0 > isotope_errors.1 {
@@ -327,7 +332,7 @@ impl Input {
             predict_rt: self.predict_rt.unwrap_or(true),
             output_paths: Vec::new(),
             write_pin: self.write_pin.unwrap_or(false),
-            bruker_spectrum_processor: self.bruker_spectrum_processor.unwrap_or_default(),
+            bruker_config: self.bruker_config.unwrap_or_default(),
             score_type,
         })
     }

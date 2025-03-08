@@ -3,28 +3,49 @@ use sage_core::{
     mass::Tolerance,
     spectrum::{Precursor, RawSpectrum, Representation},
 };
+use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use timsrust::converters::{ConvertableDomain, Scan2ImConverter};
 use timsrust::readers::SpectrumReader;
-pub use timsrust::readers::SpectrumReaderConfig as BrukerSpectrumProcessor;
-
+use timsrust::readers::SpectrumReaderConfig as TimsrustSpectrumConfig;
 pub struct TdfReader;
+
+#[derive(Deserialize, Serialize, Debug, Clone, Copy)]
+pub struct BrukerMS1CentoidingConfig {
+    mz_ppm: f32,
+    ims_pct: f32,
+}
+
+impl Default for BrukerMS1CentoidingConfig {
+    fn default() -> Self {
+        BrukerMS1CentoidingConfig {
+            mz_ppm: 5.0,
+            ims_pct: 3.0,
+        }
+    }
+}
+
+#[derive(Default, Deserialize, Serialize, Debug, Clone, Copy)]
+pub struct BrukerProcessingConfig {
+    ms2: TimsrustSpectrumConfig,
+    ms1: BrukerMS1CentoidingConfig,
+}
 
 impl TdfReader {
     pub fn parse(
         &self,
         path_name: impl AsRef<str>,
         file_id: usize,
-        bruker_spectrum_processor: BrukerSpectrumProcessor,
+        config: BrukerProcessingConfig,
         requires_ms1: bool,
     ) -> Result<Vec<RawSpectrum>, timsrust::TimsRustError> {
         let spectrum_reader = timsrust::readers::SpectrumReader::build()
             .with_path(path_name.as_ref())
-            .with_config(bruker_spectrum_processor)
+            .with_config(config.ms2.clone())
             .finalize()?;
         let mut spectra = self.read_msn_spectra(file_id, &spectrum_reader)?;
         if requires_ms1 {
-            let ms1s = self.read_ms1_spectra(&path_name, file_id)?;
+            let ms1s = self.read_ms1_spectra(&path_name, file_id, config.ms1)?;
             spectra.extend(ms1s);
         }
 
@@ -35,6 +56,7 @@ impl TdfReader {
         &self,
         path_name: impl AsRef<str>,
         file_id: usize,
+        config: BrukerMS1CentoidingConfig,
     ) -> Result<Vec<RawSpectrum>, timsrust::TimsRustError> {
         let start = std::time::Instant::now();
         let frame_reader = timsrust::readers::FrameReader::new(path_name.as_ref())?;
@@ -42,6 +64,8 @@ impl TdfReader {
         let metadata = timsrust::readers::MetadataReader::new(tdf_path)?;
         let mz_converter = metadata.mz_converter;
         let ims_converter = metadata.im_converter;
+        let tol_ppm = config.mz_ppm;
+        let im_tol_pct = config.ims_pct;
 
         let ms1_spectra: Vec<RawSpectrum> = frame_reader
             .parallel_filter(|f| f.ms_level == timsrust::MSLevel::MS1)
@@ -74,8 +98,6 @@ impl TdfReader {
                     let sorted_imss: Vec<f32> = indices.iter().map(|&i| imss[i]).collect();
 
                     // Squash the mobility dimension
-                    let tol_ppm = 15.0;
-                    let im_tol_pct = 2.0;
                     let (mz, (intensity, mobility)): (Vec<f32>, (Vec<f32>, Vec<f32>)) =
                         dumbcentroid_frame(
                             sorted_mz,
