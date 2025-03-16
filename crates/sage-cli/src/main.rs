@@ -77,6 +77,12 @@ fn main() -> anyhow::Result<()> {
                 .help("Write percolator-compatible `.pin` output files"),
         )
         .arg(
+            Arg::new("write-report")
+                .long("write-report")
+                .action(clap::ArgAction::SetTrue)
+                .help("Write `.html` report file"),
+        )
+        .arg(
             Arg::new("disable-telemetry")
                 .long("disable-telemetry-i-dont-want-to-improve-sage")
                 .action(clap::ArgAction::SetFalse)
