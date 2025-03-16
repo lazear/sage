@@ -1530,7 +1530,7 @@ impl Runner {
                 let lfq_boxplot = plot_boxplot(
                     &lfq_intensities,
                     filenames.to_vec(),
-                    &format!("LFQ Intensities ({:?}% Q-value)",global_q_value_filter),
+                    &format!("LFQ Intensities ({:?}% Q-value)", global_q_value_filter),
                     "Run",
                     "Log2(Intensity)",
                 )
