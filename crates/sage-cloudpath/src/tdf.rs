@@ -12,8 +12,8 @@ pub struct TdfReader;
 
 #[derive(Deserialize, Serialize, Debug, Clone, Copy)]
 pub struct BrukerMS1CentoidingConfig {
-    mz_ppm: f32,
-    ims_pct: f32,
+    pub mz_ppm: f32,
+    pub ims_pct: f32,
 }
 
 impl Default for BrukerMS1CentoidingConfig {
@@ -27,8 +27,8 @@ impl Default for BrukerMS1CentoidingConfig {
 
 #[derive(Default, Deserialize, Serialize, Debug, Clone, Copy)]
 pub struct BrukerProcessingConfig {
-    ms2: TimsrustSpectrumConfig,
-    ms1: BrukerMS1CentoidingConfig,
+    pub ms2: TimsrustSpectrumConfig,
+    pub ms1: BrukerMS1CentoidingConfig,
 }
 
 impl TdfReader {
