@@ -13,3 +13,4 @@ pub mod peptide;
 pub mod scoring;
 pub mod spectrum;
 pub mod tmt;
+mod idpicker;
