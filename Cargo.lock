@@ -2285,7 +2285,7 @@ checksum = "f3cb5ba0dc43242ce17de99c180e96db90b235b8a9fdc9543c96d2209116bd9f"
 
 [[package]]
 name = "sage-cli"
-version = "0.16.0-beta.1"
+version = "0.15.0-beta.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -2307,7 +2307,7 @@ dependencies = [
 
 [[package]]
 name = "sage-cloudpath"
-version = "0.16.0-beta.1"
+version = "0.15.0-beta.1"
 dependencies = [
  "async-compression",
  "aws-config",
@@ -2333,7 +2333,7 @@ dependencies = [
 
 [[package]]
 name = "sage-core"
-version = "0.16.0-beta.1"
+version = "0.15.0-beta.1"
 dependencies = [
  "dashmap",
  "fnv",
