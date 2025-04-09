@@ -34,6 +34,7 @@ pub fn build_schema() -> Result<Type, parquet::errors::ParquetError> {
             required byte_array peptide (utf8);
             required byte_array stripped_peptide (utf8);
             required byte_array proteins (utf8);
+            required byte_array id_proteins (utf8);
             required int32 num_proteins;
             required int32 rank;
             required boolean is_decoy;
@@ -186,6 +187,10 @@ pub fn serialize_features(
                 .proteins(&database.decoy_tag, database.generate_decoys)
                 .as_str()
                 .into(),
+            ByteArrayType
+        );
+        write_col!(
+            |f: &Feature| f.id_proteins.as_ref().unwrap().as_str().into(),
             ByteArrayType
         );
         write_col!(
