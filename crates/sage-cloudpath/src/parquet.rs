@@ -190,7 +190,7 @@ pub fn serialize_features(
             ByteArrayType
         );
         write_col!(
-            |f: &Feature| f.id_proteins.as_ref().unwrap().as_str().into(),
+            |f: &Feature| f.idpicker_proteingroups.as_ref().unwrap().as_str().into(),
             ByteArrayType
         );
         write_col!(

@@ -396,7 +396,7 @@ impl Runner {
         let q_spectrum = self.spectrum_fdr(&mut outputs.features);
         let q_peptide = sage_core::fdr::picked_peptide(&self.database, &mut outputs.features);
         let q_protein = sage_core::fdr::picked_protein(&self.database, &mut outputs.features);
-        sage_core::idpicker::group_valid_proteins(&self.database, &mut outputs.features);
+        sage_core::idpicker::picked_protein(&self.database, &mut outputs.features);
 
         let filenames = self
             .parameters

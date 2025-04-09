@@ -7,7 +7,7 @@ use rayon::prelude::IntoParallelRefIterator;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::Hash;
 
-pub fn group_valid_proteins(db: &IndexedDatabase, features: &mut [Feature]) {
+pub fn picked_protein(db: &IndexedDatabase, features: &mut [Feature]) {
     let pep_proteins = features
         .iter()
         .filter(|feat| feat.label != -1 && feat.peptide_q < 0.01)
@@ -45,7 +45,7 @@ pub fn group_valid_proteins(db: &IndexedDatabase, features: &mut [Feature]) {
             None => Some(proteins),
             Some(protein) => Some(protein.to_string()),
         };
-        feat.id_proteins = any_protein;
+        feat.idpicker_proteingroups = any_protein;
     });
 }
 
