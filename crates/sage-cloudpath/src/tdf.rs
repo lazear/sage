@@ -221,7 +221,7 @@ impl PeakBuffer {
 
         // The "order" is sorted by intensity
         // This will be used later during the centroiding (for details check that implementation)
-        self.order.extend((0..self.len()));
+        self.order.extend(0..self.len());
         self.order.sort_unstable_by(|&a, &b| {
             self.peaks[b]
                 .intensity
@@ -375,7 +375,7 @@ impl PeakBuffer {
             global_num_included += num_includable;
 
             if global_num_included == self.len() {
-                log::debug!("All peaks were included in the centroiding");
+                log::trace!("All peaks were included in the centroiding");
                 break;
             }
         }

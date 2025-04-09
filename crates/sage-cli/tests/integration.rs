@@ -15,7 +15,7 @@ fn integration() -> anyhow::Result<()> {
 
     let sp = SpectrumProcessor::new(100, true, 0.0);
     let processed = sp.process(spectra[0].clone());
-    assert!(processed.peaks.len() <= 300);
+    assert!(processed.masses.len() <= 300);
 
     let scorer = Scorer {
         db: &database,
