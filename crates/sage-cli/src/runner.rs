@@ -530,6 +530,7 @@ impl Runner {
                 .proteins(&self.database.decoy_tag, self.database.generate_decoys)
                 .as_bytes(),
         );
+        record.push_field(feature.idpicker_proteingroups.as_ref().unwrap().as_bytes());
         record.push_field(
             itoa::Buffer::new()
                 .format(peptide.proteins.len())
@@ -665,6 +666,7 @@ impl Runner {
             "psm_id",
             "peptide",
             "proteins",
+            "id_proteins",
             "num_proteins",
             "filename",
             "scannr",
