@@ -31,7 +31,7 @@ pub fn generate_protein_groups(db: &IndexedDatabase, features: &mut [Feature]) {
 
         let array_proteins = proteins.split(";").collect::<Vec<_>>();
 
-        let mut id_proteins: HashSet<_> = array_proteins
+        let id_proteins: HashSet<_> = array_proteins
             .iter() // Iterate over the all proteins
             // Get the protein from IDpicker map,filter_map returns only the proteins that exist in the map
             .filter_map(|&each_protein| protein_map.get(each_protein))
@@ -92,7 +92,7 @@ fn group_node_with_same_edge<'a>(
         .collect();
 
     // Build l_set vector with groups
-    let mut l_set: Vec<HashSet<&str>> = l1
+    let l_set: Vec<HashSet<&str>> = l1
         .iter()
         .map(|key| {
             let mut set: HashSet<&str> = HashSet::new();
@@ -141,7 +141,7 @@ fn group_node_with_protein<'a>(
         .collect();
 
     // Construct l_set: Group proteins based on shared peptides
-    let mut l_set: Vec<HashSet<&str>> = l1
+    let l_set: Vec<HashSet<&str>> = l1
         .into_iter()
         .map(|key| {
             let mut set: HashSet<&str> = HashSet::new();
@@ -180,17 +180,17 @@ fn separate_into_clusters<'a>(
         });
     });
 
-    let mut used_keys = HashSet::new();
+    let mut used_keys: HashSet<&str> = HashSet::new();
     let mut clusters = Vec::new();
 
     while used_keys.len() < node_dict.len() {
         let root = node_dict
             .keys()
-            .find(|k| !used_keys.contains(*k))
-            .unwrap()
-            .clone();
-        let mut proteins = node_dict[&root].clone();
-        let mut cluster = HashSet::from([root.clone()]);
+            .find(| &k| !used_keys.contains(*k))
+            .unwrap();
+
+        let mut proteins = node_dict[root].clone();
+        let mut cluster = HashSet::from([root]);
 
         loop {
             let previous_size = proteins.len();
@@ -252,7 +252,7 @@ fn reduce_cluster<'a>(data: Vec<(Vec<&'a str>, Vec<&'a str>)>) -> Vec<(String, V
             });
 
         // Compute scores for sorting
-        let mut score_dict: BTreeMap<Vec<&str>, (usize, usize)> = prot_dict
+        let score_dict: BTreeMap<Vec<&str>, (usize, usize)> = prot_dict
             .iter()
             .map(|(key, peptides)| {
                 (
