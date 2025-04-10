@@ -2318,6 +2318,7 @@ dependencies = [
 name = "sage-core"
 version = "0.15.0-alpha"
 dependencies = [
+ "csv",
  "dashmap",
  "fnv",
  "itertools",
