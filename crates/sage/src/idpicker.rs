@@ -31,21 +31,19 @@ pub fn generate_protein_groups(db: &IndexedDatabase, features: &mut [Feature]) {
 
         let array_proteins = proteins.split(";").collect::<Vec<_>>();
 
-        let id_proteins: HashSet<_> = array_proteins
-            .iter() // Iterate over the all proteins
-            // Get the protein from IDpicker map,filter_map returns only the proteins that exist in the map
-            .filter_map(|&each_protein| protein_map.get(each_protein))
-            // Concatenate the proteins in the group by comma
-            .map(|pg| pg.iter().join(","))
-            .collect();
+        let id_proteins: HashSet<_> = array_proteins.iter()
+            .map(|&each_protein| {
+            // Check if the protein exists in the IDpicker map
+            if protein_map.contains_key(each_protein) {
+                // If it exists, return the protein group and protein seperated by "/"
+                protein_map.get(each_protein).unwrap().join("/")
+            } else {
+                // If it doesn't exist, return the original protein
+                each_protein.to_string()
+            }
+        }).collect();
 
-        let protein_groups = if !id_proteins.is_empty() {
-            Some(id_proteins.iter().sorted().join("/")) // | concatenate the different protein groups
-        } else {
-            //Neither proteinA nor proteinB exist in the IDpicker map:report the original proteins
-            Some(proteins)
-        };
-        feat.idpicker_proteingroups = protein_groups;
+        feat.idpicker_proteingroups =  Some(id_proteins.iter().sorted().join(";")) // | concatenate the different protein groups;
     });
 }
 
