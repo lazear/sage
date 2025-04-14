@@ -143,6 +143,7 @@ pub struct Feature {
     pub ms2_intensity: f32,
 
     pub idpicker_proteingroups: Option<String>,
+    pub is_proteinggroups: i8,
 
     pub fragments: Option<Fragments>,
 }
@@ -574,6 +575,7 @@ impl<'db> Scorer<'db> {
 
                 //Fragments
                 idpicker_proteingroups: None,
+                is_proteinggroups: 0,
                 fragments,
                 proteingroups_q: 0.0,
             })

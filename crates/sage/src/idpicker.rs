@@ -1,5 +1,6 @@
 use crate::database::IndexedDatabase;
 use crate::scoring::Feature;
+use csv::Reader;
 use itertools::Itertools;
 use rayon::iter::IntoParallelRefMutIterator;
 use rayon::iter::ParallelIterator;
@@ -7,7 +8,6 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::error::Error;
 use std::fs::File;
 use std::path::Path;
-use csv::Reader;
 
 pub fn generate_protein_groups(db: &IndexedDatabase, features: &mut [Feature]) {
     let pep_proteins = features
@@ -30,20 +30,26 @@ pub fn generate_protein_groups(db: &IndexedDatabase, features: &mut [Feature]) {
         let proteins = db[feat.peptide_idx].proteins(&db.decoy_tag, db.generate_decoys);
 
         let array_proteins = proteins.split(";").collect::<Vec<_>>();
+        let mut is_proteingroup = -1;
 
-        let id_proteins: HashSet<_> = array_proteins.iter()
+        let id_proteins: HashSet<_> = array_proteins
+            .iter()
             .map(|&each_protein| {
-            // Check if the protein exists in the IDpicker map
-            if protein_map.contains_key(each_protein) {
-                // If it exists, return the protein group and protein seperated by "/"
-                protein_map.get(each_protein).unwrap().join("/")
-            } else {
-                // If it doesn't exist, return the original protein
-                each_protein.to_string()
-            }
-        }).collect();
+                // Check if the protein exists in the IDpicker map
+                if protein_map.contains_key(each_protein) {
+                    is_proteingroup = 1;
+                    // If it exists, return the protein group and protein seperated by "/"
+                    protein_map.get(each_protein).unwrap().join("/")
+                } else {
+                    // If it doesn't exist, return the original protein
+                    each_protein.to_string()
+                }
+            })
+            .collect();
 
-        feat.idpicker_proteingroups =  Some(id_proteins.iter().sorted().join(";")) // | concatenate the different protein groups;
+        feat.idpicker_proteingroups = Some(id_proteins.iter().sorted().join(";"));
+        feat.is_proteinggroups = is_proteingroup;
+        // | concatenate the different protein groups;
     });
 }
 
@@ -182,10 +188,7 @@ fn separate_into_clusters<'a>(
     let mut clusters = Vec::new();
 
     while used_keys.len() < node_dict.len() {
-        let root = node_dict
-            .keys()
-            .find(| &k| !used_keys.contains(*k))
-            .unwrap();
+        let root = node_dict.keys().find(|&k| !used_keys.contains(*k)).unwrap();
 
         let mut proteins = node_dict[root].clone();
         let mut cluster = HashSet::from([root]);
@@ -355,7 +358,7 @@ mod test {
 
         let _protein_map: HashMap<_, _> = final_proteins.into_iter().collect();
 
-       /* for (i, j) in _protein_map.iter() {
+        /* for (i, j) in _protein_map.iter() {
             println!("Protein  ->{:?} ,  Protein Group-> {:?} ", i, j);
         }*/
 
