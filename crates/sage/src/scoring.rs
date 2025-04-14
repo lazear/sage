@@ -138,6 +138,7 @@ pub struct Feature {
     pub spectrum_q: f32,
     pub peptide_q: f32,
     pub protein_q: f32,
+    pub proteingroups_q: f32,
 
     pub ms2_intensity: f32,
 
@@ -574,6 +575,7 @@ impl<'db> Scorer<'db> {
                 //Fragments
                 idpicker_proteingroups: None,
                 fragments,
+                proteingroups_q: 0.0,
             })
         }
     }

@@ -397,6 +397,7 @@ impl Runner {
         let q_peptide = sage_core::fdr::picked_peptide(&self.database, &mut outputs.features);
         let q_protein = sage_core::fdr::picked_protein(&self.database, &mut outputs.features);
         sage_core::idpicker::generate_protein_groups(&self.database, &mut outputs.features);
+        let q_protein_group = sage_core::fdr::picked_protein_group(&self.database, &mut outputs.features);
 
         let filenames = self
             .parameters
@@ -434,6 +435,7 @@ impl Runner {
         );
         log::info!("discovered {} target peptides at 1% FDR", q_peptide);
         log::info!("discovered {} target proteins at 1% FDR", q_protein);
+        log::info!("discovered {} target proteingroup at 1% FDR", q_protein_group);
         log::trace!("writing outputs");
 
         // Write either a single parquet file, or multiple tsv files
