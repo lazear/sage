@@ -182,32 +182,25 @@ pub fn picked_protein(db: &IndexedDatabase, features: &mut [Feature]) -> usize {
 
 pub fn picked_protein_group(db: &IndexedDatabase, features: &mut [Feature]) -> usize {
     let mut map: FnvHashMap<_, Competition<String>> = FnvHashMap::default();
-    for feat in features.iter() {
-        let decoy = db[feat.peptide_idx].decoy;
+    for feat in features.iter().filter(|x| x.num_proteingroups > 0) {
+        let num_protein_group = feat.num_proteingroups;
         let entry = map.entry(&db[feat.peptide_idx].proteins).or_default();
-        match decoy {
+        match num_protein_group == 1  {
             true => {
-                entry.reverse = entry.reverse.max(feat.discriminant_score);
-                entry.reverse_ix = Some(db[feat.peptide_idx].proteins(&db.decoy_tag, db.generate_decoys));
-            }
-            false => {
                 entry.forward = entry.forward.max(feat.discriminant_score);
                 entry.foward_ix = feat.idpicker_proteingroups.clone();
+            }
+            false => {
+                entry.reverse = entry.reverse.max(feat.discriminant_score);
+                entry.reverse_ix = feat.idpicker_proteingroups.clone();
             }
         }
     }
 
     let (scores, passing) = Competition::assign_q_value(map, 0.01);
 
-    features.par_iter_mut().for_each(|feat| {
-        let proteins = match db[feat.peptide_idx].decoy {
-            true => {
-                db[feat.peptide_idx].proteins(&db.decoy_tag, db.generate_decoys)
-            }
-            false => {
-                feat.idpicker_proteingroups.as_ref().unwrap().as_str().to_string()
-            }
-        };
+    features.par_iter_mut().filter(|x| x.num_proteingroups > 0).for_each(|feat| {
+        let proteins = feat.idpicker_proteingroups.as_ref().unwrap().as_str().to_string();
         feat.proteingroups_q = scores[&proteins];
     });
 

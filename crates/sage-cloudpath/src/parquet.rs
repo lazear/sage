@@ -38,7 +38,7 @@ pub fn build_schema() -> Result<Type, parquet::errors::ParquetError> {
             required int32 num_proteins;
             required int32 rank;
             required boolean is_decoy;
-            required boolean is_proteinsgroup;
+            required int32 num_proteingroups;
             required float expmass;
             required float calcmass;
             required int32 charge;
@@ -201,7 +201,7 @@ pub fn serialize_features(
         );
         write_col!(rank, Int32Type);
         write_col!(|f: &Feature| f.label == -1, BoolType);
-        write_col!(|f: &Feature| f.is_proteinggroups == 1, BoolType);
+        write_col!(num_proteingroups, Int32Type);
         write_col!(expmass, FloatType);
         write_col!(calcmass, FloatType);
         write_col!(charge, Int32Type);

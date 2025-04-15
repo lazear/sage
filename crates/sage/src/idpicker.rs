@@ -10,9 +10,56 @@ use std::fs::File;
 use std::path::Path;
 
 pub fn generate_protein_groups(db: &IndexedDatabase, features: &mut [Feature]) {
-    let pep_proteins = features
+
+    let gp1_filter = | label: i32, peptide_q: f32 |  label != -1 && peptide_q < 0.01;
+
+    let gp2_filter = | label: i32, peptide_q: f32 |  label != -1 && peptide_q >= 0.01;
+
+    let pep_proteins_pg1 = get_peptides_protein_pg1(&db, features, gp1_filter);
+
+    let pep_proteins_pg2 = get_peptides_protein_pg1(&db, features, gp2_filter);
+
+    let protein_map_pg1 = get_protein_map(pep_proteins_pg1);
+
+    let protein_map_pg2 = get_protein_map(pep_proteins_pg2);
+
+    features.par_iter_mut().for_each(|feat| {
+
+        let proteins = db[feat.peptide_idx].proteins(&db.decoy_tag, db.generate_decoys);
+
+        let array_proteins = proteins.split(";").collect::<Vec<_>>();
+        let mut num_proteingroup = 0;
+
+        let id_proteins: HashSet<_> = array_proteins
+            .iter()
+            .map(|&each_protein| {
+                // Check if the protein exists in the IDpicker map
+                if protein_map_pg1.contains_key(each_protein) {
+                    num_proteingroup += 1;
+                    // tier-1 proteins groups
+                    protein_map_pg1.get(each_protein).unwrap().join("/")
+                } else if protein_map_pg2.contains_key(each_protein) {
+                    num_proteingroup += 1;
+                    // tier-2 proteins groups
+                    protein_map_pg2.get(each_protein).unwrap().join("/")
+                }else {
+                    // If the protein is not found in either tires, return an error
+                    // panic!("{}",format!("Protein {} not found in protein group!!", each_protein));
+                    each_protein.to_string()
+                }
+            })
+            .collect();
+
+        feat.idpicker_proteingroups = Some(id_proteins.iter().sorted().join(";"));
+        feat.num_proteingroups = num_proteingroup;
+        // | concatenate the different protein groups;
+    });
+}
+
+fn get_peptides_protein_pg1(db: &&IndexedDatabase, features: &mut [Feature], gp1_filter: fn(i32, f32) -> bool) -> Vec<(String, String)> {
+    features
         .iter()
-        .filter(|feat| feat.label != -1 && feat.peptide_q < 0.01)
+        .filter(|feature: &&Feature| gp1_filter(feature.label,feature.peptide_q))
         .flat_map(|feature| {
             let idx = feature.peptide_idx;
             let proteins = &db[feature.peptide_idx].proteins(&db.decoy_tag, db.generate_decoys);
@@ -22,35 +69,7 @@ pub fn generate_protein_groups(db: &IndexedDatabase, features: &mut [Feature]) {
                 .collect_vec();
             peptide_proteins
         })
-        .collect_vec();
-
-    let protein_map = get_protein_map(pep_proteins);
-
-    features.par_iter_mut().for_each(|feat| {
-        let proteins = db[feat.peptide_idx].proteins(&db.decoy_tag, db.generate_decoys);
-
-        let array_proteins = proteins.split(";").collect::<Vec<_>>();
-        let mut is_proteingroup = -1;
-
-        let id_proteins: HashSet<_> = array_proteins
-            .iter()
-            .map(|&each_protein| {
-                // Check if the protein exists in the IDpicker map
-                if protein_map.contains_key(each_protein) {
-                    is_proteingroup = 1;
-                    // If it exists, return the protein group and protein seperated by "/"
-                    protein_map.get(each_protein).unwrap().join("/")
-                } else {
-                    // If it doesn't exist, return the original protein
-                    each_protein.to_string()
-                }
-            })
-            .collect();
-
-        feat.idpicker_proteingroups = Some(id_proteins.iter().sorted().join(";"));
-        feat.is_proteinggroups = is_proteingroup;
-        // | concatenate the different protein groups;
-    });
+        .collect_vec()
 }
 
 fn get_protein_map(pep_proteins: Vec<(String, String)>) -> HashMap<String, Vec<String>> {
