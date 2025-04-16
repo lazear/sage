@@ -50,6 +50,7 @@ pub struct LfqSettings {
     pub ppm_tolerance: f32,
     pub mobility_pct_tolerance: f32,
     pub combine_charge_states: bool,
+    pub mbr: bool,
 }
 
 impl Default for LfqSettings {
@@ -61,6 +62,7 @@ impl Default for LfqSettings {
             ppm_tolerance: 5.0,
             mobility_pct_tolerance: 1.0,
             combine_charge_states: true,
+            mbr: true,
         }
     }
 }
