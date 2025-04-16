@@ -80,6 +80,7 @@ pub struct PrecursorRange {
     pub peptide: PeptideIx,
     pub file_id: usize,
     pub decoy: bool,
+    pub isotope_dist: [f32; 3],
 }
 
 /// Create a data structure analogous to [`IndexedDatabase`] - instaed of
@@ -95,15 +96,16 @@ pub struct FeatureMap {
 pub fn build_feature_map(
     settings: &LfqSettings,
     precursor_charge: (u8, u8),
-    features: &[Feature],
+    features: &[impl QuantifiableFeature],
+    db: &impl CompositionDatabase,
 ) -> FeatureMap {
     let map: DashMap<PeptideIx, PrecursorRange, fnv::FnvBuildHasher> = DashMap::default();
     features
         .iter()
-        .filter(|feat| feat.peptide_q <= 0.01 && feat.label == 1)
+        .filter(|feat| feat.peptide_q() <= 0.01 && feat.label() == 1)
         .for_each(|feat| {
             // `features` is sorted by confidence, so just take the first entry
-            if !map.contains_key(&feat.peptide_idx) {
+            if !map.contains_key(&feat.peptide_idx()) {
                 // let mass = if feat.isotope_error > 0.0 || feat.delta_mass >= settings.ppm_tolerance * 3.0 {
                 //    feat.expmass - feat.isotope_error
                 // } else {
@@ -113,20 +115,24 @@ pub fn build_feature_map(
                     -settings.mobility_pct_tolerance,
                     settings.mobility_pct_tolerance,
                 )
-                .bounds(feat.ims);
+                .bounds(feat.ims());
+                let composition = feat.get_composition(db);
+                let dist =
+                    crate::isotopes::peptide_isotopes(composition.carbon, composition.sulfur);
                 map.insert(
-                    feat.peptide_idx,
+                    feat.peptide_idx(),
                     PrecursorRange {
-                        rt: feat.aligned_rt,
-                        mass_lo: feat.calcmass,
+                        rt: feat.aligned_rt(),
+                        mass_lo: feat.calcmass(),
                         mass_hi: 0.0,
-                        peptide: feat.peptide_idx,
-                        charge: feat.charge,
+                        peptide: feat.peptide_idx(),
+                        charge: feat.charge(),
                         isotope: 0,
-                        file_id: feat.file_id,
+                        file_id: feat.file_id(),
                         mobility_lo,
                         mobility_hi,
                         decoy: false,
+                        isotope_dist: dist,
                     },
                 );
             }
@@ -226,7 +232,6 @@ impl FeatureMap {
     /// Run label-free quantification module
     pub fn quantify(
         &self,
-        db: &IndexedDatabase,
         spectra: &MS1Spectra,
         alignments: &[Alignment],
     ) -> HashMap<(PrecursorId, bool), (Peak, Vec<f64>), fnv::FnvBuildHasher> {
@@ -249,17 +254,13 @@ impl FeatureMap {
                         };
 
                         let mut grid = scores.entry((id, entry.decoy)).or_insert_with(|| {
-                            let p = &db[entry.peptide];
-                            let composition = p
-                                .sequence
-                                .iter()
-                                .map(|r| composition(*r))
-                                .sum::<Composition>();
-                            let dist = crate::isotopes::peptide_isotopes(
-                                composition.carbon,
-                                composition.sulfur,
-                            );
-                            Grid::new(entry, RT_TOL, dist, alignments.len(), GRID_SIZE)
+                            Grid::new(
+                                entry,
+                                RT_TOL,
+                                entry.isotope_dist,
+                                alignments.len(),
+                                GRID_SIZE,
+                            )
                         });
 
                         grid.add_entry(rt, entry.isotope, spectrum.file_id, peak.intensity);
@@ -279,17 +280,13 @@ impl FeatureMap {
                         };
 
                         let mut grid = scores.entry((id, entry.decoy)).or_insert_with(|| {
-                            let p = &db[entry.peptide];
-                            let composition = p
-                                .sequence
-                                .iter()
-                                .map(|r| composition(*r))
-                                .sum::<Composition>();
-                            let dist = crate::isotopes::peptide_isotopes(
-                                composition.carbon,
-                                composition.sulfur,
-                            );
-                            Grid::new(entry, RT_TOL, dist, alignments.len(), GRID_SIZE)
+                            Grid::new(
+                                entry,
+                                RT_TOL,
+                                entry.isotope_dist,
+                                alignments.len(),
+                                GRID_SIZE,
+                            )
                         });
 
                         grid.add_entry(rt, entry.isotope, spectrum.file_id, peak.intensity);
@@ -704,15 +701,71 @@ impl Query<'_> {
 pub fn quantify(
     lfq_settings: &LfqSettings,
     precursor_charge: (u8, u8),
-    database: &IndexedDatabase,
-    features: &[Feature],
+    database: &impl CompositionDatabase,
+    features: &[impl QuantifiableFeature],
     ms1_spectra: &MS1Spectra,
     alignments: Vec<Alignment>,
 ) -> FnvHashMap<(PrecursorId, bool), (Peak, Vec<f64>)> {
-    let areas = build_feature_map(lfq_settings, precursor_charge, &features).quantify(
-        database,
-        ms1_spectra,
-        &alignments,
-    );
+    let areas = build_feature_map(lfq_settings, precursor_charge, &features, database)
+        .quantify(ms1_spectra, &alignments);
     areas
+}
+
+pub trait CompositionDatabase {
+    fn get_composition_for_feature(&self, feat: &impl QuantifiableFeature) -> Composition;
+}
+
+impl CompositionDatabase for IndexedDatabase {
+    fn get_composition_for_feature(&self, feat: &impl QuantifiableFeature) -> Composition {
+        self[feat.peptide_idx()]
+            .sequence
+            .iter()
+            .map(|r| composition(*r))
+            .sum::<Composition>()
+    }
+}
+
+pub trait QuantifiableFeature: Clone {
+    fn file_id(&self) -> usize;
+    fn peptide_idx(&self) -> PeptideIx;
+    fn peptide_q(&self) -> f32;
+    fn aligned_rt(&self) -> f32;
+    fn charge(&self) -> u8;
+    fn ims(&self) -> f32;
+    fn calcmass(&self) -> f32;
+    fn label(&self) -> i32;
+    fn set_file_id(&mut self, file_id: usize);
+    fn get_composition(&self, db: &impl CompositionDatabase) -> Composition {
+        db.get_composition_for_feature(self)
+    }
+}
+
+impl QuantifiableFeature for Feature {
+    fn file_id(&self) -> usize {
+        self.file_id
+    }
+    fn peptide_idx(&self) -> PeptideIx {
+        self.peptide_idx
+    }
+    fn peptide_q(&self) -> f32 {
+        self.peptide_q
+    }
+    fn aligned_rt(&self) -> f32 {
+        self.aligned_rt
+    }
+    fn charge(&self) -> u8 {
+        self.charge
+    }
+    fn ims(&self) -> f32 {
+        self.ims
+    }
+    fn calcmass(&self) -> f32 {
+        self.calcmass
+    }
+    fn label(&self) -> i32 {
+        self.label
+    }
+    fn set_file_id(&mut self, file_id: usize) {
+        self.file_id = file_id;
+    }
 }
