@@ -1,4 +1,5 @@
 use crate::database::{binary_search_slice, IndexedDatabase, PeptideIx};
+use crate::group_indices_by;
 use crate::mass::{composition, Composition, Tolerance, NEUTRON};
 use crate::ml::{matrix::Matrix, retention_alignment::Alignment};
 use crate::scoring::Feature;
@@ -706,9 +707,51 @@ pub fn quantify(
     ms1_spectra: &MS1Spectra,
     alignments: Vec<Alignment>,
 ) -> FnvHashMap<(PrecursorId, bool), (Peak, Vec<f64>)> {
-    let areas = build_feature_map(lfq_settings, precursor_charge, &features, database)
-        .quantify(ms1_spectra, &alignments);
+    let areas = if lfq_settings.mbr {
+        log::info!("performing LFQ with MBR");
+        build_feature_map(lfq_settings, precursor_charge, features, database)
+            .quantify(&ms1_spectra, &alignments)
+    } else {
+        log::info!("performing LFQ without MBR");
+        let mut final_areas = FnvHashMap::default();
+        // MS1Spectra, features and aligments are assumed to come from the same files and all be not empty
+        for (file_id, (local_ms1_spectra, local_features)) in ms1_spectra
+            .split_by_file()
+            .zip(split_features_by_file(features))
+            .enumerate()
+        {
+            let mut file_alignment = alignments[file_id];
+            file_alignment.file_id = 0;
+            let file_alignments = vec![file_alignment];
+            let areas =
+                build_feature_map(lfq_settings, precursor_charge, &local_features, database)
+                    .quantify(&local_ms1_spectra, &file_alignments);
+            areas.into_iter().for_each(|(entry, (peak, quants))| {
+                let quant = final_areas
+                    .entry(entry)
+                    .or_insert((peak, vec![-1.0; alignments.len()]));
+                quant.1[file_id] = quants[0];
+            });
+        }
+        final_areas
+    };
     areas
+}
+
+fn split_features_by_file(
+    features: &[impl QuantifiableFeature],
+) -> impl Iterator<Item = Vec<impl QuantifiableFeature>> + '_ {
+    group_indices_by(features, |f| f.file_id())
+        .into_iter()
+        .map(|x| {
+            x.into_iter()
+                .map(|i| {
+                    let mut feat = features[i].clone();
+                    feat.set_file_id(0);
+                    feat
+                })
+                .collect::<Vec<_>>()
+        })
 }
 
 pub trait CompositionDatabase {
