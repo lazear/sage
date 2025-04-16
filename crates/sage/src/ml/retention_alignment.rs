@@ -160,6 +160,32 @@ pub fn global_alignment(features: &mut [Feature], n_files: usize) -> Vec<Alignme
 
     log::info!("aligned retention times across {} files", n_files);
 
+    update_feature_aligned_rt(features, &alignments);
+
+    alignments
+}
+
+pub fn no_alignment(features: &mut [Feature], n_files: usize) -> Vec<Alignment> {
+    let max_rt = max_rt_by_file(features, n_files);
+
+    let alignments = (0..n_files)
+        .into_par_iter()
+        .map(|file_id| Alignment {
+            file_id,
+            max_rt: max_rt[file_id] as f32,
+            slope: 1.0,
+            intercept: 0.0,
+        })
+        .collect::<Vec<Alignment>>();
+
+    log::info!("aligned retention times across {} files", n_files);
+
+    update_feature_aligned_rt(features, &alignments);
+
+    alignments
+}
+
+fn update_feature_aligned_rt(features: &mut [Feature], alignments: &[Alignment]) {
     features.par_iter_mut().for_each(|feature| {
         let a = alignments[feature.file_id];
 
@@ -168,6 +194,4 @@ pub fn global_alignment(features: &mut [Feature], n_files: usize) -> Vec<Alignme
         // - Multiply by regression parameters
         feature.aligned_rt = (feature.rt / a.max_rt) * a.slope + a.intercept;
     });
-
-    alignments
 }

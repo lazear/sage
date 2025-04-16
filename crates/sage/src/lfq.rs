@@ -4,6 +4,7 @@ use crate::ml::{matrix::Matrix, retention_alignment::Alignment};
 use crate::scoring::Feature;
 use crate::spectrum::MS1Spectra;
 use dashmap::DashMap;
+use fnv::FnvHashMap;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -92,7 +93,7 @@ pub struct FeatureMap {
 }
 
 pub fn build_feature_map(
-    settings: LfqSettings,
+    settings: &LfqSettings,
     precursor_charge: (u8, u8),
     features: &[Feature],
 ) -> FeatureMap {
@@ -188,7 +189,7 @@ pub fn build_feature_map(
         ranges,
         min_rts,
         bin_size: 16 * 1024,
-        settings,
+        settings: settings.clone(),
     }
 }
 
@@ -698,4 +699,20 @@ impl Query<'_> {
             (precursor.mobility_hi >= mobility) && (precursor.mobility_lo <= mobility)
         })
     }
+}
+
+pub fn quantify(
+    lfq_settings: &LfqSettings,
+    precursor_charge: (u8, u8),
+    database: &IndexedDatabase,
+    features: &[Feature],
+    ms1_spectra: &MS1Spectra,
+    alignments: Vec<Alignment>,
+) -> FnvHashMap<(PrecursorId, bool), (Peak, Vec<f64>)> {
+    let areas = build_feature_map(lfq_settings, precursor_charge, &features).quantify(
+        database,
+        ms1_spectra,
+        &alignments,
+    );
+    areas
 }
