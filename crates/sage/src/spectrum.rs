@@ -394,7 +394,7 @@ impl SpectrumProcessor {
         }
     }
 
-    pub fn process_with_mobility(&self, spectrum: RawSpectrum) -> ProcessedSpectrum<IMPeak> {
+    pub fn process_with_mobility(spectrum: RawSpectrum) -> ProcessedSpectrum<IMPeak> {
         assert!(
             spectrum.ms_level == 1,
             "Logic error, mobility processing should only be used for MS1"

@@ -438,7 +438,7 @@ impl Runner {
             let spectra = spectra
                 .ms1
                 .into_iter()
-                .map(|x| sp.process_with_mobility(x))
+                .map(|x| SpectrumProcessor::process_with_mobility(x))
                 .collect();
             MS1Spectra::WithMobility(spectra)
         } else {
