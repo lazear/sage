@@ -396,8 +396,8 @@ impl Runner {
         let q_spectrum = self.spectrum_fdr(&mut outputs.features);
         let q_peptide = sage_core::fdr::picked_peptide(&self.database, &mut outputs.features);
         let q_protein = sage_core::fdr::picked_protein(&self.database, &mut outputs.features);
-        sage_core::idpicker::generate_protein_groups(&self.database, &mut outputs.features);
-        let q_protein_group = sage_core::fdr::picked_protein_group(&self.database, &mut outputs.features);
+        sage_core::idpicker::generate_proteingroups(&self.database, &mut outputs.features);
+        let q_proteingroup = sage_core::fdr::picked_proteingroup(&self.database, &mut outputs.features);
 
         let filenames = self
             .parameters
@@ -435,7 +435,7 @@ impl Runner {
         );
         log::info!("discovered {} target peptides at 1% FDR", q_peptide);
         log::info!("discovered {} target proteins at 1% FDR", q_protein);
-        log::info!("discovered {} target proteingroup at 1% FDR", q_protein_group);
+        log::info!("discovered {} target proteingroups at 1% FDR", q_proteingroup);
         log::trace!("writing outputs");
 
         // Write either a single parquet file, or multiple tsv files
@@ -532,12 +532,13 @@ impl Runner {
                 .proteins(&self.database.decoy_tag, self.database.generate_decoys)
                 .as_bytes(),
         );
-        record.push_field(feature.idpicker_proteingroups.as_ref().unwrap().as_bytes());
+        record.push_field(feature.proteingroups.as_ref().unwrap().as_bytes());
         record.push_field(
             itoa::Buffer::new()
                 .format(peptide.proteins.len())
                 .as_bytes(),
         );
+        record.push_field(itoa::Buffer::new().format(feature.num_proteingroups).as_bytes());
         record.push_field(filenames[feature.file_id].as_bytes());
         record.push_field(feature.spec_id.as_bytes());
         record.push_field(itoa::Buffer::new().format(feature.rank).as_bytes());
@@ -601,6 +602,7 @@ impl Runner {
         record.push_field(ryu::Buffer::new().format(feature.spectrum_q).as_bytes());
         record.push_field(ryu::Buffer::new().format(feature.peptide_q).as_bytes());
         record.push_field(ryu::Buffer::new().format(feature.protein_q).as_bytes());
+        record.push_field(ryu::Buffer::new().format(feature.proteingroup_q).as_bytes());
         record.push_field(ryu::Buffer::new().format(feature.ms2_intensity).as_bytes());
         record
     }
@@ -668,8 +670,9 @@ impl Runner {
             "psm_id",
             "peptide",
             "proteins",
-            "id_proteins",
+            "proteingroups",
             "num_proteins",
+            "num_proteingroups",
             "filename",
             "scannr",
             "rank",
@@ -705,6 +708,7 @@ impl Runner {
             "spectrum_q",
             "peptide_q",
             "protein_q",
+            "proteingroup_q",
             "ms2_intensity",
         ];
 

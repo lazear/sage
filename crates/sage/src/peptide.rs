@@ -28,6 +28,7 @@ pub struct Peptide {
     pub position: Position,
 
     pub proteins: Vec<Arc<String>>,
+    pub proteingroups: Vec<Arc<String>>,
 }
 
 impl Peptide {
@@ -56,6 +57,7 @@ impl Debug for Peptide {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Peptide")
             .field("proteins", &self.proteins)
+            .field("proteingroups", &self.proteingroups)
             .field("decoy", &self.decoy)
             .field(
                 "sequence",
@@ -92,6 +94,23 @@ impl Peptide {
                 .join(";")
         } else {
             self.proteins.iter().join(";")
+        }
+    }
+
+    pub fn proteingroups(&self, decoy_tag: &str, generate_decoys: bool) -> String {
+        if self.decoy {
+            self.proteingroups
+                .iter()
+                .map(|s| {
+                    if generate_decoys {
+                        format!("{}{}", decoy_tag, s)
+                    } else {
+                        s.to_string()
+                    }
+                })
+                .join(";")
+        } else {
+            self.proteingroups.iter().join(";")
         }
     }
 
@@ -373,6 +392,7 @@ impl TryFrom<Digest> for Peptide {
             missed_cleavages: value.missed_cleavages,
             semi_enzymatic: value.semi_enzymatic,
             proteins: vec![value.protein],
+            proteingroups: vec![],
         })
     }
 }

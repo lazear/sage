@@ -9,37 +9,34 @@ use std::error::Error;
 use std::fs::File;
 use std::path::Path;
 
-pub fn generate_protein_groups(db: &IndexedDatabase, features: &mut [Feature]) {
+pub fn generate_proteingroups(db: &IndexedDatabase, features: &mut [Feature]) {
 
     let gp1_filter = | label: i32, peptide_q: f32 |  label != -1 && peptide_q < 0.01;
 
-    let gp2_filter = | label: i32, peptide_q: f32 |  label != -1 && peptide_q >= 0.01;
+    let gp2_filter = | label: i32, peptide_q: f32 |  label != -1;
 
-    let pep_proteins_pg1 = get_peptides_protein_pg1(&db, features, gp1_filter);
+    let pep_proteins_pg1 = get_peptide_protein_map(&db, features, gp1_filter);
 
-    let pep_proteins_pg2 = get_peptides_protein_pg1(&db, features, gp2_filter);
+    let pep_proteins_pg2 = get_peptide_protein_map(&db, features, gp2_filter);
 
-    let protein_map_pg1 = get_protein_map(pep_proteins_pg1);
+    let protein_map_pg1 = get_proteingroups(pep_proteins_pg1);
 
-    let protein_map_pg2 = get_protein_map(pep_proteins_pg2);
+    let protein_map_pg2 = get_proteingroups(pep_proteins_pg2);
 
     features.par_iter_mut().for_each(|feat| {
 
         let proteins = db[feat.peptide_idx].proteins(&db.decoy_tag, db.generate_decoys);
 
         let array_proteins = proteins.split(";").collect::<Vec<_>>();
-        let mut num_proteingroup = 0;
 
-        let id_proteins: HashSet<_> = array_proteins
+        let proteingroups: HashSet<_> = array_proteins
             .iter()
             .map(|&each_protein| {
                 // Check if the protein exists in the IDpicker map
                 if protein_map_pg1.contains_key(each_protein) {
-                    num_proteingroup += 1;
                     // tier-1 proteins groups
                     protein_map_pg1.get(each_protein).unwrap().join("/")
                 } else if protein_map_pg2.contains_key(each_protein) {
-                    num_proteingroup += 1;
                     // tier-2 proteins groups
                     protein_map_pg2.get(each_protein).unwrap().join("/")
                 }else {
@@ -50,13 +47,12 @@ pub fn generate_protein_groups(db: &IndexedDatabase, features: &mut [Feature]) {
             })
             .collect();
 
-        feat.idpicker_proteingroups = Some(id_proteins.iter().sorted().join(";"));
-        feat.num_proteingroups = num_proteingroup;
-        // | concatenate the different protein groups;
+        feat.proteingroups = Some(proteingroups.iter().sorted().join(";"));
+        feat.num_proteingroups = proteingroups.len() as i32;
     });
 }
 
-fn get_peptides_protein_pg1(db: &&IndexedDatabase, features: &mut [Feature], gp1_filter: fn(i32, f32) -> bool) -> Vec<(String, String)> {
+fn get_peptide_protein_map(db: &&IndexedDatabase, features: &mut [Feature], gp1_filter: fn(i32, f32) -> bool) -> Vec<(String, String)> {
     features
         .iter()
         .filter(|feature: &&Feature| gp1_filter(feature.label,feature.peptide_q))
@@ -72,7 +68,7 @@ fn get_peptides_protein_pg1(db: &&IndexedDatabase, features: &mut [Feature], gp1
         .collect_vec()
 }
 
-fn get_protein_map(pep_proteins: Vec<(String, String)>) -> HashMap<String, Vec<String>> {
+fn get_proteingroups(pep_proteins: Vec<(String, String)>) -> HashMap<String, Vec<String>> {
     let (peptides, proteins): (Vec<_>, Vec<_>) = pep_proteins.into_iter().unzip();
 
     let grp_peptides = group_node_with_same_edge(&peptides, &proteins);
