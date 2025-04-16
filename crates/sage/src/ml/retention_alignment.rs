@@ -23,14 +23,15 @@ use rayon::prelude::*;
 
 type FnvDashMap<K, V> = DashMap<K, V, BuildHasherDefault<FnvHasher>>;
 
-fn max_rt_by_file(features: &[Feature], n_files: usize) -> Vec<f64> {
+fn max_rt_by_file(features: &[impl AlignableFeature], n_files: usize) -> Vec<f64> {
     let max_rt = (0..n_files)
         .map(|_| AtomicU32::new(0))
         .map(|_| AtomicU32::new(0))
         .collect::<Vec<_>>();
 
     features.par_iter().for_each(|feat| {
-        max_rt[feat.file_id].fetch_max(feat.rt.ceil() as u32, std::sync::atomic::Ordering::SeqCst);
+        max_rt[feat.file_id()]
+            .fetch_max(feat.rt().ceil() as u32, std::sync::atomic::Ordering::SeqCst);
     });
 
     max_rt
@@ -41,22 +42,27 @@ fn max_rt_by_file(features: &[Feature], n_files: usize) -> Vec<f64> {
 
 /// Return a map from PeptideIx to a map from File ID to average RT of the parent
 /// PeptideIX
-fn mean_rt_by_file(features: &[Feature]) -> FnvDashMap<PeptideIx, HashMap<usize, f64>> {
+fn mean_rt_by_file(
+    features: &[impl AlignableFeature],
+) -> FnvDashMap<PeptideIx, HashMap<usize, f64>> {
     let rts: FnvDashMap<PeptideIx, HashMap<usize, f64>> = DashMap::default();
     features
         .par_iter()
-        .filter(|feat| feat.label == 1 && feat.spectrum_q <= 0.01)
+        .filter(|feat| feat.label() == 1 && feat.spectrum_q() <= 0.01)
         .for_each(|feat| {
-            rts.entry(feat.peptide_idx)
+            rts.entry(feat.peptide_idx())
                 .or_default()
-                .entry(feat.file_id)
-                .and_modify(|f| *f = f.min(feat.rt as f64))
-                .or_insert(feat.rt as f64);
+                .entry(feat.file_id())
+                .and_modify(|f| *f = f.min(feat.rt() as f64))
+                .or_insert(feat.rt() as f64);
         });
     rts
 }
 
-fn rt_matrix(features: &[Feature], max_rt: &[f64]) -> (HashMap<PeptideIx, f64>, Matrix) {
+fn rt_matrix(
+    features: &[impl AlignableFeature],
+    max_rt: &[f64],
+) -> (HashMap<PeptideIx, f64>, Matrix) {
     let mean_rt = mean_rt_by_file(features);
 
     let (means, mat): (HashMap<PeptideIx, f64>, Vec<_>) = mean_rt
@@ -92,7 +98,7 @@ pub struct Alignment {
     pub intercept: f32,
 }
 
-pub fn global_alignment(features: &mut [Feature], n_files: usize) -> Vec<Alignment> {
+pub fn global_alignment(features: &mut [impl AlignableFeature], n_files: usize) -> Vec<Alignment> {
     let max_rt = max_rt_by_file(features, n_files);
     let (_, rt) = rt_matrix(features, &max_rt);
 
@@ -165,7 +171,7 @@ pub fn global_alignment(features: &mut [Feature], n_files: usize) -> Vec<Alignme
     alignments
 }
 
-pub fn no_alignment(features: &mut [Feature], n_files: usize) -> Vec<Alignment> {
+pub fn no_alignment(features: &mut [impl AlignableFeature], n_files: usize) -> Vec<Alignment> {
     let max_rt = max_rt_by_file(features, n_files);
 
     let alignments = (0..n_files)
@@ -185,13 +191,44 @@ pub fn no_alignment(features: &mut [Feature], n_files: usize) -> Vec<Alignment> 
     alignments
 }
 
-fn update_feature_aligned_rt(features: &mut [Feature], alignments: &[Alignment]) {
+fn update_feature_aligned_rt(features: &mut [impl AlignableFeature], alignments: &[Alignment]) {
     features.par_iter_mut().for_each(|feature| {
-        let a = alignments[feature.file_id];
+        let a = alignments[feature.file_id()];
 
         // Calculate aligned RT
         // - Divide by maximum RT of this run
         // - Multiply by regression parameters
-        feature.aligned_rt = (feature.rt / a.max_rt) * a.slope + a.intercept;
+        let aligned_rt = (feature.rt() / a.max_rt) * a.slope + a.intercept;
+        feature.set_aligned_rt(aligned_rt);
     });
+}
+
+pub trait AlignableFeature: Send + Sync {
+    fn rt(&self) -> f32;
+    fn file_id(&self) -> usize;
+    fn peptide_idx(&self) -> PeptideIx;
+    fn label(&self) -> i8;
+    fn spectrum_q(&self) -> f32;
+    fn set_aligned_rt(&mut self, aligned_rt: f32);
+}
+
+impl AlignableFeature for Feature {
+    fn rt(&self) -> f32 {
+        self.rt
+    }
+    fn file_id(&self) -> usize {
+        self.file_id
+    }
+    fn peptide_idx(&self) -> PeptideIx {
+        self.peptide_idx
+    }
+    fn label(&self) -> i8 {
+        self.label as i8
+    }
+    fn spectrum_q(&self) -> f32 {
+        self.spectrum_q
+    }
+    fn set_aligned_rt(&mut self, aligned_rt: f32) {
+        self.aligned_rt = aligned_rt;
+    }
 }
