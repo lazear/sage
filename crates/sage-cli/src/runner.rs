@@ -434,8 +434,8 @@ impl Runner {
             q_spectrum
         );
         log::info!("discovered {} target peptides at 1% FDR", q_peptide);
-        log::info!("discovered {} target proteins at 1% FDR", q_protein);
-        log::info!("discovered {} target proteingroups at 1% FDR", q_proteingroup);
+        log::info!("discovered {} target proteins at 1% FDR based on proteotypic peptides", q_protein);
+        log::info!("discovered {} target proteingroups at 1% FDR based on proteingroup-unique peptides", q_proteingroup);
         log::trace!("writing outputs");
 
         // Write either a single parquet file, or multiple tsv files
