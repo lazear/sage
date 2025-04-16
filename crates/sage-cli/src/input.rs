@@ -289,15 +289,6 @@ impl Input {
             }
         }
 
-        // if !self.predict_rt.unwrap_or(true)
-        //     && self.quant.as_ref().and_then(|q| q.lfq).unwrap_or(false)
-        // {
-        //     log::warn!(
-        //         "`predict_rt: false` and `lfq: true` are incompatible. Setting `predict_rt: true`"
-        //     );
-        //     self.predict_rt = Some(true);
-        // }
-
         if !self.align_rt.unwrap_or(true) {
             if self.predict_rt.unwrap_or(true) {
                 log::warn!(
