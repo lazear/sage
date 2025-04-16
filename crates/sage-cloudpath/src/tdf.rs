@@ -43,17 +43,16 @@ impl TdfReader {
             .with_path(path_name.as_ref())
             .with_config(config.ms2.clone())
             .finalize()?;
-        let mut spectra = self.read_msn_spectra(file_id, &spectrum_reader)?;
+        let mut spectra = Self::read_msn_spectra(file_id, &spectrum_reader)?;
         if requires_ms1 {
-            let ms1s = self.read_ms1_spectra(&path_name, file_id, config.ms1)?;
+            let ms1s = Self::read_ms1_spectra(&path_name, file_id, config.ms1)?;
             spectra.extend(ms1s);
         }
 
         Ok(spectra)
     }
 
-    fn read_ms1_spectra(
-        &self,
+    pub fn read_ms1_spectra(
         path_name: impl AsRef<str>,
         file_id: usize,
         config: BrukerMS1CentoidingConfig,
@@ -117,8 +116,7 @@ impl TdfReader {
         Ok(ms1_spectra)
     }
 
-    fn read_msn_spectra(
-        &self,
+    pub fn read_msn_spectra(
         file_id: usize,
         spectrum_reader: &SpectrumReader,
     ) -> Result<Vec<RawSpectrum>, timsrust::TimsRustError> {
@@ -221,7 +219,7 @@ impl PeakBuffer {
 
         // The "order" is sorted by intensity
         // This will be used later during the centroiding (for details check that implementation)
-        self.order.extend((0..self.len()));
+        self.order.extend(0..self.len());
         self.order.sort_unstable_by(|&a, &b| {
             self.peaks[b]
                 .intensity
@@ -380,8 +378,7 @@ impl PeakBuffer {
             }
         }
 
-        self
-            .agg_buff
+        self.agg_buff
             .sort_unstable_by(|a, b| a.mz.partial_cmp(&b.mz).unwrap());
         // println!("Centroiding: Start len: {}; end len: {};", arr_len, result.len());
         // Ultra data is usually start: 40k end 10k,
@@ -389,12 +386,10 @@ impl PeakBuffer {
         // rarely leaves peaks with intensity > 200 ... ive never seen
         // it happen. -JSP 2025-Jan
 
-        self
-            .agg_buff
+        self.agg_buff
             .drain(..)
             .into_iter()
             .map(|x| (x.mz, (x.intensity, x.im)))
             .unzip()
     }
 }
-
