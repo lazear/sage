@@ -327,7 +327,7 @@ fn check_protein_group<'a>(
         .iter()
         .zip(g_proteins_set)
         .enumerate()
-        .filter_map(move |(i, (proteins, proteins_set))| {
+        .filter_map(|(i, (proteins, proteins_set))| {
             if in_proteins_set.iter().any(|x| proteins_set.contains(x)) {
                 Some((i, proteins))
             } else {
