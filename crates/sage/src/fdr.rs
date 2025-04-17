@@ -184,7 +184,6 @@ pub fn picked_proteingroup(db: &IndexedDatabase, features: &mut [Feature]) -> us
     let mut map: FnvHashMap<_, Competition<String>> = FnvHashMap::default();
     for feat in features.iter().filter(|x| x.num_proteingroups == 1) {
         let decoy = db[feat.peptide_idx].decoy;
-        let num_proteingroups = feat.num_proteingroups;
         let entry = map.entry(feat.proteingroups.clone()).or_default();
         match decoy {
             true => {
@@ -200,11 +199,13 @@ pub fn picked_proteingroup(db: &IndexedDatabase, features: &mut [Feature]) -> us
 
     let (scores, passing) = Competition::assign_q_value(map, 0.01);
 
-    features.par_iter_mut().filter(|x| x.num_proteingroups == 1).for_each(|feat| {
-        let proteins = db[feat.peptide_idx].proteins(&db.decoy_tag, db.generate_decoys);
-        let proteingroups = feat.proteingroups.as_ref().unwrap().as_str().to_string();
-        feat.proteingroup_q = scores[&proteingroups];
-    });
+    features
+        .par_iter_mut()
+        .filter(|x| x.num_proteingroups == 1)
+        .for_each(|feat| {
+            let proteingroups = feat.proteingroups.as_ref().unwrap().as_str().to_string();
+            feat.proteingroup_q = scores[&proteingroups];
+        });
 
     passing
 }

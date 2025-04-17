@@ -397,7 +397,8 @@ impl Runner {
         let q_peptide = sage_core::fdr::picked_peptide(&self.database, &mut outputs.features);
         let q_protein = sage_core::fdr::picked_protein(&self.database, &mut outputs.features);
         sage_core::idpicker::generate_proteingroups(&self.database, &mut outputs.features);
-        let q_proteingroup = sage_core::fdr::picked_proteingroup(&self.database, &mut outputs.features);
+        let q_proteingroup =
+            sage_core::fdr::picked_proteingroup(&self.database, &mut outputs.features);
 
         let filenames = self
             .parameters
@@ -435,7 +436,10 @@ impl Runner {
         );
         log::info!("discovered {} target peptides at 1% FDR", q_peptide);
         log::info!("discovered {} target proteins at 1% FDR", q_protein);
-        log::info!("discovered {} target proteingroups at 1% FDR", q_proteingroup);
+        log::info!(
+            "discovered {} target proteingroups at 1% FDR",
+            q_proteingroup
+        );
         log::trace!("writing outputs");
 
         // Write either a single parquet file, or multiple tsv files
@@ -538,7 +542,11 @@ impl Runner {
                 .format(peptide.proteins.len())
                 .as_bytes(),
         );
-        record.push_field(itoa::Buffer::new().format(feature.num_proteingroups).as_bytes());
+        record.push_field(
+            itoa::Buffer::new()
+                .format(feature.num_proteingroups)
+                .as_bytes(),
+        );
         record.push_field(filenames[feature.file_id].as_bytes());
         record.push_field(feature.spec_id.as_bytes());
         record.push_field(itoa::Buffer::new().format(feature.rank).as_bytes());
