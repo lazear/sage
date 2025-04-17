@@ -626,8 +626,11 @@ impl Runner {
 
     pub fn predict(parameters: &Search, database: &IndexedDatabase, features: &mut [Feature]) {
         if parameters.predict_rt {
-            log::info!("predicting retention times and mobility values");
+            log::info!("predicting retention times ");
             let _ = sage_core::ml::retention_model::predict(database, features);
+        };
+        if parameters.predict_im {
+            log::info!("predicting mobility values");
             let _ = sage_core::ml::mobility_model::predict(database, features);
         };
     }
