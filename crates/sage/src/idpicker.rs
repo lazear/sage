@@ -233,45 +233,38 @@ pub fn separate_into_clusters(
             },
         );
 
-    let (g_peps, g_proteins): (Vec<_>, Vec<_>) =
+    let (mut g_peps, g_proteins): (Vec<_>, Vec<_>) =
         group_peptides_proteins.clone().into_par_iter().unzip();
 
+    g_peps.iter_mut().for_each(|x| {
+        x.sort();
+    });
+    let g_proteins_sets = g_proteins
+        .par_iter()
+        .map(|a| {
+            let set: HashSet<_> = a.iter().flatten().map(|x| Arc::clone(x)).collect();
+            set
+        })
+        .collect::<Vec<_>>();
     let mut cluster = g_peps
         .par_iter()
         .enumerate()
         .map(|(i, _)| {
-            let mut mini_cluster: HashSet<Vec<_>> = HashSet::new();
-
-            let mut in_proteins = g_proteins[i].clone();
-            let mut pgs = check_protein_group(g_proteins.clone(), in_proteins.clone());
-
-            let mut cluster_len = mini_cluster.len();
-
-            loop {
-                let mut g_p = vec![];
-                for pg in pgs.iter() {
-                    g_p.push(g_peps[pg.0].clone());
-                    let pg_proteins = pg.1.clone();
-                    in_proteins.extend(pg_proteins);
-                }
-
-                mini_cluster.extend(g_p);
-                if cluster_len == mini_cluster.len() {
-                    break;
-                } else if cluster_len < mini_cluster.len() {
-                    cluster_len = mini_cluster.len();
-                }
-                let bindings = in_proteins.clone();
-
-                pgs = check_protein_group(g_proteins.clone(), bindings);
+            let mut mini_cluster = HashSet::new();
+            let mut in_proteins_set = g_proteins_sets[i].clone();
+            let mut cluster_len = 1; // Initialize to 1 to enter the loop
+            while cluster_len != mini_cluster.len() {
+                cluster_len = mini_cluster.len();
+                let x = check_protein_group(&g_proteins, &g_proteins_sets, &in_proteins_set)
+                    .flat_map(|pg| {
+                        mini_cluster.insert(&g_peps[pg.0]);
+                        pg.1.iter().flatten().map(|x| Arc::clone(x))
+                    })
+                    .collect::<HashSet<_>>();
+                in_proteins_set.extend(x);
             }
-
             let mut mini_cluster = mini_cluster.into_iter().collect::<Vec<_>>();
-            mini_cluster.par_iter_mut().for_each(|x| {
-                x.sort();
-            });
-            mini_cluster.par_sort_unstable();
-
+            mini_cluster.sort_unstable();
             mini_cluster
         })
         .collect::<Vec<_>>();
@@ -296,7 +289,7 @@ pub fn separate_into_clusters(
             let e_cluster = cluster
                 .iter()
                 .enumerate()
-                .find(|x| x.1.contains(&peps))
+                .find(|x| x.1.contains(&&peps))
                 .unwrap();
             let proteins = group_peptides_proteins.get(&peps).unwrap().clone();
 
@@ -325,26 +318,22 @@ pub fn separate_into_clusters(
     cluster_mapping
 }
 
-fn check_protein_group(
-    g_proteins: Vec<Vec<Vec<Arc<String>>>>,
-    in_proteins: Vec<Vec<Arc<String>>>,
-) -> Vec<(usize, Vec<Vec<Arc<String>>>)> {
+fn check_protein_group<'a>(
+    g_proteins: &'a Vec<Vec<Vec<Arc<String>>>>,
+    g_proteins_set: &'a Vec<HashSet<Arc<String>>>,
+    in_proteins_set: &'a HashSet<Arc<String>>,
+) -> impl Iterator<Item = (usize, &'a Vec<Vec<Arc<String>>>)> + 'a {
     g_proteins
-        .into_par_iter()
+        .iter()
+        .zip(g_proteins_set)
         .enumerate()
-        .filter_map(|(i, proteins)| {
-            if any_nested_contains_parallel(&proteins, &in_proteins) {
+        .filter_map(move |(i, (proteins, proteins_set))| {
+            if in_proteins_set.iter().any(|x| proteins_set.contains(x)) {
                 Some((i, proteins))
             } else {
                 None
             }
         })
-        .collect::<Vec<_>>()
-}
-
-fn any_nested_contains_parallel(a: &Vec<Vec<Arc<String>>>, b: &Vec<Vec<Arc<String>>>) -> bool {
-    let dt1 = a.into_par_iter().flatten().collect::<Vec<_>>();
-    b.par_iter().flatten().any(|x| dt1.contains(&x))
 }
 
 pub fn reduce_cluster(
