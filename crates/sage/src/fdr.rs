@@ -154,7 +154,7 @@ pub fn picked_peptide(db: &IndexedDatabase, features: &mut [Feature]) -> usize {
 
 pub fn picked_protein(db: &IndexedDatabase, features: &mut [Feature]) -> usize {
     let mut map: FnvHashMap<_, Competition<String>> = FnvHashMap::default();
-    for feat in features.iter() {
+    for feat in features.iter().filter(|x| db[x.peptide_idx].proteins.len() == 1) {
         let decoy = db[feat.peptide_idx].decoy;
         let entry = map.entry(&db[feat.peptide_idx].proteins).or_default();
         let proteins = db[feat.peptide_idx].proteins(&db.decoy_tag, db.generate_decoys);
@@ -172,7 +172,7 @@ pub fn picked_protein(db: &IndexedDatabase, features: &mut [Feature]) -> usize {
 
     let (scores, passing) = Competition::assign_q_value(map, 0.01);
 
-    features.par_iter_mut().for_each(|feat| {
+    features.par_iter_mut().filter(|x| db[x.peptide_idx].proteins.len() == 1).for_each(|feat| {
         let proteins = db[feat.peptide_idx].proteins(&db.decoy_tag, db.generate_decoys);
         feat.protein_q = scores[&proteins];
     });
