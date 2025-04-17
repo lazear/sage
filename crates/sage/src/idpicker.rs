@@ -234,10 +234,35 @@ pub fn get_grouped_peptides_and_proteins(
 pub fn separate_into_clusters(
     data: FxHashSet<(Vec<Arc<String>>, Vec<Arc<String>>)>,
 ) -> Vec<(usize, Vec<(Vec<Arc<String>>, Vec<Arc<String>>)>)> {
+    // Group peptides by their protein groups first
+    let group_peptides_proteins = group_peptides_by_proteins(&data);
 
+    // Create sorted peptide and protein groups
+    let (g_peps, g_proteins) = create_sorted_groups(&group_peptides_proteins);
+
+    // Create protein sets for efficient lookup
+    let g_proteins_sets = create_protein_sets(&g_proteins);
+
+    // Build clusters using protein connectivity
+    let mut cluster = build_clusters(&g_peps, &g_proteins, &g_proteins_sets);
+    cluster.par_sort_unstable();
+    cluster.dedup();
+
+    // Create final cluster mapping
+    let group_peptides_proteins = create_sorted_peptide_protein_map(group_peptides_proteins);
+    let mut cluster_mapping = create_cluster_mapping(data, &cluster, &group_peptides_proteins);
+
+    // Merge clusters with same index
+    merge_clusters(&mut cluster_mapping);
+
+    cluster_mapping
+}
+
+fn group_peptides_by_proteins(
+    data: &FxHashSet<(Vec<Arc<String>>, Vec<Arc<String>>)>
+) -> FxHashMap<Vec<Arc<String>>, Vec<Vec<Arc<String>>>> {
     let data_len = data.len();
-    let group_peptides_proteins = data
-        .par_iter()
+    data.par_iter()
         .fold(
             || FxHashMap::with_capacity_and_hasher(data_len, Default::default()),
             |mut acc: FxHashMap<Vec<Arc<String>>, Vec<Vec<Arc<String>>>>, x| {
@@ -253,20 +278,30 @@ pub fn separate_into_clusters(
                 }
                 acc
             },
-        );
+        )
+}
 
+fn create_sorted_groups(
+    group_peptides_proteins: &FxHashMap<Vec<Arc<String>>, Vec<Vec<Arc<String>>>>
+) -> (Vec<Vec<Arc<String>>>, Vec<Vec<Vec<Arc<String>>>>) {
     let gpp_len = group_peptides_proteins.len();
     let mut g_peps = Vec::with_capacity(gpp_len);
     let mut g_proteins = Vec::with_capacity(gpp_len);
     
-    for (mut pep, prot) in group_peptides_proteins.iter() {
+    for (pep, prot) in group_peptides_proteins.iter() {
         let mut pep = pep.clone();
         pep.sort();
         g_peps.push(pep);
         g_proteins.push(prot.clone());
     }
+    
+    (g_peps, g_proteins)
+}
 
-    let g_proteins_sets: Vec<FxHashSet<Arc<String>>> = g_proteins
+fn create_protein_sets(
+    g_proteins: &[Vec<Vec<Arc<String>>>]
+) -> Vec<FxHashSet<Arc<String>>> {
+    g_proteins
         .par_iter()
         .map(|proteins| {
             let capacity = proteins.iter().map(|v| v.len()).sum();
@@ -274,9 +309,15 @@ pub fn separate_into_clusters(
             proteins.iter().flatten().for_each(|x| { set.insert(x.clone()); });
             set
         })
-        .collect();
+        .collect()
+}
 
-    let mut cluster = g_peps
+fn build_clusters<'a>(
+    g_peps: &'a[Vec<Arc<String>>],
+    g_proteins: &'a[Vec<Vec<Arc<String>>>],
+    g_proteins_sets: &'a[FxHashSet<Arc<String>>]
+) -> Vec<Vec<&'a Vec<Arc<String>>>> {
+    g_peps
         .par_iter()
         .enumerate()
         .map(|(i, _)| {
@@ -288,7 +329,7 @@ pub fn separate_into_clusters(
                 new_proteins.clear();
                 let prev_len = mini_cluster.len();
                 
-                check_protein_group(&g_proteins, &g_proteins_sets, &in_proteins_set)
+                check_protein_group(g_proteins, g_proteins_sets, &in_proteins_set)
                     .for_each(|pg| {
                         mini_cluster.insert(&g_peps[pg.0]);
                         pg.1.iter().flatten().for_each(|x| {
@@ -308,21 +349,27 @@ pub fn separate_into_clusters(
             result.sort_unstable();
             result
         })
-        .collect::<Vec<_>>();
+        .collect()
+}
 
-    cluster.par_sort_unstable();
-    cluster.dedup();
-
-    let group_peptides_proteins: FxHashMap<_, _> = group_peptides_proteins
+fn create_sorted_peptide_protein_map(
+    group_peptides_proteins: FxHashMap<Vec<Arc<String>>, Vec<Vec<Arc<String>>>>
+) -> FxHashMap<Vec<Arc<String>>, Vec<Vec<Arc<String>>>> {
+    group_peptides_proteins
         .into_par_iter()
         .map(|(mut k, v)| {
             k.sort();
             (k, v)
         })
-        .collect();
+        .collect()
+}
 
-    let mut cluster_mapping = data
-        .into_par_iter()
+fn create_cluster_mapping(
+    data: FxHashSet<(Vec<Arc<String>>, Vec<Arc<String>>)>,
+    cluster: &[Vec<&Vec<Arc<String>>>],
+    group_peptides_proteins: &FxHashMap<Vec<Arc<String>>, Vec<Vec<Arc<String>>>>
+) -> Vec<(usize, Vec<(Vec<Arc<String>>, Vec<Arc<String>>)>)> {
+    data.into_par_iter()
         .map(|(mut peps, _)| {
             peps.sort();
             let cluster_idx = cluster
@@ -340,8 +387,12 @@ pub fn separate_into_clusters(
 
             (cluster_idx, protein_matches)
         })
-        .collect::<Vec<_>>();
+        .collect()
+}
 
+fn merge_clusters(
+    cluster_mapping: &mut Vec<(usize, Vec<(Vec<Arc<String>>, Vec<Arc<String>>)>)>
+) {
     cluster_mapping.par_sort_unstable();
     cluster_mapping.dedup();
 
@@ -353,13 +404,11 @@ pub fn separate_into_clusters(
             false
         }
     });
-
-    cluster_mapping
 }
 
 fn check_protein_group<'a>(
-    g_proteins: &'a Vec<Vec<Vec<Arc<String>>>>,
-    g_proteins_set: &'a Vec<FxHashSet<Arc<String>>>,
+    g_proteins: &'a [Vec<Vec<Arc<String>>>],
+    g_proteins_set: &'a [FxHashSet<Arc<String>>],
     in_proteins_set: &'a FxHashSet<Arc<String>>,
 ) -> impl Iterator<Item = (usize, &'a Vec<Vec<Arc<String>>>)> + 'a {
     g_proteins
