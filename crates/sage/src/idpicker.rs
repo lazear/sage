@@ -3,7 +3,7 @@ use crate::scoring::Feature;
 use itertools::Itertools;
 use rayon::iter::IndexedParallelIterator;
 use rayon::iter::{IntoParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
-use rayon::prelude::{IntoParallelRefIterator, ParallelBridge, ParallelSliceMut};
+use rayon::prelude::{IntoParallelRefIterator, ParallelSliceMut};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
@@ -107,65 +107,73 @@ fn get_proteingroups(
 pub fn get_group_by_peptides(
     data: Vec<(Arc<String>, Arc<String>)>,
 ) -> FxHashSet<(Vec<Arc<String>>, Arc<String>)> {
-    let group_by_peptides = &data
-        .par_iter()
-        .fold(
-            || FxHashMap::<Arc<String>, Vec<Arc<String>>>::default(),
-            |mut acc: FxHashMap<Arc<String>, Vec<Arc<String>>>, x| {
-                acc.entry(x.0.clone()).or_default().push(x.1.clone());
-                acc
-            },
-        )
-        .reduce(
-            || FxHashMap::default(),
-            |mut acc, map| {
-                for (key, value) in map {
-                    acc.entry(key).or_default().extend(value);
+    // Phase 1: Group proteins by peptide
+    let group_by_peptides: FxHashMap<Arc<String>, Vec<Arc<String>>> = {
+        data.par_iter()
+            .fold(
+                || FxHashMap::default(),
+                |mut acc: FxHashMap<Arc<String>, Vec<Arc<String>>>, (peptide, protein)| {
+                    acc.entry(peptide.clone()).or_default().push(protein.clone());
+                    acc
+                },
+            )
+            .reduce(FxHashMap::default, |mut acc, map| {
+                for (key, val) in map {
+                    acc.entry(key).or_default().extend(val);
                 }
                 acc
-            },
-        );
+            })
+    };
+    
 
-    let group_by_protein = group_by_peptides
-        .par_iter()
-        .fold(
-            || FxHashMap::default(),
-            |mut acc: FxHashMap<Vec<Arc<String>>, Vec<Arc<String>>>, (key, val)| {
-                let mut sorted_val = val.clone();
-                sorted_val.sort();
-                acc.entry(sorted_val).or_default().push(key.clone());
-                acc
-            },
-        )
-        .reduce(
-            || FxHashMap::default(),
-            |mut acc, map| {
-                for (key, value) in map {
-                    acc.entry(key).or_default().extend(value);
+    // Phase 2: Group peptides by identical protein sets
+    let group_by_protein: FxHashMap<Arc<[Arc<String>]>, Vec<Arc<String>>> = {
+        group_by_peptides
+            .into_par_iter()
+            .map(|(peptide, mut proteins)| {
+                proteins.sort(); // sort to make protein sets comparable
+                let proteins_arc: Arc<[Arc<String>]> = Arc::from(proteins);
+                (proteins_arc, peptide)
+            })
+            .fold(
+                || FxHashMap::default(),
+                |mut acc: FxHashMap<Arc<[Arc<String>]>, Vec<Arc<String>>>, (proteins, peptide)| {
+                    acc.entry(proteins).or_default().push(peptide);
+                    acc
+                },
+            )
+            .reduce(FxHashMap::default, |mut acc, map| {
+                for (key, val) in map {
+                    acc.entry(key).or_default().extend(val);
                 }
                 acc
-            },
-        );
-
-    let map_group_peptides: FxHashMap<_, _> = group_by_protein
-        .values()
-        .cloned()
-        .collect::<Vec<_>>()
+            })
+    };
+    
+    // Phase 3: Flatten into peptide → peptide group map
+    let peptide_to_group: FxHashMap<Arc<String>, Arc<[Arc<String>]>> = {
+        group_by_protein
+            .par_iter()
+            .flat_map(|(protein_group, peptides)| {
+                peptides
+                    .par_iter()
+                    .map(|p| (p.clone(), protein_group.clone()))
+            })
+            .collect()
+    };
+    
+    // Phase 4: Construct final output set
+    let result: FxHashSet<_> = data
         .into_par_iter()
-        .flat_map(|x1| {
-            x1.clone()
-                .into_par_iter()
-                .map(|x2| (x2, x1.clone()))
-                .collect::<Vec<_>>()
+        .map(|(peptide, protein)| {
+            let group = peptide_to_group
+                .get(&peptide)
+                .expect("peptide group must exist");
+            (group.to_vec(), protein)
         })
         .collect();
-
-    let grouped_peptides: FxHashSet<_> = data
-        .into_par_iter()
-        .map(|(peptide, protein)| (map_group_peptides[&peptide].clone(), protein))
-        .collect();
-
-    grouped_peptides
+    
+    result
 }
 
 pub fn get_grouped_peptides_and_proteins(
