@@ -19,6 +19,12 @@ use sage_core::tmt::TmtQuant;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::time::Instant;
+// HTML report specific imports
+use maud::{html, PreEscaped};
+use report_builder::{
+    plots::{plot_boxplot, plot_pp, plot_scatter, plot_score_histogram},
+    Report, ReportSection,
+};
 
 pub struct Runner {
     pub database: IndexedDatabase, // I could use a getter if I dont want to make this pub ...
@@ -592,7 +598,7 @@ impl Runner {
                     .output_paths
                     .push(self.write_tmt(&outputs.quant, &filenames)?);
             }
-            if let Some(areas) = areas {
+            if let Some(areas) = areas.clone() {
                 self.parameters
                     .output_paths
                     .push(self.write_lfq(areas, &filenames)?);
@@ -604,6 +610,15 @@ impl Runner {
             self.parameters
                 .output_paths
                 .push(self.write_pin(&outputs.features, &filenames)?);
+        }
+
+        // Write an html report if requested
+        if self.parameters.write_report {
+            self.parameters.output_paths.push(self.write_report(
+                &outputs.features,
+                areas,
+                &filenames,
+            )?);
         }
 
         let path = self.make_path("results.json");
@@ -1165,6 +1180,568 @@ impl Runner {
 
         let bytes = wtr.into_inner()?;
         path.write_bytes_sync(bytes)?;
+        Ok(path.to_string())
+    }
+
+    fn write_report(
+        &self,
+        features: &[Feature],
+        areas: Option<HashMap<(PrecursorId, bool), (Peak, Vec<f64>), fnv::FnvBuildHasher>>,
+        filenames: &[String],
+    ) -> anyhow::Result<String> {
+        let path = self.make_path("results.sage.report.html");
+
+        let global_q_value_filter = 0.01;
+        let predict_section_q_value_filter = 0.01;
+
+        // Create a new report
+        let mut report = Report::new(
+            "Sage",
+            &self.parameters.version,
+            Some("https://github.com/lazear/sage/blob/master/figures/logo.png?raw=true"),
+            "Sage Report",
+        );
+
+        /* Section 1: Introduction */
+        {
+            let mut intro_section = ReportSection::new("Results Overview");
+            intro_section.add_content(html! {
+                "The following files were processed:"
+                ul {
+                    @for filename in filenames {
+                        li { (filename) }
+                    }
+                }
+            });
+
+            // Number of targets identified at global q-value filter at spectrum level per file
+            let num_psm_targets_per_file: Vec<usize> = filenames
+                .iter()
+                .map(|filename| {
+                    features
+                        .iter()
+                        .filter(|f| {
+                            f.label == 1
+                                && f.spectrum_q <= global_q_value_filter
+                                && filenames[f.file_id] == filename.to_string()
+                        })
+                        .count()
+                })
+                .collect();
+
+            // Number of peptides identified at global q-value filter at peptide level per file
+            let mut num_peptide_targets_per_file: Vec<usize> = Vec::new();
+            for filename in filenames {
+                let mut peptides = HashSet::new();
+                for feature in features.iter().filter(|f| {
+                    f.label == 1
+                        && f.peptide_q <= global_q_value_filter
+                        && filenames[f.file_id] == filename.to_string()
+                }) {
+                    peptides.insert(self.database[feature.peptide_idx].to_string());
+                }
+                num_peptide_targets_per_file.push(peptides.len());
+            }
+
+            // Number of proteins identified at global q-value filter at protein level per file
+            let mut num_protein_targets_per_file: Vec<usize> = Vec::new();
+            for filename in filenames {
+                let mut proteins = HashSet::new();
+                for feature in features.iter().filter(|f| {
+                    f.label == 1
+                        && f.protein_q <= global_q_value_filter
+                        && filenames[f.file_id] == filename.to_string()
+                }) {
+                    proteins.insert(
+                        self.database[feature.peptide_idx]
+                            .proteins(&self.database.decoy_tag, self.database.generate_decoys),
+                    );
+                }
+                num_protein_targets_per_file.push(proteins.len());
+            }
+
+            // Total MS2 intensity at global q-value filter at each level per file
+            let total_ms2_intensity_per_file: Vec<f32> = filenames
+                .iter()
+                .map(|filename| {
+                    features
+                        .iter()
+                        .filter(|f| {
+                            f.label == 1
+                                && f.spectrum_q <= global_q_value_filter
+                                && f.peptide_q <= global_q_value_filter
+                                && f.protein_q <= global_q_value_filter
+                                && filenames[f.file_id] == filename.to_string()
+                        })
+                        .map(|f| f.ms2_intensity)
+                        .sum()
+                })
+                .collect();
+
+            // Total LFQ (MS1) intensity at global q-value filter per file (if LFQ is enabled)
+            let total_lfq_intensity_per_file: Vec<f32> = if let Some(areas) = &areas {
+                let mut total_lfq_intensities = Vec::new();
+                for i in 0..filenames.len() {
+                    let mut intensities = Vec::new();
+                    for ((id, decoy), (peak, data)) in areas {
+                        if !decoy && peak.q_value <= global_q_value_filter {
+                            intensities.push(data[i] as f32);
+                        }
+                    }
+                    total_lfq_intensities.push(intensities.iter().sum());
+                }
+                total_lfq_intensities
+            } else {
+                vec![0.0; filenames.len()]
+            };
+
+            // Mmedian MS1 mass accuracy for each file, using feature.delta_mass
+            let median_ms1_mass_accuracy_per_file: Vec<f32> = filenames
+                .iter()
+                .map(|filename| {
+                    let mut accuracies = Vec::new();
+                    for feature in features.iter().filter(|f| {
+                        filenames[f.file_id] == filename.to_string()
+                            && f.label == 1
+                            && f.spectrum_q <= global_q_value_filter
+                    }) {
+                        accuracies.push(feature.delta_mass);
+                    }
+                    accuracies.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                    let mid = accuracies.len() / 2;
+
+                    if accuracies.is_empty() {
+                        return std::f32::NAN;
+                    }
+
+                    if accuracies.len() % 2 == 0 {
+                        if mid > 0 {
+                            (accuracies[mid - 1] + accuracies[mid]) / 2.0
+                        } else {
+                            accuracies[mid]
+                        }
+                    } else {
+                        accuracies[mid]
+                    }
+                })
+                .collect();
+
+            // Median MS2 mass accuracy for each file, using feature.average_ppm
+            let median_ms2_mass_accuracy_per_file: Vec<f32> = filenames
+                .iter()
+                .map(|filename| {
+                    let mut accuracies = Vec::new();
+                    for feature in features.iter().filter(|f| {
+                        filenames[f.file_id] == filename.to_string()
+                            && f.label == 1
+                            && f.spectrum_q <= global_q_value_filter
+                    }) {
+                        accuracies.push(feature.average_ppm);
+                    }
+                    accuracies.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                    let mid = accuracies.len() / 2;
+
+                    if accuracies.is_empty() {
+                        return std::f32::NAN;
+                    }
+
+                    if accuracies.len() % 2 == 0 {
+                        if mid > 0 {
+                            (accuracies[mid - 1] + accuracies[mid]) / 2.0
+                        } else {
+                            accuracies[mid]
+                        }
+                    } else {
+                        accuracies[mid]
+                    }
+                })
+                .collect();
+
+            // Median RT deviation for each file, using feature.delta_rt_model
+            let median_rt_deviation_per_file: Vec<f32> = filenames
+                .iter()
+                .map(|filename| {
+                    let mut deviations = Vec::new();
+                    for feature in features.iter().filter(|f| {
+                        filenames[f.file_id] == filename.to_string()
+                            && f.label == 1
+                            && f.spectrum_q <= global_q_value_filter
+                    }) {
+                        deviations.push(feature.delta_rt_model);
+                    }
+                    deviations.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                    let mid = deviations.len() / 2;
+
+                    if deviations.is_empty() {
+                        return std::f32::NAN;
+                    }
+
+                    if deviations.len() % 2 == 0 {
+                        if mid > 0 {
+                            (deviations[mid - 1] + deviations[mid]) / 2.0
+                        } else {
+                            deviations[mid]
+                        }
+                    } else {
+                        deviations[mid]
+                    }
+                })
+                .collect();
+
+            // Median IM deviation for each file, using feature.delta_ims_model
+            let median_im_deviation_per_file: Vec<f32> = filenames
+                .iter()
+                .map(|filename| {
+                    let mut deviations = Vec::new();
+                    for feature in features.iter().filter(|f| {
+                        filenames[f.file_id] == filename.to_string()
+                            && f.label == 1
+                            && f.spectrum_q <= global_q_value_filter
+                    }) {
+                        deviations.push(feature.delta_ims_model);
+                    }
+                    deviations.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                    let mid = deviations.len() / 2;
+
+                    if deviations.is_empty() {
+                        return std::f32::NAN;
+                    }
+
+                    if deviations.len() % 2 == 0 {
+                        if mid > 0 {
+                            (deviations[mid - 1] + deviations[mid]) / 2.0
+                        } else {
+                            deviations[mid]
+                        }
+                    } else {
+                        deviations[mid]
+                    }
+                })
+                .collect();
+
+            // Average peptide length for each file
+            let avg_peptide_length_per_file: Vec<f32> = filenames
+                .iter()
+                .map(|filename| {
+                    let mut lengths = Vec::new();
+                    for feature in features.iter().filter(|f| {
+                        filenames[f.file_id] == filename.to_string()
+                            && f.label == 1
+                            && f.spectrum_q <= global_q_value_filter
+                    }) {
+                        lengths.push(feature.peptide_len as f32);
+                    }
+                    lengths.iter().sum::<f32>() / lengths.len() as f32
+                })
+                .collect();
+
+            // Average peptide charge for each file
+            let avg_peptide_charge_per_file: Vec<f32> = filenames
+                .iter()
+                .map(|filename| {
+                    let mut charges = Vec::new();
+                    for feature in features.iter().filter(|f| {
+                        filenames[f.file_id] == filename.to_string()
+                            && f.label == 1
+                            && f.spectrum_q <= global_q_value_filter
+                    }) {
+                        charges.push(feature.charge as f32);
+                    }
+                    charges.iter().sum::<f32>() / charges.len() as f32
+                })
+                .collect();
+
+            // Average number of matched peaks for each file
+            let avg_matched_peaks_per_file: Vec<f32> = filenames
+                .iter()
+                .map(|filename| {
+                    let mut peaks = Vec::new();
+                    for feature in features.iter().filter(|f| {
+                        filenames[f.file_id] == filename.to_string()
+                            && f.label == 1
+                            && f.spectrum_q <= global_q_value_filter
+                    }) {
+                        peaks.push(feature.matched_peaks as f32);
+                    }
+                    peaks.iter().sum::<f32>() / peaks.len() as f32
+                })
+                .collect();
+
+            // Prepare html table to add to the report
+            let table = html! {
+                div class="table-container" {
+                    table id="dataTable"  class="display" {
+                        thead {
+                            tr {
+                                th { "File" }
+                                th { "PSMs" }
+                                th { "Peptides" }
+                                th { "Proteins" }
+                                th { "Total MS1 Intensity" }
+                                th { "Total MS2 Intensity" }
+                                th { "Median MS1 Delta Mass" }
+                                th { "Median MS2 Delta Mass" }
+                                th { "Median RT Deviation" }
+                                th { "Median IM Deviation" }
+                                th { "Average Peptide Length" }
+                                th { "Average Peptide Charge" }
+                                th { "Average Matched Peaks" }
+                            }
+                        }
+                        tbody {
+                            @for (i, filename) in filenames.iter().enumerate() {
+                                tr {
+                                    td { (filename) }
+                                    td { (num_psm_targets_per_file[i]) }
+                                    td { (num_peptide_targets_per_file[i]) }
+                                    td { (num_protein_targets_per_file[i]) }
+                                    td { (total_lfq_intensity_per_file[i]) }
+                                    td { (total_ms2_intensity_per_file[i]) }
+                                    td { (median_ms1_mass_accuracy_per_file[i]) }
+                                    td { (median_ms2_mass_accuracy_per_file[i]) }
+                                    td { (median_rt_deviation_per_file[i]) }
+                                    td { (median_im_deviation_per_file[i]) }
+                                    td { (avg_peptide_length_per_file[i]) }
+                                    td { (avg_peptide_charge_per_file[i]) }
+                                    td { (avg_matched_peaks_per_file[i]) }
+                                }
+                            }
+                        }
+                    }
+                    button id="downloadCsv" { "Download as CSV" }
+                }
+            };
+
+            intro_section.add_content(table);
+
+            // Add boxplot of the LFQ intensities from areas if available
+            if let Some(areas) = areas {
+                let mut lfq_intensities: Vec<Vec<f64>> = Vec::new();
+                for i in 0..filenames.len() {
+                    let mut intensities = Vec::new();
+                    for ((_id, decoy), (peak, data)) in &areas {
+                        if !decoy && peak.q_value <= global_q_value_filter {
+                            intensities.push(data[i].log2());
+                        }
+                    }
+                    lfq_intensities.push(intensities);
+                }
+
+                let lfq_boxplot = plot_boxplot(
+                    &lfq_intensities,
+                    filenames.to_vec(),
+                    &format!("LFQ Intensities ({:?}% Q-value)", global_q_value_filter),
+                    "Run",
+                    "Log2(Intensity)",
+                )
+                .unwrap();
+                intro_section.add_plot(lfq_boxplot);
+            }
+
+            report.add_section(intro_section);
+        }
+
+        /* Section 2: Scoring QC */
+        {
+            let mut scoring_section = ReportSection::new("Scoring Quality Control");
+
+            scoring_section.add_content(html! {
+                "It is important to assess the quality of the scoring model to ensure that the model is performing as expected, and that we're not overfitting or violating any assumptions of the Target-Decoy approach. The plot below shows the distribution of discriminant scores for each PSM, colored by whether the PSM is a target or decoy. We would expect the target distributions to be bimodal, where the first mode represents false targets that should align with the decoy distribution, and the second mode represents true targets."
+            });
+
+            // Extract sage_discriminant_score and label from features
+            let (scores, labels): (Vec<f64>, Vec<i32>) = features
+                .iter()
+                .map(|f| (f.discriminant_score as f64, f.label))
+                .unzip();
+
+            if !scores.is_empty() && scores.len() > 100 {
+                let score_histogram =
+                    plot_score_histogram(&scores, &labels, "LDA Score", "Score").unwrap();
+
+                scoring_section.add_plot(score_histogram);
+
+                let pp_plot = plot_pp(&scores, &labels, "PP Plot").unwrap();
+
+                scoring_section.add_content(html! {
+                    "The Probability-Probability (PP) plot is a diagnostic tool that can be used to assess the quality of the scoring model. It plots the empirical cumulative distribution function (ECDF) of the target distribution against the ECDF of the decoy distribution. See: Debrie, E. et. al. (2023) Journal of Proteome Research. for more information."
+                });
+                scoring_section.add_plot(pp_plot);
+
+                let spectrum_q_histogram = plot_score_histogram(
+                    &features
+                        .iter()
+                        .map(|f| f.spectrum_q as f64)
+                        .collect::<Vec<f64>>(),
+                    &labels,
+                    "Spectrum Q-value",
+                    "Q-value",
+                )
+                .unwrap();
+                scoring_section.add_plot(spectrum_q_histogram);
+
+                let peptide_q_histogram = plot_score_histogram(
+                    &features
+                        .iter()
+                        .map(|f| f.peptide_q as f64)
+                        .collect::<Vec<f64>>(),
+                    &labels,
+                    "Peptide Q-value",
+                    "Q-value",
+                )
+                .unwrap();
+                scoring_section.add_plot(peptide_q_histogram);
+
+                let protein_q_histogram = plot_score_histogram(
+                    &features
+                        .iter()
+                        .map(|f| f.protein_q as f64)
+                        .collect::<Vec<f64>>(),
+                    &labels,
+                    "Protein Q-value",
+                    "Q-value",
+                )
+                .unwrap();
+                scoring_section.add_plot(protein_q_histogram);
+            } else {
+                scoring_section.add_content(html! {
+                    div style="margin-top: 10px; margin-bottom: 10px; padding: 15px; background-color: #ffe6e6; border: 1px solid #ff9999; color: #cc0000; border-radius: 5px; white-space: pre-line;" {
+                        p {
+                            "There are not enough scores to plot the scoring quality control plots."
+                        }
+                    }
+                });
+            }
+
+            report.add_section(scoring_section);
+        }
+
+        /* Section 3: Predicted Properties */
+        {
+            let mut predicted_properties_section = ReportSection::new("Predicted Properties");
+
+            predicted_properties_section.add_content(html! {
+                "The following plots show the predicted properties of target peptides. The plots show the predicted retention time and ion mobility if present. The predicted properties are used to assess the quality of the model and to identify potential outliers."
+            });
+
+            // Normalized experimental RT per file
+            let mut rt_per_file: Vec<Vec<f64>> = Vec::new();
+            for i in 0..filenames.len() {
+                let mut rts = Vec::new();
+                for feature in features.iter().filter(|f| {
+                    f.label == 1
+                        && f.spectrum_q <= predict_section_q_value_filter
+                        && filenames[f.file_id] == filenames[i]
+                }) {
+                    rts.push(feature.rt as f64);
+                }
+
+                let min_rt = rts.iter().cloned().fold(f64::INFINITY, f64::min);
+                let max_rt = rts.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                rts = rts
+                    .iter()
+                    .map(|rt| (rt - min_rt) / (max_rt - min_rt))
+                    .collect();
+
+                rt_per_file.push(rts);
+            }
+
+            // Predicted RT per file
+            let mut predicted_rt_per_file: Vec<Vec<f64>> = Vec::new();
+            for i in 0..filenames.len() {
+                let mut predicted_rts = Vec::new();
+                for feature in features.iter().filter(|f| {
+                    f.label == 1
+                        && f.spectrum_q <= predict_section_q_value_filter
+                        && filenames[f.file_id] == filenames[i]
+                }) {
+                    predicted_rts.push(feature.predicted_rt as f64);
+                }
+                predicted_rt_per_file.push(predicted_rts);
+            }
+
+            let rt_scatter = plot_scatter(
+                &rt_per_file,
+                &predicted_rt_per_file,
+                filenames.to_vec(),
+                "Retention Time LR Model",
+                "Retention Time",
+                "Predicted Retention Time",
+            )
+            .unwrap();
+            predicted_properties_section.add_plot(rt_scatter);
+
+            // Experimental IMS per file
+            let mut ims_per_file: Vec<Vec<f64>> = Vec::new();
+            for i in 0..filenames.len() {
+                let mut imss = Vec::new();
+                for feature in features.iter().filter(|f| {
+                    f.label == 1
+                        && f.spectrum_q <= predict_section_q_value_filter
+                        && filenames[f.file_id] == filenames[i]
+                }) {
+                    imss.push(feature.ims as f64);
+                }
+
+                ims_per_file.push(imss);
+            }
+
+            // Predicted IMS per file
+            let mut predicted_ims_per_file: Vec<Vec<f64>> = Vec::new();
+            for i in 0..filenames.len() {
+                let mut predicted_imss = Vec::new();
+                for feature in features.iter().filter(|f| {
+                    f.label == 1
+                        && f.spectrum_q <= predict_section_q_value_filter
+                        && filenames[f.file_id] == filenames[i]
+                }) {
+                    predicted_imss.push(feature.predicted_ims as f64);
+                }
+                predicted_ims_per_file.push(predicted_imss);
+            }
+
+            if !ims_per_file.is_empty() && !predicted_ims_per_file.is_empty() {
+                let ims_scatter = plot_scatter(
+                    &ims_per_file,
+                    &predicted_ims_per_file,
+                    filenames.to_vec(),
+                    "Ion Mobility LR Model",
+                    "Ion Mobility",
+                    "Predicted Ion Mobility",
+                )
+                .unwrap();
+                predicted_properties_section.add_plot(ims_scatter);
+            }
+
+            report.add_section(predicted_properties_section);
+        }
+
+        /* Section 4: Configuration */
+        {
+            let mut config_section = ReportSection::new("Configuration");
+            config_section.add_content(html! {
+                style {
+                    ".code-container {
+                        background-color: #f5f5f5;
+                        padding: 10px;
+                        border-radius: 5px;
+                        overflow-x: auto;
+                        font-family: monospace;
+                        white-space: pre-wrap;
+                    }"
+                }
+                div class="code-container" {
+                    pre {
+                        code { (PreEscaped(serde_json::to_string_pretty(&self.parameters)?)) }
+                    }
+                }
+            });
+            report.add_section(config_section);
+        }
+
+        // Save the report to HTML file
+        report.save_to_file(&path.to_string())?;
+
         Ok(path.to_string())
     }
 }
