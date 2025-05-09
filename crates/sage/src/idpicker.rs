@@ -1,3 +1,22 @@
+// This module implements a protein grouping algorihm based on the IDPicker (1) algorithm with 
+// extensions from the "Picked Protein FDR approach" (2). The Python implementation (3) of 
+// CsoDIAq (4) has been used as template and for testing of the IDPicker approach. This function
+// only implements IDPicker, the "rescued subset grouping (rsG)", discarding of shared peptides, 
+// picked FDR are implemented as part of the core Sage FDR routines.
+//
+// 1. Zhang, B., Chambers, M. C., & Tabb, D. L. (2007). Proteomic parsimony through 
+// bipartite graph analysis improves accuracy and transparency. Journal of proteome research, 
+// 6(9), 3549-3557. https://doi.org/10.1021/pr070230d
+//
+// 2. The, M., Samaras, P., Kuster, B., & Wilhelm, M. (2022). Reanalysis of ProteomicsDB using 
+// an accurate, sensitive, and scalable false discovery rate estimation approach for protein 
+// groups. Molecular & Cellular Proteomics, 21(12), 100437. https://doi.org/10.1016/j.mcpro.2022.100437
+//
+// 3. https://github.com/dg310012/CsoDIAq/blob/68abaa713eb719b488967cb34a876a71657827bd/idpicker.py
+//
+// 4. Cranney, C. W., & Meyer, J. G. (2021). CsoDIAq software for direct infusion shotgun proteome 
+// analysis. Analytical Chemistry, 93(36), 12312-12319. https://doi.org/10.1021/acs.analchem.1c02021
+
 use crate::database::IndexedDatabase;
 use crate::scoring::Feature;
 use itertools::Itertools;

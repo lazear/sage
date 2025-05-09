@@ -435,9 +435,9 @@ impl Runner {
             q_spectrum
         );
         log::info!("discovered {} target peptides at 1% FDR", q_peptide);
-        log::info!("discovered {} target proteins at 1% FDR", q_protein);
+        log::info!("discovered {} target proteins (supported by proteotypic peptides only) at 1% FDR", q_protein);
         log::info!(
-            "discovered {} target proteingroups at 1% FDR",
+            "discovered {} target proteingroups (supported by proteotypic peptides only) at 1% FDR",
             q_proteingroup
         );
         log::trace!("writing outputs");
