@@ -1,8 +1,9 @@
 // This module implements a protein grouping algorihm based on the IDPicker (1) algorithm with 
 // extensions from the "Picked Protein FDR approach" (2). The Python implementation (3) of 
-// CsoDIAq (4) has been used as template and for testing of the IDPicker approach. This function
-// only implements IDPicker, the "rescued subset grouping (rsG)", discarding of shared peptides, 
-// picked FDR are implemented as part of the core Sage FDR routines.
+// CsoDIAq (4) has been used as template and for testing of the IDPicker approach. Most functions
+// are based on IDPicker, only generate_proteingroups() represents the "rescued subset grouping 
+// (rsG)", approach of (2). Discarding of shared peptides and picked FDR are implemented as part 
+// of the core Sage FDR routines.
 //
 // 1. Zhang, B., Chambers, M. C., & Tabb, D. L. (2007). Proteomic parsimony through 
 // bipartite graph analysis improves accuracy and transparency. Journal of proteome research, 
@@ -58,7 +59,7 @@ pub fn generate_proteingroups(db: &IndexedDatabase, features: &mut [Feature]) {
                     // tier-2 proteins groups
                     protein_map_pg2.get(each_protein).unwrap().join("/")
                 } else {
-                    // If the protein is not found in either tires, return an error
+                    // If the protein is not found in either tiers, return an error
                     // panic!("{}",format!("Protein {} not found in protein group!!", each_protein));
                     each_protein.to_string()
                 }
