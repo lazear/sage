@@ -344,7 +344,8 @@ impl<'db> Scorer<'db> {
 
         for peak in query.peaks.iter() {
             for charge in 1..max_fragment_charge {
-                for frag in candidates.page_search(peak.mass, charge) {
+                let mass = peak.mass * charge as f32;
+                for frag in candidates.page_search(mass) {
                     let idx = frag.peptide_index.0 as usize - candidates.pre_idx_lo;
                     let sc = &mut hits.preliminary[idx];
                     if sc.matched == 0 {
