@@ -528,6 +528,7 @@ pub fn reduce_cluster(
 #[cfg(test)]
 mod test {
     use crate::idpicker::get_proteingroups;
+    use rustc_hash::FxHashMap;
     use std::sync::Arc;
 
     #[test]
@@ -558,12 +559,24 @@ mod test {
             .map(|(k, v)| (Arc::new(k.to_string()), Arc::new(v.to_string())))
             .collect();
 
-        let protein_map = get_proteingroups(data);
+        let expected_map = get_proteingroups(data);
 
-        for (i, j) in protein_map.iter() {
-            println!("Protein  ->{:?} ,  Protein Group-> {:?} ", i, j);
-        }
+        let protein_map: FxHashMap<String, Vec<String>> = vec![
+            ("protein_9", vec!["protein_9", "protein_4"]),
+            ("protein_6", vec!["protein_6"]),
+            ("protein_1", vec!["protein_1"]),
+            ("protein_4", vec!["protein_9", "protein_4"]),
+            ("protein_7", vec!["protein_7"]),
+        ]
+        .into_iter()
+        .map(|(k, v)| {
+            (
+                k.to_string(),
+                v.into_iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+            )
+        })
+        .collect();
 
-        assert_eq!(5, protein_map.len());
+        assert_eq!(expected_map, protein_map);
     }
 }
