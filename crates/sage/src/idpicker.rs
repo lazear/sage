@@ -559,9 +559,9 @@ mod test {
             .map(|(k, v)| (Arc::new(k.to_string()), Arc::new(v.to_string())))
             .collect();
 
-        let expected_map = get_proteingroups(data);
+        let proteingroups = get_proteingroups(data);
 
-        let protein_map: FxHashMap<String, Vec<String>> = vec![
+        let expected_proteingroups: FxHashMap<String, Vec<String>> = vec![
             ("protein_9", vec!["protein_9", "protein_4"]),
             ("protein_6", vec!["protein_6"]),
             ("protein_1", vec!["protein_1"]),
@@ -577,6 +577,6 @@ mod test {
         })
         .collect();
 
-        assert_eq!(expected_map, protein_map);
+        assert_eq!(expected_proteingroups, proteingroups);
     }
 }
