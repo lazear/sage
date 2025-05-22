@@ -41,14 +41,14 @@ struct MetaProtein {
 }
 
 #[derive(Debug, Default)]
-struct Mapping {
+struct ProteinMapping {
     pub meta_peptides: Vec<MetaPeptide>,
     pub meta_proteins: Vec<MetaProtein>,
-    pub pep2prot_connections: Vec<Vec<usize>>,
+    pub connections: Vec<(usize, usize)>,
     pub prot_name_map: HashMap<(Arc<String>, bool), ProteinIx>,
 }
 
-impl Mapping {
+impl ProteinMapping {
     fn new(
         db: &IndexedDatabase,
         features: &mut [Feature],
@@ -132,48 +132,78 @@ impl Mapping {
                 entry.prots.push(prot_id);
             });
         let mut meta_proteins = vec![];
-        let mut pep2prot_connections = vec![];
-        mapping
-            .into_iter()
-            .for_each(|(meta_peptides, meta_protein)| {
+        let mut connections = vec![];
+        mapping.into_iter().enumerate().for_each(
+            |(meta_protein_index, (meta_peptides, meta_protein))| {
                 meta_proteins.push(meta_protein);
-                pep2prot_connections.push(meta_peptides);
-            });
+                meta_peptides.iter().for_each(|&meta_peptide_index| {
+                    connections.push((meta_protein_index, meta_peptide_index));
+                });
+            },
+        );
         self.meta_peptides = meta_peptides;
         self.meta_proteins = meta_proteins;
-        self.pep2prot_connections = pep2prot_connections;
+        self.connections = connections;
     }
 
     fn find_greedy_protein_cover(&self) -> Vec<usize> {
         let time = Instant::now();
-        let mut remaining = self.meta_peptides.len();
-        let mut usable_peptides = vec![1; remaining];
-        let mut greedy_cover = vec![];
-        let mut pep2prot_connections = self.pep2prot_connections.clone();
-        while remaining > 0 {
-            let current_connection_counts = pep2prot_connections
-                .iter()
-                .map(|c| c.iter().map(|&i| usable_peptides[i]).sum())
-                .collect::<Vec<_>>();
-            let (largest_prot_index, count) = current_connection_counts
-                .iter()
-                .enumerate()
-                .max_by_key(|(_, count)| *count)
-                .unwrap();
-            greedy_cover.push(largest_prot_index);
-            remaining -= count;
-            pep2prot_connections[largest_prot_index]
-                .drain(..)
-                .for_each(|pep_index| {
-                    usable_peptides[pep_index] = 0;
+        let mut greedy_cover = HashSet::new();
+        let mut remaining_pep_counts = HashMap::new();
+        let mut connections = self.connections.clone();
+        connections.iter().for_each(|(_, pep_index)| {
+            let entry = remaining_pep_counts.entry(*pep_index).or_insert(0);
+            *entry += 1;
+        });
+        let mut connection_count = 0;
+        loop {
+            while connection_count != connections.len() {
+                connection_count = connections.len();
+                connections.retain(|(prot_index, pep_index)| {
+                    if remaining_pep_counts[pep_index] == 1 {
+                        greedy_cover.insert(*prot_index);
+                        remaining_pep_counts.remove(pep_index);
+                        false
+                    } else {
+                        true
+                    }
                 });
+                connections.retain(|(prot_index, pep_index)| {
+                    if greedy_cover.contains(prot_index) {
+                        let entry = remaining_pep_counts.get_mut(pep_index).unwrap();
+                        *entry -= 1;
+                        false
+                    } else {
+                        true
+                    }
+                })
+            }
+            if connections.len() == 0 {
+                break;
+            }
+            let mut remaining_prot_counts = HashMap::new();
+            connections.iter().for_each(|(prot_index, _)| {
+                let entry = remaining_prot_counts.entry(*prot_index).or_insert(0);
+                *entry += 1;
+            });
+            let &max_index = remaining_prot_counts.iter().max_by_key(|x| x.1).unwrap().0;
+            greedy_cover.insert(max_index);
+            connections.retain(|(prot_index, pep_index)| {
+                if *prot_index == max_index {
+                    let entry = remaining_pep_counts.get_mut(pep_index).unwrap();
+                    *entry -= 1;
+                    false
+                } else {
+                    true
+                }
+            })
         }
         info!(
-            "-  found metaprotein cover of {} in {:?}ms",
+            "-  found cover of {} metaproteins in {:?}ms",
             greedy_cover.len(),
             time.elapsed().as_millis()
         );
-        greedy_cover
+        greedy_cover.into_iter().collect()
     }
 
     fn get_protein_map(
@@ -206,10 +236,10 @@ impl Mapping {
 }
 
 pub fn generate_proteingroups(db: &IndexedDatabase, features: &mut [Feature]) {
-    let mapping = Mapping::new(db, features, |f| (f.label != -1) && (f.peptide_q < 0.01));
+    let mapping = ProteinMapping::new(db, features, |f| (f.label != -1) && (f.peptide_q < 0.01));
     let protein_cover = mapping.find_greedy_protein_cover();
     let protein_map_pg1 = mapping.get_protein_map(protein_cover);
-    let mapping = Mapping::new(db, features, |f| f.label != -1);
+    let mapping = ProteinMapping::new(db, features, |f| f.label != -1);
     let protein_cover = mapping.find_greedy_protein_cover();
     let protein_map_pg2 = mapping.get_protein_map(protein_cover);
     features.par_iter_mut().for_each(|feat| {
@@ -236,6 +266,63 @@ pub fn generate_proteingroups(db: &IndexedDatabase, features: &mut [Feature]) {
         feat.proteingroups = Some(proteingroups.iter().sorted().join(";"));
         feat.num_proteingroups = proteingroups.len() as i32;
     });
+}
+
+pub fn reduce_cluster(data: Vec<(&Vec<u32>, &Vec<Arc<String>>)>) -> Vec<(String, Vec<String>)> {
+    // println!("data {:?}",data);
+    let mut proteins = Vec::new();
+    let mut used_peptides: HashSet<&Vec<u32>> = HashSet::new();
+    let total_peptides: HashSet<_> = data.iter().map(|x| x.0).collect();
+
+    let mut overall_score_dict = HashMap::new();
+    data.iter().for_each(|(_, proteins)| {
+        *overall_score_dict.entry(proteins).or_insert(0) += 1;
+    });
+
+    while used_peptides.len() != total_peptides.len() {
+        let mut prot_dict: HashMap<&Vec<Arc<String>>, HashSet<&Vec<u32>>> = HashMap::new();
+
+        data.iter()
+            .filter(|(peptides, _)| !used_peptides.contains(peptides))
+            .for_each(|(peptides, proteins)| {
+                prot_dict.entry(proteins).or_default().insert(peptides);
+            });
+
+        let score_dict: Vec<(&Vec<Arc<String>>, (usize, i32))> = prot_dict
+            .iter()
+            .map(|(key, peptides)| {
+                (
+                    *key,
+                    (peptides.len(), *overall_score_dict.get(key).unwrap_or(&0)),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        // Sort proteins based on (peptide count, overall score)
+        let sorted_keys = score_dict
+            .into_iter()
+            .sorted_by(|a, b| b.1.cmp(&a.1))
+            .collect::<Vec<_>>();
+
+        if let Some((top_key, _)) = sorted_keys.first() {
+            let arry_protein = top_key
+                .into_iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>();
+            proteins.extend(
+                top_key
+                    .iter()
+                    .map(|x| (x.to_string(), arry_protein.clone()))
+                    .collect::<Vec<_>>(),
+            );
+
+            if let Some(peptides) = prot_dict.get(top_key).cloned() {
+                used_peptides.extend(peptides);
+            }
+        }
+    }
+
+    proteins
 }
 
 // fn get_proteingroups(pep_proteins: Vec<(PeptideIx, ProteinIx)>) -> FxHashMap<String, Vec<String>> {}
