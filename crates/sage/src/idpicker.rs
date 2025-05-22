@@ -22,13 +22,13 @@ use crate::database::{IndexedDatabase, PeptideIx};
 use crate::scoring::Feature;
 use itertools::Itertools;
 use log::info;
-use rayon::{prelude::*, vec};
+use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-struct ProtId(pub u32);
+struct ProteinIx(pub u32);
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 struct MetaPeptide {
@@ -37,15 +37,15 @@ struct MetaPeptide {
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 struct MetaProtein {
-    pub prots: Vec<ProtId>,
+    pub prots: Vec<ProteinIx>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct Mapping {
     pub meta_peptides: Vec<MetaPeptide>,
     pub meta_proteins: Vec<MetaProtein>,
-    pub connections: Vec<Vec<usize>>,
-    pub prot_name_map: HashMap<(Arc<String>, bool), ProtId>,
+    pub pep2prot_connections: Vec<Vec<usize>>,
+    pub prot_name_map: HashMap<(Arc<String>, bool), ProteinIx>,
 }
 
 impl Mapping {
@@ -55,9 +55,9 @@ impl Mapping {
         predicate: fn(&&Feature) -> bool,
     ) -> Self {
         let time = Instant::now();
-        let mut prot_name_map: HashMap<(Arc<String>, bool), ProtId> = HashMap::new();
-        let meta_peptides = find_meta_peptides(&features, &db, &mut prot_name_map, predicate);
-        let mapping = find_mapping(meta_peptides, prot_name_map);
+        let mut mapping = Self::default();
+        let meta_peptides = mapping.set_proteins_and_get_metapeptides(&features, &db, predicate);
+        mapping.find_mapping(meta_peptides);
         info!(
             "-  found {} metaproteins in {:?}ms",
             mapping.meta_proteins.len(),
@@ -66,14 +66,92 @@ impl Mapping {
         mapping
     }
 
+    fn set_proteins_and_get_metapeptides(
+        &mut self,
+        features: &[Feature],
+        db: &&IndexedDatabase,
+        predicate: fn(&&Feature) -> bool,
+    ) -> HashMap<Vec<ProteinIx>, MetaPeptide> {
+        let found_pep_ids: HashSet<PeptideIx> = HashSet::new();
+        let mut mapping = HashMap::new();
+        features.iter().filter(predicate).for_each(|feature| {
+            let pep_id = feature.peptide_idx;
+            let db_peptide = &db[pep_id];
+            if !found_pep_ids.contains(&pep_id) {
+                {
+                    let prot_ids = db_peptide
+                        .proteins
+                        .iter()
+                        .map(|prot| {
+                            let prot = (prot.clone(), db_peptide.decoy);
+                            self.get_or_insert_prot(prot)
+                        })
+                        .sorted()
+                        .collect::<Vec<_>>();
+                    let entry = mapping
+                        .entry(prot_ids)
+                        .or_insert_with(|| MetaPeptide { peps: vec![] });
+                    entry.peps.push(pep_id);
+                }
+            }
+        });
+        mapping
+    }
+
+    fn get_or_insert_prot(&mut self, prot: (Arc<String>, bool)) -> ProteinIx {
+        match self.prot_name_map.get(&prot) {
+            Some(&prot_id) => prot_id,
+            None => {
+                let prot_id = ProteinIx(self.prot_name_map.len() as u32);
+                self.prot_name_map.insert(prot, prot_id);
+                prot_id
+            }
+        }
+    }
+
+    fn find_mapping<'a>(&mut self, meta_peptides: HashMap<Vec<ProteinIx>, MetaPeptide>) {
+        let mut protein_map = HashMap::new();
+        let meta_peptides = meta_peptides
+            .into_iter()
+            .enumerate()
+            .map(|(i, (prot_ids, meta_peptide))| {
+                prot_ids.iter().for_each(|&prot_id| {
+                    let entry = protein_map.entry(prot_id).or_insert_with(|| vec![]);
+                    entry.push(i);
+                });
+                meta_peptide
+            })
+            .collect::<Vec<_>>();
+        let mut mapping = HashMap::new();
+        protein_map
+            .into_iter()
+            .for_each(|(prot_id, meta_peptides)| {
+                let entry = mapping
+                    .entry(meta_peptides)
+                    .or_insert_with(|| MetaProtein { prots: vec![] });
+                entry.prots.push(prot_id);
+            });
+        let mut meta_proteins = vec![];
+        let mut pep2prot_connections = vec![];
+        mapping
+            .into_iter()
+            .for_each(|(meta_peptides, meta_protein)| {
+                meta_proteins.push(meta_protein);
+                pep2prot_connections.push(meta_peptides);
+            });
+        self.meta_peptides = meta_peptides;
+        self.meta_proteins = meta_proteins;
+        self.pep2prot_connections = pep2prot_connections;
+    }
+
     fn find_greedy_protein_cover(&self) -> Vec<usize> {
         let time = Instant::now();
         let mut remaining = self.meta_peptides.len();
         let mut usable_peptides = vec![1; remaining];
         let mut greedy_cover = vec![];
-        let mut connections = self.connections.clone();
+        let mut pep2prot_connections = self.pep2prot_connections.clone();
         while remaining > 0 {
-            let current_connection_counts = connections
+            let current_connection_counts = pep2prot_connections
                 .iter()
                 .map(|c| c.iter().map(|&i| usable_peptides[i]).sum())
                 .collect::<Vec<_>>();
@@ -84,7 +162,7 @@ impl Mapping {
                 .unwrap();
             greedy_cover.push(largest_prot_index);
             remaining -= count;
-            connections[largest_prot_index]
+            pep2prot_connections[largest_prot_index]
                 .drain(..)
                 .for_each(|pep_index| {
                     usable_peptides[pep_index] = 0;
@@ -160,95 +238,7 @@ pub fn generate_proteingroups(db: &IndexedDatabase, features: &mut [Feature]) {
     });
 }
 
-fn find_meta_peptides(
-    features: &[Feature],
-    db: &&IndexedDatabase,
-    prot_name_map: &mut HashMap<(Arc<String>, bool), ProtId>,
-    predicate: fn(&&Feature) -> bool,
-) -> HashMap<Vec<ProtId>, MetaPeptide> {
-    let found_pep_ids: HashSet<PeptideIx> = HashSet::new();
-    let mut mapping = HashMap::new();
-    features.iter().filter(predicate).for_each(|feature| {
-        let pep_id = feature.peptide_idx;
-        let db_peptide = &db[pep_id];
-        if !found_pep_ids.contains(&pep_id) {
-            {
-                let prot_ids = db_peptide
-                    .proteins
-                    .iter()
-                    .map(|prot| {
-                        let prot = (prot.clone(), db_peptide.decoy);
-                        get_or_insert_prot(prot_name_map, prot)
-                    })
-                    .sorted()
-                    .collect::<Vec<_>>();
-                let entry = mapping
-                    .entry(prot_ids)
-                    .or_insert_with(|| MetaPeptide { peps: vec![] });
-                entry.peps.push(pep_id);
-            }
-        }
-    });
-    mapping
-}
-
-fn get_or_insert_prot(
-    prot_name_map: &mut HashMap<(Arc<String>, bool), ProtId>,
-    prot: (Arc<String>, bool),
-) -> ProtId {
-    match prot_name_map.get(&prot) {
-        Some(&prot_id) => prot_id,
-        None => {
-            let prot_id = ProtId(prot_name_map.len() as u32);
-            prot_name_map.insert(prot, prot_id);
-            prot_id
-        }
-    }
-}
-
-fn find_mapping<'a>(
-    meta_peptides: HashMap<Vec<ProtId>, MetaPeptide>,
-    prot_name_map: HashMap<(Arc<String>, bool), ProtId>,
-) -> Mapping {
-    let mut protein_map = HashMap::new();
-    let meta_peptides = meta_peptides
-        .into_iter()
-        .enumerate()
-        .map(|(i, (prot_ids, meta_peptide))| {
-            prot_ids.iter().for_each(|&prot_id| {
-                let entry = protein_map.entry(prot_id).or_insert_with(|| vec![]);
-                entry.push(i);
-            });
-            meta_peptide
-        })
-        .collect::<Vec<_>>();
-    let mut mapping = HashMap::new();
-    protein_map
-        .into_iter()
-        .for_each(|(prot_id, meta_peptides)| {
-            let entry = mapping
-                .entry(meta_peptides)
-                .or_insert_with(|| MetaProtein { prots: vec![] });
-            entry.prots.push(prot_id);
-        });
-    let mut meta_proteins = vec![];
-    let mut connections = vec![];
-    mapping
-        .into_iter()
-        .for_each(|(meta_peptides, meta_protein)| {
-            meta_proteins.push(meta_protein);
-            connections.push(meta_peptides);
-        });
-    let mapping = Mapping {
-        prot_name_map,
-        meta_peptides,
-        meta_proteins,
-        connections,
-    };
-    mapping
-}
-
-// fn get_proteingroups(pep_proteins: Vec<(PeptideIx, ProtId)>) -> FxHashMap<String, Vec<String>> {}
+// fn get_proteingroups(pep_proteins: Vec<(PeptideIx, ProteinIx)>) -> FxHashMap<String, Vec<String>> {}
 
 // #[cfg(test)]
 // mod test {
