@@ -300,16 +300,16 @@ pub fn generate_proteingroups(db: &IndexedDatabase, features: &mut [Feature]) {
         );
         ProteinGroupMap::new(map)
     };
-    let protein_map_pg2 = {
-        let map = ProteinMapping::new(db, features, |f| f.label != -1, PROTEIN_COVER_TYPE);
-        ProteinGroupMap::new(map)
-    };
+    // let protein_map_pg2 = {
+    //     let map = ProteinMapping::new(db, features, |f| f.label != -1, PROTEIN_COVER_TYPE);
+    //     ProteinGroupMap::new(map)
+    // };
     features.par_iter_mut().for_each(|feat| {
         let pep = &db[feat.peptide_idx];
         let mut proteingroups = protein_map_pg1.get_protein_group_string(pep, db);
-        if proteingroups.is_empty() {
-            proteingroups = protein_map_pg2.get_protein_group_string(pep, db);
-        }
+        // if proteingroups.is_empty() {
+        //     proteingroups = protein_map_pg2.get_protein_group_string(pep, db);
+        // }
         if proteingroups.is_empty() {
             proteingroups =
                 proteins(&pep.proteins, &db.decoy_tag, db.generate_decoys, pep.decoy).collect()
