@@ -96,6 +96,7 @@ impl ProteinMapping {
         db: &&IndexedDatabase,
     ) -> HashSet<Vec<ProteinIx>> {
         peps.into_iter()
+            .sorted() //Needed to ensure the same order for prot_name_map
             .map(|pep_id| {
                 let db_peptide = &db[pep_id];
                 let prot_ids = db_peptide
@@ -127,6 +128,7 @@ impl ProteinMapping {
         let mut protein_map = HashMap::new();
         meta_peptides
             .into_iter()
+            .sorted() //Needed to ensure the same order for protein_groups
             .enumerate()
             .for_each(|(i, prot_ids)| {
                 prot_ids.into_iter().for_each(|prot_id| {
