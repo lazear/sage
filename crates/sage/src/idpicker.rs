@@ -1,24 +1,5 @@
-// This module implements a protein grouping algorihm based on the IDPicker (1) algorithm with
-// extensions from the "Picked Protein FDR approach" (2). The Python implementation (3) of
-// CsoDIAq (4) has been used as template and for testing of the IDPicker approach. Most functions
-// are based on IDPicker, only generate_proteingroups() represents the "rescued subset grouping
-// (rsG)", approach of (2). Discarding of shared peptides and picked FDR are implemented as part
-// of the core Sage FDR routines.
-//
-// 1. Zhang, B., Chambers, M. C., & Tabb, D. L. (2007). Proteomic parsimony through
-// bipartite graph analysis improves accuracy and transparency. Journal of proteome research,
-// 6(9), 3549-3557. https://doi.org/10.1021/pr070230d
-//
-// 2. The, M., Samaras, P., Kuster, B., & Wilhelm, M. (2022). Reanalysis of ProteomicsDB using
-// an accurate, sensitive, and scalable false discovery rate estimation approach for protein
-// groups. Molecular & Cellular Proteomics, 21(12), 100437. https://doi.org/10.1016/j.mcpro.2022.100437
-//
-// 3. https://github.com/dg310012/CsoDIAq/blob/68abaa713eb719b488967cb34a876a71657827bd/idpicker.py
-//
-// 4. Cranney, C. W., & Meyer, J. G. (2021). CsoDIAq software for direct infusion shotgun proteome
-// analysis. Analytical Chemistry, 93(36), 12312-12319. https://doi.org/10.1021/acs.analchem.1c02021
-
 use crate::database::{IndexedDatabase, PeptideIx};
+use crate::peptide::Peptide;
 use crate::scoring::Feature;
 use itertools::Itertools;
 use log::info;
@@ -28,19 +9,48 @@ use std::hash::Hash;
 use std::sync::Arc;
 use std::time::Instant;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-struct ProteinIx(pub u32);
+const PROTEIN_COVER_TYPE: ProteinCoverType = ProteinCoverType::Slim;
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
-struct MetaProtein {
-    pub prots: Vec<ProteinIx>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+struct ProteinIx(u32);
+
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Default)]
+struct ProteinGroup(Vec<ProteinIx>);
+
+impl ProteinGroup {
+    fn to_string(
+        &self,
+        protein_map: &Vec<(Arc<String>, bool)>,
+        decoy_tag: &str,
+        generate_decoys: bool,
+    ) -> String {
+        self.0
+            .iter()
+            .map(|prot_ix| {
+                let (prot, decoy) = &protein_map[prot_ix.0 as usize];
+                if *decoy & generate_decoys {
+                    format!("{}{}", decoy_tag, prot)
+                } else {
+                    prot.to_string()
+                }
+            })
+            .sorted()
+            .join("/")
+    }
 }
 
 #[derive(Debug, Default)]
 struct ProteinMapping {
-    pub meta_proteins: Vec<MetaProtein>,
-    pub connections: Vec<(usize, usize)>,
-    pub prot_name_map: HashMap<(Arc<String>, bool), ProteinIx>,
+    protein_groups: Vec<ProteinGroup>,
+    connections: Vec<(usize, usize)>,
+    prot_name_map: HashMap<(Arc<String>, bool), ProteinIx>,
+    protein_cover: Vec<usize>,
+    peptide_count: usize,
+}
+
+pub enum ProteinCoverType {
+    All,
+    Slim,
 }
 
 impl ProteinMapping {
@@ -48,11 +58,12 @@ impl ProteinMapping {
         db: &IndexedDatabase,
         features: &mut [Feature],
         predicate: fn(&&Feature) -> bool,
+        protein_cover_type: ProteinCoverType,
     ) -> Self {
-        info!("Protein grouping with {} features", features.len());
         let mut mapping = Self::default();
         let time = Instant::now();
         let peps = Self::get_peps(features, predicate);
+        mapping.peptide_count = peps.len();
         info!(
             "-  found {} unique peptides in {:?}ms",
             peps.len(),
@@ -66,10 +77,22 @@ impl ProteinMapping {
             time.elapsed().as_millis()
         );
         let time = Instant::now();
-        mapping.find_mapping(meta_peptides);
+        mapping.set_protein_groups_and_connections(meta_peptides);
         info!(
-            "-  found {} meta_proteins in {:?}ms",
-            mapping.meta_proteins.len(),
+            "-  found {} protein_groups in {:?}ms",
+            mapping.protein_groups.len(),
+            time.elapsed().as_millis()
+        );
+        let time = Instant::now();
+        match protein_cover_type {
+            ProteinCoverType::All => {
+                mapping.protein_cover = (0..mapping.protein_groups.len()).collect()
+            }
+            ProteinCoverType::Slim => mapping.find_greedy_protein_cover(),
+        }
+        info!(
+            "-  found cover of {} metaproteins in {:?}ms",
+            mapping.protein_cover.len(),
             time.elapsed().as_millis()
         );
         mapping
@@ -77,7 +100,7 @@ impl ProteinMapping {
 
     fn get_peps(features: &[Feature], predicate: fn(&&Feature) -> bool) -> HashSet<PeptideIx> {
         features
-            .iter()
+            .par_iter()
             .filter(predicate)
             .map(|feature| feature.peptide_idx)
             .collect::<HashSet<_>>()
@@ -116,13 +139,13 @@ impl ProteinMapping {
         }
     }
 
-    fn find_mapping<'a>(&mut self, meta_peptides: HashSet<Vec<ProteinIx>>) {
+    fn set_protein_groups_and_connections<'a>(&mut self, meta_peptides: HashSet<Vec<ProteinIx>>) {
         let mut protein_map = HashMap::new();
         meta_peptides
             .into_iter()
             .enumerate()
             .for_each(|(i, prot_ids)| {
-                prot_ids.iter().for_each(|&prot_id| {
+                prot_ids.into_iter().for_each(|prot_id| {
                     let entry = protein_map.entry(prot_id).or_insert_with(|| vec![]);
                     entry.push(i);
                 });
@@ -133,202 +156,190 @@ impl ProteinMapping {
             .for_each(|(prot_id, meta_peptides)| {
                 let entry = mapping
                     .entry(meta_peptides)
-                    .or_insert_with(|| MetaProtein { prots: vec![] });
-                entry.prots.push(prot_id);
+                    .or_insert_with(|| ProteinGroup::default());
+                entry.0.push(prot_id);
             });
-        let mut meta_proteins = vec![];
+        let mut protein_groups = vec![];
         let mut connections = vec![];
         mapping.into_iter().enumerate().for_each(
             |(meta_protein_index, (meta_peptides, meta_protein))| {
-                meta_proteins.push(meta_protein);
+                protein_groups.push(meta_protein);
                 meta_peptides.iter().for_each(|&meta_peptide_index| {
                     connections.push((meta_protein_index, meta_peptide_index));
                 });
             },
         );
-        self.meta_proteins = meta_proteins;
+        self.protein_groups = protein_groups;
         self.connections = connections;
     }
 
-    fn get_protein_map(
-        &self,
-        meta_protein_cover: Vec<usize>,
-    ) -> HashMap<(Arc<String>, bool), String> {
-        let reversed_name_map = self
-            .prot_name_map
-            .iter()
-            .map(|(k, v)| (v, k))
-            .collect::<HashMap<_, _>>();
-        let mut protein_map = HashMap::new();
-        meta_protein_cover.iter().for_each(|&i| {
-            let meta_protein = &self.meta_proteins[i];
-            let prot_ids = meta_protein.prots.clone();
-            let group_name = prot_ids
-                .iter()
-                .map(|&prot_id| {
-                    let (name, _) = reversed_name_map[&prot_id];
-                    name
+    fn find_greedy_protein_cover(&mut self) {
+        if self.connections.is_empty() {
+            return;
+        }
+        let mut greedy_cover = vec![false; self.protein_groups.len()];
+        let mut remaining_pep_counts = vec![0; self.peptide_count];
+        self.connections.iter().for_each(|(_, pep_index)| {
+            remaining_pep_counts[*pep_index] += 1;
+        });
+        let mut connection_count = 0;
+        loop {
+            while connection_count != self.connections.len() {
+                connection_count = self.connections.len();
+                self.connections.retain(|(prot_index, pep_index)| {
+                    if remaining_pep_counts[*pep_index] == 1 {
+                        greedy_cover[*prot_index] = true;
+                        remaining_pep_counts[*pep_index] -= 1;
+                        false
+                    } else {
+                        true
+                    }
+                });
+                self.connections.retain(|(prot_index, pep_index)| {
+                    if greedy_cover[*prot_index] {
+                        remaining_pep_counts[*pep_index] -= 1;
+                        false
+                    } else {
+                        true
+                    }
                 })
-                .join("/");
-            prot_ids.iter().for_each(|&prot_id| {
-                let (name, decoy) = reversed_name_map[&prot_id];
-                protein_map.insert((name.clone(), *decoy), group_name.clone());
+            }
+            if self.connections.len() == 0 {
+                break;
+            }
+            let mut remaining_prot_counts = HashMap::new();
+            self.connections.iter().for_each(|(prot_index, _)| {
+                let entry = remaining_prot_counts.entry(*prot_index).or_insert(0);
+                *entry += 1;
+            });
+            let &max_index = remaining_prot_counts.iter().max_by_key(|x| x.1).unwrap().0;
+            greedy_cover[max_index] = true;
+            self.connections.retain(|(prot_index, pep_index)| {
+                if *prot_index == max_index {
+                    remaining_pep_counts[*pep_index] -= 1;
+                    false
+                } else {
+                    true
+                }
+            })
+        }
+        self.protein_cover = greedy_cover
+            .into_iter()
+            .enumerate()
+            .filter(|(_, x)| *x)
+            .map(|(i, _)| i)
+            .collect();
+    }
+}
+
+struct ProteinGroupMap {
+    protein_groups: Vec<ProteinGroup>,
+    proteins: Vec<(Arc<String>, bool)>,
+    protein_group_map: HashMap<(Arc<String>, bool), Vec<usize>>,
+}
+
+impl ProteinGroupMap {
+    fn new(mapping: ProteinMapping) -> Self {
+        let proteins = mapping
+            .prot_name_map
+            .into_iter()
+            .sorted_by_key(|(_, v)| v.0)
+            .map(|(k, _)| k.clone())
+            .collect::<Vec<_>>();
+        let mut protein_group_map = HashMap::new();
+        mapping.protein_cover.into_iter().for_each(|i| {
+            let protein_group = &mapping.protein_groups[i];
+            protein_group.0.iter().for_each(|&prot_id| {
+                let (name, decoy) = &proteins[prot_id.0 as usize];
+                let entry = protein_group_map
+                    .entry((name.clone(), *decoy))
+                    .or_insert_with(|| vec![]);
+                entry.push(i);
             });
         });
-        protein_map
+        let protein_group_map = protein_group_map;
+        Self {
+            protein_groups: mapping.protein_groups,
+            proteins,
+            protein_group_map,
+        }
+    }
+
+    fn get_protein_group_string(&self, peptide: &Peptide, db: &IndexedDatabase) -> Vec<String> {
+        let proteingroups = peptide
+            .proteins
+            .iter()
+            .map(|protein| (protein.clone(), peptide.decoy))
+            .filter_map(|prot| self.protein_group_map.get(&prot))
+            .flat_map(|protein_group_indices| {
+                protein_group_indices
+                    .iter()
+                    .map(|&i| &self.protein_groups[i])
+            })
+            .collect::<HashSet<_>>();
+        if proteingroups.is_empty() {
+            vec![]
+        } else {
+            proteingroups
+                .iter()
+                .map(|p| p.to_string(&self.proteins, &db.decoy_tag, db.generate_decoys))
+                .collect()
+        }
     }
 }
 
 pub fn generate_proteingroups(db: &IndexedDatabase, features: &mut [Feature]) {
-    let mapping = ProteinMapping::new(db, features, |f| (f.label != -1) && (f.peptide_q < 0.01));
-    let protein_cover = find_greedy_protein_cover(mapping.connections.clone());
-    let protein_map_pg1 = mapping.get_protein_map(protein_cover);
-    let mapping = ProteinMapping::new(db, features, |f| f.label != -1);
-    let protein_cover = find_greedy_protein_cover(mapping.connections.clone());
-    let protein_map_pg2 = mapping.get_protein_map(protein_cover);
+    let time = Instant::now();
+    info!("Protein grouping with {} features", features.len());
+    let protein_map_pg1 = {
+        let map = ProteinMapping::new(
+            db,
+            features,
+            |f| (f.label != -1) && (f.peptide_q < 0.01),
+            PROTEIN_COVER_TYPE,
+        );
+        ProteinGroupMap::new(map)
+    };
+    let protein_map_pg2 = {
+        let map = ProteinMapping::new(db, features, |f| f.label != -1, PROTEIN_COVER_TYPE);
+        ProteinGroupMap::new(map)
+    };
     features.par_iter_mut().for_each(|feat| {
         let pep = &db[feat.peptide_idx];
-        let proteingroups: HashSet<_> = pep
-            .proteins
-            .iter()
-            .map(|protein| {
-                let prot = (protein.clone(), pep.decoy);
-                match protein_map_pg1.get(&prot) {
-                    Some(protein_group) => protein_group.clone(),
-                    None => {
-                        match protein_map_pg2.get(&prot) {
-                            Some(protein_group) => protein_group.clone(),
-                            None => {
-                                // If the protein is not found in the map, return the protein itself
-                                protein.to_string()
-                            }
-                        }
-                    }
-                }
-            })
-            .collect();
+        let mut proteingroups = protein_map_pg1.get_protein_group_string(pep, db);
+        if proteingroups.is_empty() {
+            proteingroups = protein_map_pg2.get_protein_group_string(pep, db);
+        }
+        if proteingroups.is_empty() {
+            proteingroups =
+                proteins(&pep.proteins, &db.decoy_tag, db.generate_decoys, pep.decoy).collect()
+        }
         feat.proteingroups = Some(proteingroups.iter().sorted().join(";"));
         feat.num_proteingroups = proteingroups.len() as i32;
     });
-}
-
-fn find_greedy_protein_cover(mut connections: Vec<(usize, usize)>) -> Vec<usize> {
-    let time = Instant::now();
-    let mut greedy_cover = HashSet::new();
-    let mut remaining_pep_counts = HashMap::new();
-    connections.iter().for_each(|(_, pep_index)| {
-        let entry = remaining_pep_counts.entry(*pep_index).or_insert(0);
-        *entry += 1;
-    });
-    let mut connection_count = 0;
-    loop {
-        while connection_count != connections.len() {
-            connection_count = connections.len();
-            connections.retain(|(prot_index, pep_index)| {
-                if remaining_pep_counts[pep_index] == 1 {
-                    greedy_cover.insert(*prot_index);
-                    remaining_pep_counts.remove(pep_index);
-                    false
-                } else {
-                    true
-                }
-            });
-            connections.retain(|(prot_index, pep_index)| {
-                if greedy_cover.contains(prot_index) {
-                    let entry = remaining_pep_counts.get_mut(pep_index).unwrap();
-                    *entry -= 1;
-                    false
-                } else {
-                    true
-                }
-            })
-        }
-        if connections.len() == 0 {
-            break;
-        }
-        let mut remaining_prot_counts = HashMap::new();
-        connections.iter().for_each(|(prot_index, _)| {
-            let entry = remaining_prot_counts.entry(*prot_index).or_insert(0);
-            *entry += 1;
-        });
-        let &max_index = remaining_prot_counts.iter().max_by_key(|x| x.1).unwrap().0;
-        greedy_cover.insert(max_index);
-        connections.retain(|(prot_index, pep_index)| {
-            if *prot_index == max_index {
-                let entry = remaining_pep_counts.get_mut(pep_index).unwrap();
-                *entry -= 1;
-                false
-            } else {
-                true
-            }
-        })
-    }
     info!(
-        "-  found cover of {} metaproteins in {:?}ms",
-        greedy_cover.len(),
+        "Grouped and inferred proteins in {:?}ms",
         time.elapsed().as_millis()
     );
-    greedy_cover.into_iter().collect()
 }
 
-// pub fn reduce_cluster(data: Vec<(&Vec<u32>, &Vec<Arc<String>>)>) -> Vec<(String, Vec<String>)> {
-//     // println!("data {:?}",data);
-//     let mut proteins = Vec::new();
-//     let mut used_peptides: HashSet<&Vec<u32>> = HashSet::new();
-//     let total_peptides: HashSet<_> = data.iter().map(|x| x.0).collect();
-
-//     let mut overall_score_dict = HashMap::new();
-//     data.iter().for_each(|(_, proteins)| {
-//         *overall_score_dict.entry(proteins).or_insert(0) += 1;
-//     });
-
-//     while used_peptides.len() != total_peptides.len() {
-//         let mut prot_dict: HashMap<&Vec<Arc<String>>, HashSet<&Vec<u32>>> = HashMap::new();
-
-//         data.iter()
-//             .filter(|(peptides, _)| !used_peptides.contains(peptides))
-//             .for_each(|(peptides, proteins)| {
-//                 prot_dict.entry(proteins).or_default().insert(peptides);
-//             });
-
-//         let score_dict: Vec<(&Vec<Arc<String>>, (usize, i32))> = prot_dict
-//             .iter()
-//             .map(|(key, peptides)| {
-//                 (
-//                     *key,
-//                     (peptides.len(), *overall_score_dict.get(key).unwrap_or(&0)),
-//                 )
-//             })
-//             .collect::<Vec<_>>();
-
-//         // Sort proteins based on (peptide count, overall score)
-//         let sorted_keys = score_dict
-//             .into_iter()
-//             .sorted_by(|a, b| b.1.cmp(&a.1))
-//             .collect::<Vec<_>>();
-
-//         if let Some((top_key, _)) = sorted_keys.first() {
-//             let arry_protein = top_key
-//                 .into_iter()
-//                 .map(|x| x.to_string())
-//                 .collect::<Vec<_>>();
-//             proteins.extend(
-//                 top_key
-//                     .iter()
-//                     .map(|x| (x.to_string(), arry_protein.clone()))
-//                     .collect::<Vec<_>>(),
-//             );
-
-//             if let Some(peptides) = prot_dict.get(top_key).cloned() {
-//                 used_peptides.extend(peptides);
-//             }
-//         }
-//     }
-
-//     proteins
-// }
-
-// fn get_proteingroups(pep_proteins: Vec<(PeptideIx, ProteinIx)>) -> FxHashMap<String, Vec<String>> {}
+pub fn proteins<'a>(
+    proteins: &'a [Arc<String>],
+    decoy_tag: &'a str,
+    generate_decoys: bool,
+    decoy: bool,
+) -> impl Iterator<Item = String> + 'a {
+    proteins
+        .iter()
+        .map(move |s| {
+            if decoy & generate_decoys {
+                format!("{}{}", decoy_tag, s)
+            } else {
+                s.to_string()
+            }
+        })
+        .sorted()
+}
 
 // #[cfg(test)]
 // mod test {
