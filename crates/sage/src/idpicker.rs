@@ -14,7 +14,7 @@ const PROTEIN_INFERENCE: ProteinInference = ProteinInference::Slim;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 struct ProteinIx(u32);
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Default)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Default, PartialOrd, Ord)]
 struct ProteinGroup(Vec<ProteinIx>);
 
 impl ProteinGroup {
@@ -147,7 +147,7 @@ impl ProteinMapping {
             });
         let mut protein_groups = vec![];
         let mut connections = vec![];
-        mapping.into_iter().enumerate().for_each(
+        mapping.into_iter().sorted().enumerate().for_each(
             |(meta_protein_index, (meta_peptides, meta_protein))| {
                 protein_groups.push(meta_protein);
                 meta_peptides.into_iter().for_each(|meta_peptide_index| {
@@ -187,7 +187,7 @@ impl ProteinMapping {
                 .enumerate()
                 .max_by_key(|(_, i)| *i)
                 .unwrap()
-                .0;
+                .0; //In case of a tie the last is taken. This is deterministic as the order of protein groups is deterministic
             greedy_cover[max_index] = true;
         }
         self.protein_cover = greedy_cover
