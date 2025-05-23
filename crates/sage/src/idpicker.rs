@@ -116,29 +116,6 @@ impl ProteinMapping {
         }
     }
 
-    // fn set_proteins_and_get_metapeptides2(
-    //     &mut self,
-    //     peps: HashSet<PeptideIx>,
-    //     db: &&IndexedDatabase,
-    // ) -> HashSet<(Vec<Arc<String>>, bool)> {
-    //     peps.into_iter()
-    //         .map(|pep_id| {
-    //             let db_peptide = &db[pep_id];
-    //             let prot_ids = db_peptide
-    //                 .proteins
-    //                 .iter()
-    //                 .map(|prot| {
-    //                     let prot = prot;
-    //                     // self.get_or_insert_prot(prot)
-    //                     prot.clone()
-    //                 })
-    //                 .sorted()
-    //                 .collect::<Vec<_>>();
-    //             (prot_ids, db_peptide.decoy)
-    //         })
-    //         .collect()
-    // }
-
     fn find_mapping<'a>(&mut self, meta_peptides: HashSet<Vec<ProteinIx>>) {
         let mut protein_map = HashMap::new();
         meta_peptides
