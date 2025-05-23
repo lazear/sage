@@ -30,11 +30,6 @@ use std::time::Instant;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 struct ProteinIx(pub u32);
 
-#[derive(Debug, PartialEq, Eq, Hash)]
-struct MetaPeptide {
-    pub peps: Vec<PeptideIx>,
-}
-
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 struct MetaProtein {
     pub prots: Vec<ProteinIx>,
@@ -42,7 +37,6 @@ struct MetaProtein {
 
 #[derive(Debug, Default)]
 struct ProteinMapping {
-    pub meta_peptides: Vec<MetaPeptide>,
     pub meta_proteins: Vec<MetaProtein>,
     pub connections: Vec<(usize, usize)>,
     pub prot_name_map: HashMap<(Arc<String>, bool), ProteinIx>,
@@ -71,9 +65,9 @@ impl ProteinMapping {
         features: &[Feature],
         db: &&IndexedDatabase,
         predicate: fn(&&Feature) -> bool,
-    ) -> HashMap<Vec<ProteinIx>, MetaPeptide> {
-        let found_pep_ids: HashSet<PeptideIx> = HashSet::new();
-        let mut mapping = HashMap::new();
+    ) -> HashSet<Vec<ProteinIx>> {
+        let mut found_pep_ids: HashSet<PeptideIx> = HashSet::new();
+        let mut mapping = HashSet::new();
         features.iter().filter(predicate).for_each(|feature| {
             let pep_id = feature.peptide_idx;
             let db_peptide = &db[pep_id];
@@ -88,10 +82,8 @@ impl ProteinMapping {
                         })
                         .sorted()
                         .collect::<Vec<_>>();
-                    let entry = mapping
-                        .entry(prot_ids)
-                        .or_insert_with(|| MetaPeptide { peps: vec![] });
-                    entry.peps.push(pep_id);
+                    mapping.insert(prot_ids);
+                    found_pep_ids.insert(pep_id);
                 }
             }
         });
@@ -109,19 +101,17 @@ impl ProteinMapping {
         }
     }
 
-    fn find_mapping<'a>(&mut self, meta_peptides: HashMap<Vec<ProteinIx>, MetaPeptide>) {
+    fn find_mapping<'a>(&mut self, meta_peptides: HashSet<Vec<ProteinIx>>) {
         let mut protein_map = HashMap::new();
-        let meta_peptides = meta_peptides
+        meta_peptides
             .into_iter()
             .enumerate()
-            .map(|(i, (prot_ids, meta_peptide))| {
+            .for_each(|(i, prot_ids)| {
                 prot_ids.iter().for_each(|&prot_id| {
                     let entry = protein_map.entry(prot_id).or_insert_with(|| vec![]);
                     entry.push(i);
                 });
-                meta_peptide
-            })
-            .collect::<Vec<_>>();
+            });
         let mut mapping = HashMap::new();
         protein_map
             .into_iter()
@@ -141,7 +131,6 @@ impl ProteinMapping {
                 });
             },
         );
-        self.meta_peptides = meta_peptides;
         self.meta_proteins = meta_proteins;
         self.connections = connections;
     }
