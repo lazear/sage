@@ -9,7 +9,7 @@ use std::hash::Hash;
 use std::sync::Arc;
 use std::time::Instant;
 
-const PROTEIN_COVER_TYPE: ProteinCoverType = ProteinCoverType::Slim;
+const PROTEIN_INFERENCE: ProteinInference = ProteinInference::Slim;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 struct ProteinIx(u32);
@@ -44,11 +44,11 @@ struct ProteinMapping {
     protein_groups: Vec<ProteinGroup>,
     connections: Vec<(usize, usize)>,
     prot_name_map: HashMap<(Arc<String>, bool), ProteinIx>,
-    protein_cover: Vec<usize>,
+    protein_cover: Vec<bool>,
     peptide_count: usize,
 }
 
-pub enum ProteinCoverType {
+pub enum ProteinInference {
     All,
     Slim,
 }
@@ -56,19 +56,11 @@ pub enum ProteinCoverType {
 impl ProteinMapping {
     fn new(
         db: &IndexedDatabase,
-        features: &mut [Feature],
-        predicate: fn(&&Feature) -> bool,
-        protein_cover_type: ProteinCoverType,
+        peps: HashSet<PeptideIx>,
+        protein_inference: ProteinInference,
     ) -> Self {
         let mut mapping = Self::default();
-        let time = Instant::now();
-        let peps = Self::get_peps(features, predicate);
         mapping.peptide_count = peps.len();
-        info!(
-            "-  found {} unique peptides in {:?}ms",
-            peps.len(),
-            time.elapsed().as_millis()
-        );
         let time = Instant::now();
         let meta_peptides = mapping.set_proteins_and_get_metapeptides(peps, &db);
         info!(
@@ -84,11 +76,11 @@ impl ProteinMapping {
             time.elapsed().as_millis()
         );
         let time = Instant::now();
-        match protein_cover_type {
-            ProteinCoverType::All => {
-                mapping.protein_cover = (0..mapping.protein_groups.len()).collect()
+        match protein_inference {
+            ProteinInference::All => {
+                mapping.protein_cover = vec![true; mapping.protein_groups.len()];
             }
-            ProteinCoverType::Slim => mapping.find_greedy_protein_cover(),
+            ProteinInference::Slim => mapping.find_greedy_protein_cover(),
         }
         info!(
             "-  found cover of {} metaproteins in {:?}ms",
@@ -96,14 +88,6 @@ impl ProteinMapping {
             time.elapsed().as_millis()
         );
         mapping
-    }
-
-    fn get_peps(features: &[Feature], predicate: fn(&&Feature) -> bool) -> HashSet<PeptideIx> {
-        features
-            .par_iter()
-            .filter(predicate)
-            .map(|feature| feature.peptide_idx)
-            .collect::<HashSet<_>>()
     }
 
     fn set_proteins_and_get_metapeptides(
@@ -164,7 +148,7 @@ impl ProteinMapping {
         mapping.into_iter().enumerate().for_each(
             |(meta_protein_index, (meta_peptides, meta_protein))| {
                 protein_groups.push(meta_protein);
-                meta_peptides.iter().for_each(|&meta_peptide_index| {
+                meta_peptides.into_iter().for_each(|meta_peptide_index| {
                     connections.push((meta_protein_index, meta_peptide_index));
                 });
             },
@@ -174,61 +158,37 @@ impl ProteinMapping {
     }
 
     fn find_greedy_protein_cover(&mut self) {
-        if self.connections.is_empty() {
-            return;
-        }
         let mut greedy_cover = vec![false; self.protein_groups.len()];
         let mut remaining_pep_counts = vec![0; self.peptide_count];
-        self.connections.iter().for_each(|(_, pep_index)| {
+        let mut remaining_prot_counts = vec![0; self.protein_groups.len()];
+        self.connections.iter().for_each(|(prot_index, pep_index)| {
+            remaining_prot_counts[*prot_index] += 1;
             remaining_pep_counts[*pep_index] += 1;
         });
-        let mut connection_count = 0;
-        loop {
+        while self.connections.len() > 0 {
+            let mut connection_count = 0;
             while connection_count != self.connections.len() {
                 connection_count = self.connections.len();
                 self.connections.retain(|(prot_index, pep_index)| {
-                    if remaining_pep_counts[*pep_index] == 1 {
+                    if (remaining_pep_counts[*pep_index] == 1) | greedy_cover[*prot_index] {
                         greedy_cover[*prot_index] = true;
+                        remaining_prot_counts[*prot_index] -= 1;
                         remaining_pep_counts[*pep_index] -= 1;
                         false
                     } else {
                         true
                     }
                 });
-                self.connections.retain(|(prot_index, pep_index)| {
-                    if greedy_cover[*prot_index] {
-                        remaining_pep_counts[*pep_index] -= 1;
-                        false
-                    } else {
-                        true
-                    }
-                })
             }
-            if self.connections.len() == 0 {
-                break;
-            }
-            let mut remaining_prot_counts = HashMap::new();
-            self.connections.iter().for_each(|(prot_index, _)| {
-                let entry = remaining_prot_counts.entry(*prot_index).or_insert(0);
-                *entry += 1;
-            });
-            let &max_index = remaining_prot_counts.iter().max_by_key(|x| x.1).unwrap().0;
+            let max_index = remaining_prot_counts
+                .iter()
+                .enumerate()
+                .max_by_key(|(_, i)| *i)
+                .unwrap()
+                .0;
             greedy_cover[max_index] = true;
-            self.connections.retain(|(prot_index, pep_index)| {
-                if *prot_index == max_index {
-                    remaining_pep_counts[*pep_index] -= 1;
-                    false
-                } else {
-                    true
-                }
-            })
         }
         self.protein_cover = greedy_cover
-            .into_iter()
-            .enumerate()
-            .filter(|(_, x)| *x)
-            .map(|(i, _)| i)
-            .collect();
     }
 }
 
@@ -247,16 +207,21 @@ impl ProteinGroupMap {
             .map(|(k, _)| k.clone())
             .collect::<Vec<_>>();
         let mut protein_group_map = HashMap::new();
-        mapping.protein_cover.into_iter().for_each(|i| {
-            let protein_group = &mapping.protein_groups[i];
-            protein_group.0.iter().for_each(|&prot_id| {
-                let (name, decoy) = &proteins[prot_id.0 as usize];
-                let entry = protein_group_map
-                    .entry((name.clone(), *decoy))
-                    .or_insert_with(|| vec![]);
-                entry.push(i);
+        mapping
+            .protein_cover
+            .into_iter()
+            .enumerate()
+            .filter(|(_, i)| *i)
+            .for_each(|(i, _)| {
+                let protein_group = &mapping.protein_groups[i];
+                protein_group.0.iter().for_each(|&prot_id| {
+                    let (name, decoy) = &proteins[prot_id.0 as usize];
+                    let entry = protein_group_map
+                        .entry((name.clone(), *decoy))
+                        .or_insert_with(|| vec![]);
+                    entry.push(i);
+                });
             });
-        });
         let protein_group_map = protein_group_map;
         Self {
             protein_groups: mapping.protein_groups,
@@ -288,20 +253,29 @@ impl ProteinGroupMap {
     }
 }
 
+fn get_peps(features: &[Feature], predicate: fn(&&Feature) -> bool) -> HashSet<PeptideIx> {
+    features
+        .par_iter()
+        .filter(predicate)
+        .map(|feature| feature.peptide_idx)
+        .collect::<HashSet<_>>()
+}
+
 pub fn generate_proteingroups(db: &IndexedDatabase, features: &mut [Feature]) {
     let time = Instant::now();
     info!("Protein grouping with {} features", features.len());
+    let peps = get_peps(features, |f| (f.label != -1) && (f.peptide_q < 0.01));
+    info!(
+        "-  found {} unique peptides in {:?}ms",
+        peps.len(),
+        time.elapsed().as_millis()
+    );
     let protein_map_pg1 = {
-        let map = ProteinMapping::new(
-            db,
-            features,
-            |f| (f.label != -1) && (f.peptide_q < 0.01),
-            PROTEIN_COVER_TYPE,
-        );
+        let map = ProteinMapping::new(db, peps, PROTEIN_INFERENCE);
         ProteinGroupMap::new(map)
     };
     // let protein_map_pg2 = {
-    //     let map = ProteinMapping::new(db, features, |f| f.label != -1, PROTEIN_COVER_TYPE);
+    //     let map = ProteinMapping::new(db, features, |f| f.label != -1, PROTEIN_INFERENCE);
     //     ProteinGroupMap::new(map)
     // };
     features.par_iter_mut().for_each(|feat| {
