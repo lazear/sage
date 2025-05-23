@@ -1,10 +1,10 @@
 use crate::database::{IndexedDatabase, PeptideIx};
 use crate::peptide::Peptide;
 use crate::scoring::Feature;
+use fnv::{FnvHashMap, FnvHashSet};
 use itertools::Itertools;
 use log::info;
 use rayon::prelude::*;
-use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::sync::Arc;
 use std::time::Instant;
@@ -42,8 +42,8 @@ impl ProteinGroup {
 #[derive(Debug, Default)]
 struct ProteinMapping {
     protein_groups: Vec<ProteinGroup>,
-    connections: Vec<(usize, usize)>,
-    prot_name_map: HashMap<(Arc<String>, bool), ProteinIx>,
+    connections: Vec<(u32, u32)>,
+    prot_name_map: FnvHashMap<(Arc<String>, bool), ProteinIx>,
     protein_cover: Vec<bool>,
     peptide_count: usize,
 }
@@ -56,7 +56,7 @@ pub enum ProteinInference {
 impl ProteinMapping {
     fn new(
         db: &IndexedDatabase,
-        peps: HashSet<PeptideIx>,
+        peps: FnvHashSet<PeptideIx>,
         protein_inference: ProteinInference,
     ) -> Self {
         let mut mapping = Self::default();
@@ -92,9 +92,9 @@ impl ProteinMapping {
 
     fn set_proteins_and_get_metapeptides(
         &mut self,
-        peps: HashSet<PeptideIx>,
+        peps: FnvHashSet<PeptideIx>,
         db: &&IndexedDatabase,
-    ) -> HashSet<Vec<ProteinIx>> {
+    ) -> FnvHashSet<Vec<ProteinIx>> {
         peps.into_iter()
             .sorted() //Needed to ensure the same order for prot_name_map
             .map(|pep_id| {
@@ -124,8 +124,11 @@ impl ProteinMapping {
         }
     }
 
-    fn set_protein_groups_and_connections<'a>(&mut self, meta_peptides: HashSet<Vec<ProteinIx>>) {
-        let mut protein_map = HashMap::new();
+    fn set_protein_groups_and_connections<'a>(
+        &mut self,
+        meta_peptides: FnvHashSet<Vec<ProteinIx>>,
+    ) {
+        let mut protein_map = FnvHashMap::default();
         meta_peptides
             .into_iter()
             .sorted() //Needed to ensure the same order for protein_groups
@@ -136,7 +139,7 @@ impl ProteinMapping {
                     entry.push(i);
                 });
             });
-        let mut mapping = HashMap::new();
+        let mut mapping = FnvHashMap::default();
         protein_map
             .into_iter()
             .for_each(|(prot_id, meta_peptides)| {
@@ -151,7 +154,7 @@ impl ProteinMapping {
             |(meta_protein_index, (meta_peptides, meta_protein))| {
                 protein_groups.push(meta_protein);
                 meta_peptides.into_iter().for_each(|meta_peptide_index| {
-                    connections.push((meta_protein_index, meta_peptide_index));
+                    connections.push((meta_protein_index as u32, meta_peptide_index as u32));
                 });
             },
         );
@@ -161,21 +164,23 @@ impl ProteinMapping {
 
     fn find_greedy_protein_cover(&mut self) {
         let mut greedy_cover = vec![false; self.protein_groups.len()];
-        let mut remaining_pep_counts = vec![0; self.peptide_count];
-        let mut remaining_prot_counts = vec![0; self.protein_groups.len()];
+        let mut remaining_pep_counts = vec![0u32; self.peptide_count];
+        let mut remaining_prot_counts = vec![0u32; self.protein_groups.len()];
         self.connections.iter().for_each(|(prot_index, pep_index)| {
-            remaining_prot_counts[*prot_index] += 1;
-            remaining_pep_counts[*pep_index] += 1;
+            remaining_prot_counts[*prot_index as usize] += 1;
+            remaining_pep_counts[*pep_index as usize] += 1;
         });
         while self.connections.len() > 0 {
             let mut connection_count = 0;
             while connection_count != self.connections.len() {
                 connection_count = self.connections.len();
                 self.connections.retain(|(prot_index, pep_index)| {
-                    if (remaining_pep_counts[*pep_index] == 1) | greedy_cover[*prot_index] {
-                        greedy_cover[*prot_index] = true;
-                        remaining_prot_counts[*prot_index] -= 1;
-                        remaining_pep_counts[*pep_index] -= 1;
+                    if (remaining_pep_counts[*pep_index as usize] == 1)
+                        | greedy_cover[*prot_index as usize]
+                    {
+                        greedy_cover[*prot_index as usize] = true;
+                        remaining_prot_counts[*prot_index as usize] -= 1;
+                        remaining_pep_counts[*pep_index as usize] -= 1;
                         false
                     } else {
                         true
@@ -197,7 +202,7 @@ impl ProteinMapping {
 struct ProteinGroupMap {
     protein_groups: Vec<ProteinGroup>,
     proteins: Vec<(Arc<String>, bool)>,
-    protein_group_map: HashMap<(Arc<String>, bool), Vec<usize>>,
+    protein_group_map: FnvHashMap<(Arc<String>, bool), Vec<u32>>,
 }
 
 impl ProteinGroupMap {
@@ -208,7 +213,7 @@ impl ProteinGroupMap {
             .sorted_by_key(|(_, v)| v.0)
             .map(|(k, _)| k.clone())
             .collect::<Vec<_>>();
-        let mut protein_group_map = HashMap::new();
+        let mut protein_group_map = FnvHashMap::default();
         mapping
             .protein_cover
             .into_iter()
@@ -221,7 +226,7 @@ impl ProteinGroupMap {
                     let entry = protein_group_map
                         .entry((name.clone(), *decoy))
                         .or_insert_with(|| vec![]);
-                    entry.push(i);
+                    entry.push(i as u32);
                 });
             });
         let protein_group_map = protein_group_map;
@@ -241,9 +246,9 @@ impl ProteinGroupMap {
             .flat_map(|protein_group_indices| {
                 protein_group_indices
                     .iter()
-                    .map(|&i| &self.protein_groups[i])
+                    .map(|&i| &self.protein_groups[i as usize])
             })
-            .collect::<HashSet<_>>();
+            .collect::<FnvHashSet<_>>();
         if proteingroups.is_empty() {
             vec![]
         } else {
@@ -255,18 +260,19 @@ impl ProteinGroupMap {
     }
 }
 
-fn get_peps(features: &[Feature], predicate: fn(&&Feature) -> bool) -> HashSet<PeptideIx> {
+fn get_peps(features: &[Feature], predicate: fn(&&Feature) -> bool) -> FnvHashSet<PeptideIx> {
     features
         .par_iter()
         .filter(predicate)
         .map(|feature| feature.peptide_idx)
-        .collect::<HashSet<_>>()
+        .collect()
 }
 
 pub fn generate_proteingroups(db: &IndexedDatabase, features: &mut [Feature]) {
     let time = Instant::now();
     info!("Protein grouping with {} features", features.len());
     let peps = get_peps(features, |f| (f.label != -1) && (f.peptide_q < 0.01));
+    // let peps = get_peps(features, |f| (f.label != -1));
     info!(
         "-  found {} unique peptides in {:?}ms",
         peps.len(),
@@ -320,7 +326,7 @@ pub fn proteins<'a>(
 // #[cfg(test)]
 // mod test {
 //     use crate::idpicker::get_proteingroups;
-//     use rustc_hash::FxHashMap;
+//     use rustc_hash::FxFnvHashMap;
 //     use std::sync::Arc;
 
 //     #[test]
@@ -353,7 +359,7 @@ pub fn proteins<'a>(
 
 //         let proteingroups = get_proteingroups(data);
 
-//         let expected_proteingroups: FxHashMap<String, Vec<String>> = vec![
+//         let expected_proteingroups: FxFnvHashMap<String, Vec<String>> = vec![
 //             ("protein_9", vec!["protein_9", "protein_4"]),
 //             ("protein_6", vec!["protein_6"]),
 //             ("protein_1", vec!["protein_1"]),
