@@ -24,6 +24,7 @@ use itertools::Itertools;
 use log::info;
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -48,46 +49,60 @@ impl ProteinMapping {
         features: &mut [Feature],
         predicate: fn(&&Feature) -> bool,
     ) -> Self {
-        let time = Instant::now();
+        info!("Protein grouping with {} features", features.len());
         let mut mapping = Self::default();
-        let meta_peptides = mapping.set_proteins_and_get_metapeptides(&features, &db, predicate);
+        let time = Instant::now();
+        let peps = Self::get_peps(features, predicate);
+        info!(
+            "-  found {} unique peptides in {:?}ms",
+            peps.len(),
+            time.elapsed().as_millis()
+        );
+        let time = Instant::now();
+        let meta_peptides = mapping.set_proteins_and_get_metapeptides(peps, &db);
+        info!(
+            "-  found {} meta_peptides in {:?}ms",
+            meta_peptides.len(),
+            time.elapsed().as_millis()
+        );
+        let time = Instant::now();
         mapping.find_mapping(meta_peptides);
         info!(
-            "-  found {} metaproteins in {:?}ms",
+            "-  found {} meta_proteins in {:?}ms",
             mapping.meta_proteins.len(),
             time.elapsed().as_millis()
         );
         mapping
     }
 
+    fn get_peps(features: &[Feature], predicate: fn(&&Feature) -> bool) -> HashSet<PeptideIx> {
+        features
+            .iter()
+            .filter(predicate)
+            .map(|feature| feature.peptide_idx)
+            .collect::<HashSet<_>>()
+    }
+
     fn set_proteins_and_get_metapeptides(
         &mut self,
-        features: &[Feature],
+        peps: HashSet<PeptideIx>,
         db: &&IndexedDatabase,
-        predicate: fn(&&Feature) -> bool,
     ) -> HashSet<Vec<ProteinIx>> {
-        let mut found_pep_ids: HashSet<PeptideIx> = HashSet::new();
-        let mut mapping = HashSet::new();
-        features.iter().filter(predicate).for_each(|feature| {
-            let pep_id = feature.peptide_idx;
-            let db_peptide = &db[pep_id];
-            if !found_pep_ids.contains(&pep_id) {
-                {
-                    let prot_ids = db_peptide
-                        .proteins
-                        .iter()
-                        .map(|prot| {
-                            let prot = (prot.clone(), db_peptide.decoy);
-                            self.get_or_insert_prot(prot)
-                        })
-                        .sorted()
-                        .collect::<Vec<_>>();
-                    mapping.insert(prot_ids);
-                    found_pep_ids.insert(pep_id);
-                }
-            }
-        });
-        mapping
+        peps.into_iter()
+            .map(|pep_id| {
+                let db_peptide = &db[pep_id];
+                let prot_ids = db_peptide
+                    .proteins
+                    .iter()
+                    .map(|prot| {
+                        let prot = (prot.clone(), db_peptide.decoy);
+                        self.get_or_insert_prot(prot)
+                    })
+                    .sorted()
+                    .collect::<Vec<_>>();
+                prot_ids
+            })
+            .collect()
     }
 
     fn get_or_insert_prot(&mut self, prot: (Arc<String>, bool)) -> ProteinIx {
@@ -100,6 +115,29 @@ impl ProteinMapping {
             }
         }
     }
+
+    // fn set_proteins_and_get_metapeptides2(
+    //     &mut self,
+    //     peps: HashSet<PeptideIx>,
+    //     db: &&IndexedDatabase,
+    // ) -> HashSet<(Vec<Arc<String>>, bool)> {
+    //     peps.into_iter()
+    //         .map(|pep_id| {
+    //             let db_peptide = &db[pep_id];
+    //             let prot_ids = db_peptide
+    //                 .proteins
+    //                 .iter()
+    //                 .map(|prot| {
+    //                     let prot = prot;
+    //                     // self.get_or_insert_prot(prot)
+    //                     prot.clone()
+    //                 })
+    //                 .sorted()
+    //                 .collect::<Vec<_>>();
+    //             (prot_ids, db_peptide.decoy)
+    //         })
+    //         .collect()
+    // }
 
     fn find_mapping<'a>(&mut self, meta_peptides: HashSet<Vec<ProteinIx>>) {
         let mut protein_map = HashMap::new();
