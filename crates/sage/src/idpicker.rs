@@ -6,6 +6,7 @@ use itertools::Itertools;
 use log::info;
 use rayon::prelude::*;
 use std::hash::Hash;
+use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -13,6 +14,22 @@ const PROTEIN_INFERENCE: ProteinInference = ProteinInference::Slim;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 struct ProteinIx(u32);
+
+impl ProteinIx {
+    fn to_string(
+        &self,
+        protein_map: &Vec<(Arc<String>, bool)>,
+        decoy_tag: &str,
+        generate_decoys: bool,
+    ) -> String {
+        let (prot, decoy) = &protein_map[self.0 as usize];
+        if *decoy & generate_decoys {
+            format!("{}{}", decoy_tag, prot)
+        } else {
+            prot.to_string()
+        }
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Default, PartialOrd, Ord)]
 struct ProteinGroup(Vec<ProteinIx>);
@@ -26,21 +43,106 @@ impl ProteinGroup {
     ) -> String {
         self.0
             .iter()
-            .map(|prot_ix| {
-                let (prot, decoy) = &protein_map[prot_ix.0 as usize];
-                if *decoy & generate_decoys {
-                    format!("{}{}", decoy_tag, prot)
-                } else {
-                    prot.to_string()
-                }
-            })
+            .map(|prot_ix| prot_ix.to_string(protein_map, decoy_tag, generate_decoys))
             .sorted()
             .join("/")
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum ProteinInference {
+    All,
+    #[default]
+    Slim,
+}
+
+impl ProteinInference {
+    fn infer(
+        &self,
+        connections: Vec<(u32, u32)>,
+        peptide_count: usize,
+        protein_count: usize,
+    ) -> Vec<bool> {
+        match self {
+            ProteinInference::All => vec![true; protein_count],
+            ProteinInference::Slim => {
+                let mut graph = BipartiteGraph::new(connections, protein_count, peptide_count);
+                while !graph.is_empty() {
+                    graph.trim_connections();
+                    graph.add_biggest_left_to_cover();
+                }
+                graph.cover
+            }
+        }
+    }
+}
+
+struct BipartiteGraph {
+    connections: Vec<(u32, u32)>,
+    remaining_left: Vec<u32>,
+    remaining_right: Vec<u32>,
+    cover: Vec<bool>,
+}
+
+impl BipartiteGraph {
+    fn new(connections: Vec<(u32, u32)>, left_size: usize, right_size: usize) -> Self {
+        let mut remaining_left = vec![0; left_size];
+        let mut remaining_right = vec![0; right_size];
+        connections.iter().for_each(|(l, r)| {
+            remaining_left[*l as usize] += 1;
+            remaining_right[*r as usize] += 1;
+        });
+        let cover = vec![false; left_size];
+        Self {
+            connections,
+            remaining_left,
+            remaining_right,
+            cover,
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.connections.is_empty()
+    }
+
+    fn trim_connections(&mut self) {
+        let mut connection_count = 0;
+        while connection_count != self.connections.len() {
+            connection_count = self.connections.len();
+            self.connections.retain(|(left_index, right_index)| {
+                let left_index = *left_index as usize;
+                let right_index = *right_index as usize;
+                if (self.remaining_right[right_index] == 1) | self.cover[left_index] {
+                    self.cover[left_index] = true;
+                    self.remaining_left[left_index] -= 1;
+                    self.remaining_right[right_index] -= 1;
+                    false
+                } else if self.remaining_left[left_index] == 1 {
+                    self.remaining_left[left_index] -= 1;
+                    self.remaining_right[right_index] -= 1;
+                    false
+                } else {
+                    true
+                }
+            });
+        }
+    }
+
+    fn add_biggest_left_to_cover(&mut self) {
+        match self
+            .remaining_left
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, i)| *i)  //In case of a tie the last is taken. This is deterministic as the order of protein groups is deterministic
+        {
+            Some((index, _)) => self.cover[index] = true,
+            _ => {}
+        }
+    }
+}
+
 #[derive(Debug, Default)]
-struct ProteinMapping {
+struct ProteinGrouping {
     protein_groups: Vec<ProteinGroup>,
     connections: Vec<(u32, u32)>,
     prot_name_map: FnvHashMap<(Arc<String>, bool), ProteinIx>,
@@ -48,43 +150,22 @@ struct ProteinMapping {
     peptide_count: usize,
 }
 
-pub enum ProteinInference {
-    All,
-    Slim,
-}
-
-impl ProteinMapping {
-    fn new(
-        db: &IndexedDatabase,
-        peps: FnvHashSet<PeptideIx>,
-        protein_inference: ProteinInference,
-    ) -> Self {
+impl ProteinGrouping {
+    fn new(db: &IndexedDatabase, peps: FnvHashSet<PeptideIx>) -> Self {
         let mut mapping = Self::default();
         mapping.peptide_count = peps.len();
         let time = Instant::now();
         let meta_peptides = mapping.set_proteins_and_get_metapeptides(peps, &db);
         info!(
-            "-  found {} meta_peptides in {:?}ms",
+            "-  found {} meta peptides in {:?}ms",
             meta_peptides.len(),
             time.elapsed().as_millis()
         );
         let time = Instant::now();
         mapping.set_protein_groups_and_connections(meta_peptides);
         info!(
-            "-  found {} protein_groups in {:?}ms",
+            "-  found {} protein groups in {:?}ms",
             mapping.protein_groups.len(),
-            time.elapsed().as_millis()
-        );
-        let time = Instant::now();
-        match protein_inference {
-            ProteinInference::All => {
-                mapping.protein_cover = vec![true; mapping.protein_groups.len()];
-            }
-            ProteinInference::Slim => mapping.find_greedy_protein_cover(),
-        }
-        info!(
-            "-  found cover of {} metaproteins in {:?}ms",
-            mapping.protein_cover.len(),
             time.elapsed().as_millis()
         );
         mapping
@@ -161,42 +242,6 @@ impl ProteinMapping {
         self.protein_groups = protein_groups;
         self.connections = connections;
     }
-
-    fn find_greedy_protein_cover(&mut self) {
-        let mut greedy_cover = vec![false; self.protein_groups.len()];
-        let mut remaining_pep_counts = vec![0u32; self.peptide_count];
-        let mut remaining_prot_counts = vec![0u32; self.protein_groups.len()];
-        self.connections.iter().for_each(|(prot_index, pep_index)| {
-            remaining_prot_counts[*prot_index as usize] += 1;
-            remaining_pep_counts[*pep_index as usize] += 1;
-        });
-        while self.connections.len() > 0 {
-            let mut connection_count = 0;
-            while connection_count != self.connections.len() {
-                connection_count = self.connections.len();
-                self.connections.retain(|(prot_index, pep_index)| {
-                    if (remaining_pep_counts[*pep_index as usize] == 1)
-                        | greedy_cover[*prot_index as usize]
-                    {
-                        greedy_cover[*prot_index as usize] = true;
-                        remaining_prot_counts[*prot_index as usize] -= 1;
-                        remaining_pep_counts[*pep_index as usize] -= 1;
-                        false
-                    } else {
-                        true
-                    }
-                });
-            }
-            let max_index = remaining_prot_counts
-                .iter()
-                .enumerate()
-                .max_by_key(|(_, i)| *i)
-                .unwrap()
-                .0; //In case of a tie the last is taken. This is deterministic as the order of protein groups is deterministic
-            greedy_cover[max_index] = true;
-        }
-        self.protein_cover = greedy_cover
-    }
 }
 
 struct ProteinGroupMap {
@@ -206,7 +251,7 @@ struct ProteinGroupMap {
 }
 
 impl ProteinGroupMap {
-    fn new(mapping: ProteinMapping) -> Self {
+    fn new(mapping: ProteinGrouping) -> Self {
         let proteins = mapping
             .prot_name_map
             .into_iter()
@@ -260,6 +305,74 @@ impl ProteinGroupMap {
     }
 }
 
+pub fn generate_proteingroups(db: &IndexedDatabase, features: &mut [Feature]) {
+    let time = Instant::now();
+    update_features_with_proteingroups(features, db, |f| (f.label != -1) && (f.peptide_q < 0.01));
+    update_features_with_proteingroups(features, db, |f| (f.label != -1));
+    features
+        .par_iter_mut()
+        .filter(|f| f.proteingroups.is_none())
+        .for_each(|feat| {
+            let pep = &db[feat.peptide_idx];
+            let proteingroups =
+                annotate_proteins(&pep.proteins, &db.decoy_tag, db.generate_decoys, pep.decoy)
+                    .collect::<Vec<_>>();
+            feat.proteingroups = Some(proteingroups.iter().sorted().join(";"));
+            feat.num_proteingroups = proteingroups.len() as i32;
+        });
+    info!(
+        "Grouped and inferred proteins in {:?}ms",
+        time.elapsed().as_millis()
+    );
+}
+
+fn update_features_with_proteingroups(
+    features: &mut [Feature],
+    db: &IndexedDatabase,
+    predicate: fn(&&Feature) -> bool,
+) {
+    let time = Instant::now();
+    info!("Protein grouping with {} features", features.len());
+    let peps = get_peps(features, predicate);
+    info!(
+        "-  found {} unique peptides in {:?}ms",
+        peps.len(),
+        time.elapsed().as_millis()
+    );
+    let mut mapping = ProteinGrouping::new(db, peps);
+    let time = Instant::now();
+    mapping.protein_cover = PROTEIN_INFERENCE.infer(
+        mapping.connections.drain(..).collect(),
+        mapping.peptide_count,
+        mapping.protein_groups.len(),
+    );
+    info!(
+        "-  found cover of {} metaproteins in {:?}ms",
+        mapping.protein_cover.len(),
+        time.elapsed().as_millis()
+    );
+    let time = Instant::now();
+    let protein_map = ProteinGroupMap::new(mapping);
+    let counter = AtomicUsize::new(0);
+    features
+        .par_iter_mut()
+        .filter(|feat| feat.proteingroups.is_none())
+        .for_each(|feat| {
+            let pep = &db[feat.peptide_idx];
+            let proteingroups = protein_map.get_protein_group_string(pep, db);
+            if !proteingroups.is_empty() {
+                feat.proteingroups = Some(proteingroups.iter().sorted().join(";"));
+                feat.num_proteingroups = proteingroups.len() as i32;
+                counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+        });
+    info!(
+        "-  annotated {} features in {:?}ms",
+        counter.load(std::sync::atomic::Ordering::Relaxed),
+        time.elapsed().as_millis()
+    );
+}
+
 fn get_peps(features: &[Feature], predicate: fn(&&Feature) -> bool) -> FnvHashSet<PeptideIx> {
     features
         .par_iter()
@@ -268,44 +381,7 @@ fn get_peps(features: &[Feature], predicate: fn(&&Feature) -> bool) -> FnvHashSe
         .collect()
 }
 
-pub fn generate_proteingroups(db: &IndexedDatabase, features: &mut [Feature]) {
-    let time = Instant::now();
-    info!("Protein grouping with {} features", features.len());
-    let peps = get_peps(features, |f| (f.label != -1) && (f.peptide_q < 0.01));
-    // let peps = get_peps(features, |f| (f.label != -1));
-    info!(
-        "-  found {} unique peptides in {:?}ms",
-        peps.len(),
-        time.elapsed().as_millis()
-    );
-    let protein_map_pg1 = {
-        let map = ProteinMapping::new(db, peps, PROTEIN_INFERENCE);
-        ProteinGroupMap::new(map)
-    };
-    // let protein_map_pg2 = {
-    //     let map = ProteinMapping::new(db, features, |f| f.label != -1, PROTEIN_INFERENCE);
-    //     ProteinGroupMap::new(map)
-    // };
-    features.par_iter_mut().for_each(|feat| {
-        let pep = &db[feat.peptide_idx];
-        let mut proteingroups = protein_map_pg1.get_protein_group_string(pep, db);
-        // if proteingroups.is_empty() {
-        //     proteingroups = protein_map_pg2.get_protein_group_string(pep, db);
-        // }
-        if proteingroups.is_empty() {
-            proteingroups =
-                proteins(&pep.proteins, &db.decoy_tag, db.generate_decoys, pep.decoy).collect()
-        }
-        feat.proteingroups = Some(proteingroups.iter().sorted().join(";"));
-        feat.num_proteingroups = proteingroups.len() as i32;
-    });
-    info!(
-        "Grouped and inferred proteins in {:?}ms",
-        time.elapsed().as_millis()
-    );
-}
-
-pub fn proteins<'a>(
+pub fn annotate_proteins<'a>(
     proteins: &'a [Arc<String>],
     decoy_tag: &'a str,
     generate_decoys: bool,
