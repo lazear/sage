@@ -1,3 +1,43 @@
+//! # Protein Grouping and Inference
+//!
+//! This module provides functionality for grouping proteins based on peptide evidence
+//! and performing protein inference for proteomics data analysis. It supports grouping
+//! proteins and inferring (almost) minimal covering sets and annotating features with
+//! their corresponding protein groups.
+//!
+//! ## Main Features
+//! - Groups proteins when peptide evidence for proteins is identical.
+//! - Infers (almost) minimal protein-group covers using bipartite graph algorithms.
+//! - Supports different protein inference strategies (e.g., "All", "Slim").
+//! - Annotates features with protein group information in parallel for efficiency.
+//! - Handles decoy proteins and supports deterministic group naming.
+//!
+//! ## Key Types
+//! - `ProteinGroup`: Represents a group of proteins with identical peptide evidence.
+//! - `ProteinGrouping`: Builds protein groups and manages peptide-to-protein mapping.
+//! - `ProteinGroupMap`: Maps proteins to their groups for annotation.
+//! - `ProteinInference`: Enum specifying the strategy for protein inference,
+//! such as reporting all possible protein groups ("All") or inferring an (almost)
+//! minimal covering set ("Slim").
+//!
+//! ## Usage
+//! Use [`generate_proteingroups`] to annotate features with protein group information
+//! based on the provided indexed database and peptide identifications.
+//!
+//! ## Parallelization
+//! The module leverages Rayon for parallel processing of features to improve performance
+//! on large datasets.
+//!
+//! ## Dependencies
+//! Relies on FnvHashMap/FnvHashSet for efficient hashing, Rayon for parallelism, and
+//! Itertools for convenient iterator utilities.
+//!
+//! ## References
+// 1. Zhang, B., Chambers, M. C., & Tabb, D. L. (2007). Proteomic parsimony through
+// bipartite graph analysis improves accuracy and transparency. Journal of proteome research,
+// 6(9), 3549-3557. https://doi.org/10.1021/pr070230d
+//!
+
 use crate::database::{IndexedDatabase, PeptideIx};
 use crate::peptide::Peptide;
 use crate::scoring::Feature;
