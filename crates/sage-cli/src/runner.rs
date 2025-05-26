@@ -399,7 +399,7 @@ impl Runner {
         // are reported with protein FDR = 1.0
         let q_protein = sage_core::fdr::picked_protein(&self.database, &mut outputs.features);
         // Conducts "IDPicker-based protein grouping at 1% peptide FDR"
-        sage_core::idpicker::generate_proteingroups(&self.database, &mut outputs.features);
+        sage_core::protein_grouping::generate_proteingroups(&self.database, &mut outputs.features);
         // Uses the "Picked Group FDR" approach to compute proteingroup FDR for the IDPicker groups,
         // including rescued subset grouping (rsG). Shared peptides (between different groups)
         // are reported with proteingroup FDR = 1.0
@@ -441,7 +441,10 @@ impl Runner {
             q_spectrum
         );
         log::info!("discovered {} target peptides at 1% FDR", q_peptide);
-        log::info!("discovered {} target proteins (supported by proteotypic peptides only) at 1% FDR", q_protein);
+        log::info!(
+            "discovered {} target proteins (supported by proteotypic peptides only) at 1% FDR",
+            q_protein
+        );
         log::info!(
             "discovered {} target proteingroups (supported by proteotypic peptides only) at 1% FDR",
             q_proteingroup
