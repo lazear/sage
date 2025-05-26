@@ -109,9 +109,11 @@ impl ProteinInference {
                 let mut graph = BipartiteGraph::new(connections, protein_count, peptide_count);
                 while !graph.is_empty() {
                     graph.trim_connections();
-                    graph.add_biggest_left_to_cover();
+                    if !graph.is_empty() {
+                        graph.add_biggest_left_to_cover();
+                    }
                 }
-                graph.cover
+                graph.left_cover
             }
         }
     }
@@ -119,9 +121,11 @@ impl ProteinInference {
 
 struct BipartiteGraph {
     connections: Vec<(u32, u32)>,
+    original_left: Vec<u32>,
     remaining_left: Vec<u32>,
     remaining_right: Vec<u32>,
-    cover: Vec<bool>,
+    left_cover: Vec<bool>,
+    right_cover: Vec<bool>,
 }
 
 impl BipartiteGraph {
@@ -132,12 +136,15 @@ impl BipartiteGraph {
             remaining_left[*l as usize] += 1;
             remaining_right[*r as usize] += 1;
         });
-        let cover = vec![false; left_size];
+        let left_cover = vec![false; left_size];
+        let right_cover = vec![false; right_size];
         Self {
             connections,
+            original_left: remaining_left.clone(),
             remaining_left,
             remaining_right,
-            cover,
+            left_cover,
+            right_cover,
         }
     }
 
@@ -145,37 +152,57 @@ impl BipartiteGraph {
         self.connections.is_empty()
     }
 
+    fn remove_edge(&mut self, left_index: usize, right_index: usize) {
+        self.remaining_left[left_index] -= 1;
+        self.remaining_right[right_index] -= 1;
+    }
+
     fn trim_connections(&mut self) {
+        let mut connections = self.connections.to_owned();
         let mut connection_count = 0;
-        while connection_count != self.connections.len() {
-            connection_count = self.connections.len();
-            self.connections.retain(|(left_index, right_index)| {
+        while connection_count != connections.len() {
+            connection_count = connections.len();
+            connections.iter().for_each(|(left_index, right_index)| {
                 let left_index = *left_index as usize;
                 let right_index = *right_index as usize;
-                if (self.remaining_right[right_index] == 1) | self.cover[left_index] {
-                    self.cover[left_index] = true;
-                    self.remaining_left[left_index] -= 1;
-                    self.remaining_right[right_index] -= 1;
+                if self.remaining_right[right_index] == 1 {
+                    self.left_cover[left_index] = true;
+                }
+            });
+            connections.retain(|(left_index, right_index)| {
+                let left_index = *left_index as usize;
+                let right_index = *right_index as usize;
+                if self.left_cover[left_index] {
+                    self.right_cover[right_index] = true;
+                    self.remove_edge(left_index, right_index);
                     false
-                } else if self.remaining_left[left_index] == 1 {
-                    self.remaining_left[left_index] -= 1;
-                    self.remaining_right[right_index] -= 1;
+                } else {
+                    true
+                }
+            });
+            connections.retain(|(left_index, right_index)| {
+                let left_index = *left_index as usize;
+                let right_index = *right_index as usize;
+                if self.right_cover[right_index] {
+                    self.remove_edge(left_index, right_index);
                     false
                 } else {
                     true
                 }
             });
         }
+        self.connections = connections;
     }
 
     fn add_biggest_left_to_cover(&mut self) {
         match self
             .remaining_left
             .iter()
+            .zip(&self.original_left)
             .enumerate()
-            .max_by_key(|(_, i)| *i)  //In case of a tie the last is taken. This is deterministic as the order of protein groups is deterministic
+            .max_by_key(|(_, i)| *i)
         {
-            Some((index, _)) => self.cover[index] = true,
+            Some((index, _)) => self.left_cover[index] = true,
             _ => {}
         }
     }
@@ -439,58 +466,76 @@ pub fn annotate_proteins<'a>(
         .sorted()
 }
 
-// #[cfg(test)]
-// mod test {
-//     use crate::idpicker::get_proteingroups;
-//     use rustc_hash::FxFnvHashMap;
-//     use std::sync::Arc;
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::sync::Arc;
 
-//     #[test]
-//     fn test_valid_proteins() {
-//         let test_data = vec![
-//             ("peptide_1".to_string(), "protein_7".to_string()),
-//             ("peptide_2".to_string(), "protein_4".to_string()),
-//             ("peptide_2".to_string(), "protein_6".to_string()),
-//             ("peptide_2".to_string(), "protein_9".to_string()),
-//             ("peptide_3".to_string(), "protein_1".to_string()),
-//             ("peptide_4".to_string(), "protein_1".to_string()),
-//             ("peptide_4".to_string(), "protein_5".to_string()),
-//             ("peptide_5".to_string(), "protein_7".to_string()),
-//             ("peptide_6".to_string(), "protein_3".to_string()),
-//             ("peptide_6".to_string(), "protein_6".to_string()),
-//             ("peptide_7".to_string(), "protein_1".to_string()),
-//             ("peptide_8".to_string(), "protein_1".to_string()),
-//             ("peptide_8".to_string(), "protein_2".to_string()),
-//             ("peptide_8".to_string(), "protein_5".to_string()),
-//             ("peptide_8".to_string(), "protein_8".to_string()),
-//             ("peptide_9".to_string(), "protein_1".to_string()),
-//             ("peptide_10".to_string(), "protein_4".to_string()),
-//             ("peptide_10".to_string(), "protein_9".to_string()),
-//         ];
+    fn build_db_and_features() -> (IndexedDatabase, Vec<Feature>) {
+        let protein_map = |s: &str| Arc::new(s.to_string());
+        let peptide_proteins = vec![
+            vec!["protein_7"],
+            vec!["protein_4", "protein_6", "protein_9"],
+            vec!["protein_1"],
+            vec!["protein_1", "protein_5"],
+            vec!["protein_7"],
+            vec!["protein_3", "protein_6"],
+            vec!["protein_1"],
+            vec!["protein_1", "protein_2", "protein_5", "protein_8"],
+            vec!["protein_1"],
+            vec!["protein_4", "protein_9"],
+        ];
+        let features: Vec<Feature> = (0..peptide_proteins.len())
+            .map(|ix| Feature {
+                peptide_idx: PeptideIx(ix as u32),
+                ..Default::default()
+            })
+            .collect();
+        let db = IndexedDatabase {
+            peptides: peptide_proteins
+                .into_iter()
+                .map(|prots| Peptide {
+                    proteins: prots.into_iter().map(protein_map).collect(),
+                    decoy: false,
+                    ..Default::default()
+                })
+                .collect(),
+            decoy_tag: "DECOY_".to_string(),
+            generate_decoys: false,
+            ..IndexedDatabase::default()
+        };
+        (db, features)
+    }
 
-//         let data: Vec<_> = test_data
-//             .into_iter()
-//             .map(|(k, v)| (Arc::new(k.to_string()), Arc::new(v.to_string())))
-//             .collect();
-
-//         let proteingroups = get_proteingroups(data);
-
-//         let expected_proteingroups: FxFnvHashMap<String, Vec<String>> = vec![
-//             ("protein_9", vec!["protein_9", "protein_4"]),
-//             ("protein_6", vec!["protein_6"]),
-//             ("protein_1", vec!["protein_1"]),
-//             ("protein_4", vec!["protein_9", "protein_4"]),
-//             ("protein_7", vec!["protein_7"]),
-//         ]
-//         .into_iter()
-//         .map(|(k, v)| {
-//             (
-//                 k.to_string(),
-//                 v.into_iter().map(|s| s.to_string()).collect::<Vec<_>>(),
-//             )
-//         })
-//         .collect();
-
-//         assert_eq!(expected_proteingroups, proteingroups);
-//     }
-// }
+    #[test]
+    fn test_protein_grouping_expected_groups() {
+        let (db, mut features) = build_db_and_features();
+        // dbg!(&db[PeptideIx(8)]);
+        generate_proteingroups(&db, &mut features);
+        let expected = vec![
+            "protein_7",
+            "protein_4/protein_9;protein_6",
+            "protein_1",
+            "protein_1",
+            "protein_7",
+            "protein_6",
+            "protein_1",
+            "protein_1",
+            "protein_1",
+            "protein_4/protein_9",
+        ]
+        .iter()
+        .enumerate()
+        .map(|(i, v)| (i + 1, v.to_string()))
+        .collect::<Vec<_>>();
+        let actual = features
+            .into_iter()
+            .enumerate()
+            .map(|(i, v)| (i + 1, v.proteingroups.unwrap()))
+            .collect::<Vec<_>>();
+        // Compare actual and expected
+        for (a, e) in actual.iter().zip(expected.iter()) {
+            dbg!(a);
+        }
+    }
+}

@@ -66,7 +66,7 @@ impl AddAssign<InitialHits> for InitialHits {
     }
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Clone, Debug, Default)]
 /// Features of a candidate peptide spectrum match
 pub struct Feature {
     #[serde(skip_serializing)]
