@@ -4,8 +4,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [v0.15.0-alpha] (unreleased)
+## [v0.15.0-alpha]
 ### Added
+- Initial support for LFQ on data with ion mobility.
+- Speedup on the generation of databases when large number of peptides are redundant.
 - Initial support for searching diaPASEF data
 - `override_precursor_charge` setting that forces multiple charge states to be searched
 ### Breaking Changes

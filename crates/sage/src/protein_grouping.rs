@@ -58,7 +58,7 @@ struct ProteinIx(u32);
 impl ProteinIx {
     fn to_string(
         &self,
-        protein_map: &Vec<(Arc<String>, bool)>,
+        protein_map: &Vec<(Arc<str>, bool)>,
         decoy_tag: &str,
         generate_decoys: bool,
     ) -> String {
@@ -77,7 +77,7 @@ struct ProteinGroup(Vec<ProteinIx>);
 impl ProteinGroup {
     fn to_string(
         &self,
-        protein_map: &Vec<(Arc<String>, bool)>,
+        protein_map: &Vec<(Arc<str>, bool)>,
         decoy_tag: &str,
         generate_decoys: bool,
     ) -> String {
@@ -212,7 +212,7 @@ impl BipartiteGraph {
 struct ProteinGrouping {
     protein_groups: Vec<ProteinGroup>,
     connections: Vec<(u32, u32)>,
-    prot_name_map: FnvHashMap<(Arc<String>, bool), ProteinIx>,
+    prot_name_map: FnvHashMap<(Arc<str>, bool), ProteinIx>,
     protein_cover: Vec<bool>,
     peptide_count: usize,
 }
@@ -261,7 +261,7 @@ impl ProteinGrouping {
             .collect()
     }
 
-    fn get_or_insert_prot(&mut self, prot: (Arc<String>, bool)) -> ProteinIx {
+    fn get_or_insert_prot(&mut self, prot: (Arc<str>, bool)) -> ProteinIx {
         match self.prot_name_map.get(&prot) {
             Some(&prot_id) => prot_id,
             None => {
@@ -313,8 +313,8 @@ impl ProteinGrouping {
 
 struct ProteinGroupMap {
     protein_groups: Vec<ProteinGroup>,
-    proteins: Vec<(Arc<String>, bool)>,
-    protein_group_map: FnvHashMap<(Arc<String>, bool), Vec<u32>>,
+    proteins: Vec<(Arc<str>, bool)>,
+    protein_group_map: FnvHashMap<(Arc<str>, bool), Vec<u32>>,
 }
 
 impl ProteinGroupMap {
@@ -449,7 +449,7 @@ fn get_peps(features: &[Feature], predicate: fn(&&Feature) -> bool) -> FnvHashSe
 }
 
 pub fn annotate_proteins<'a>(
-    proteins: &'a [Arc<String>],
+    proteins: &'a [Arc<str>],
     decoy_tag: &'a str,
     generate_decoys: bool,
     decoy: bool,
@@ -468,11 +468,12 @@ pub fn annotate_proteins<'a>(
 
 #[cfg(test)]
 mod test {
+    use itertools::equal;
+
     use super::*;
     use std::sync::Arc;
 
     fn build_db_and_features() -> (IndexedDatabase, Vec<Feature>) {
-        let protein_map = |s: &str| Arc::new(s.to_string());
         let peptide_proteins = vec![
             vec!["protein_7"],
             vec!["protein_4", "protein_6", "protein_9"],
@@ -495,7 +496,7 @@ mod test {
             peptides: peptide_proteins
                 .into_iter()
                 .map(|prots| Peptide {
-                    proteins: prots.into_iter().map(protein_map).collect(),
+                    proteins: prots.into_iter().map(|s| Arc::from(s)).collect(),
                     decoy: false,
                     ..Default::default()
                 })
@@ -535,7 +536,7 @@ mod test {
             .collect::<Vec<_>>();
         // Compare actual and expected
         for (a, e) in actual.iter().zip(expected.iter()) {
-            dbg!(a);
+            assert_eq!(a, e);
         }
     }
 }
