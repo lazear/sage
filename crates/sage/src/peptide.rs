@@ -9,7 +9,7 @@ use crate::{
 use fnv::FnvHashSet;
 use itertools::Itertools;
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Default)]
 pub struct Peptide {
     pub decoy: bool,
     pub sequence: Arc<[u8]>,
