@@ -4,6 +4,7 @@ use std::{
     str::FromStr,
 };
 
+#[allow(unused_imports)]
 use serde::{de::Visitor, Deserialize, Serialize};
 
 use crate::mass::VALID_AA;
