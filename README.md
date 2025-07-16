@@ -1,3 +1,50 @@
+# Sage: Decoy-Free Edition (EXPERIMENTAL)
+
+**Note:** This is a fork of the original [Sage search engine by Michael Lazear](https://github.com/lazear/sage). This version includes a new feature for decoy-free analysis.
+
+## Decoy-Free Search Mode
+
+This fork implements a complete workflow for False Discovery Rate (FDR) estimation without requiring a traditional decoy database. This is achieved by building a statistical model (Gumbel distribution) from lower-scoring peptide-spectrum matches.
+
+The primary benefit of this mode is increased sensitivity and statistical power for ultra-low-input proteomics experiments, such as single-cell analysis, where every identified peptide is critical.
+
+
+## **Implementation Details:**
+- Decoy-free mode is automatically activated when the user sets `"generate_decoys": false` and the `"decoy_tag": ""` is empty in the parameters.
+- When activated, `"report_psms"` is enforced to be at least 10. This ensures a stable null distribution can be built from the high-rank PSMs required for the statistical model.
+
+
+## References
+**Modeling Lower-Order Statistics to Enable Decoy-Free FDR Estimation in Proteomics**
+Dominik Madej and Henry Lam
+Journal of Proteome Research 2023 22 (4), 1159-1171
+https://doi.org/10.1021/acs.jproteome.2c00604
+https://pubs.acs.org/doi/10.1021/acs.jproteome.2c00604
+https://github.com/dommad/pylord
+ 
+**New mixture models for decoy-free false discovery rate estimation in mass spectrometry proteomics**
+Yisu Peng, Shantanu Jain, Yong Fuga Li, Michal Greguš, Alexander R. Ivanov, Olga Vitek, Predrag Radivojac
+Bioinformatics, Volume 36, Issue Supplement_2, December 2020, Pages i745–i753
+https://doi.org/10.1093/bioinformatics/btaa807
+https://academic.oup.com/bioinformatics/article/36/Supplement_2/i745/6055912
+https://github.com/shawn-peng/DecoyFree-MSFDR
+
+**A Decoy-Free Approach to the Identification of Peptides**
+Giulia Gonnelli, Michiel Stock, Jan Verwaeren, Davy Maddelein, Bernard De Baets, Lennart Martens, and Sven Degroeve
+Journal of Proteome Research 2015 14 (4), 1792-1798
+https://doi.org/10.1021/pr501164r
+https://pubs.acs.org/doi/10.1021/pr501164r
+https://bio.tools/nokoi
+
+**Decoy-free protein-level false discovery rate estimation**
+Ben Teng, Ting Huang, Zengyou He
+Bioinformatics, Volume 30, Issue 5, March 2014, Pages 675–681
+https://doi.org/10.1093/bioinformatics/btt431
+https://academic.oup.com/bioinformatics/article/30/5/675/244620
+
+
+---
+
 <img src="figures/logo.png" width="300">
 
 # Sage: proteomics searching so fast it seems like magic
