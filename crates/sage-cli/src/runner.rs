@@ -236,9 +236,12 @@ impl Runner {
         scorer: &Scorer,
         spectra: &Vec<ProcessedSpectrum<sage_core::spectrum::Peak>>,
     ) -> Vec<PeptideIx> {
-        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
         let counter = AtomicUsize::new(0);
         let start = Instant::now();
+
+        // Create the required argument for the updated quick_score function
+        let peptide_seen = (0..scorer.db.peptides.len()).map(|_| AtomicBool::new(false)).collect::<Vec<_>>();
 
         let peptide_idxs: Vec<_> = spectra
             .par_iter()
@@ -254,7 +257,8 @@ impl Runner {
                 x
             })
             .flat_map(|spec| {
-                scorer.quick_score(spec, self.parameters.database.prefilter_low_memory)
+                // Pass the new argument to the function call
+                scorer.quick_score(spec, self.parameters.database.prefilter_low_memory, &peptide_seen)
             })
             .collect();
 
