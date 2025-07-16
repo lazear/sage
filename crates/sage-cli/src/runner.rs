@@ -231,43 +231,43 @@ impl Runner {
         all_peptides
     }
 
-    fn peptide_filter_processed_spectra(
-        &self,
-        scorer: &Scorer,
-        spectra: &Vec<ProcessedSpectrum<sage_core::spectrum::Peak>>,
-    ) -> Vec<PeptideIx> {
-        use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
-        let counter = AtomicUsize::new(0);
-        let start = Instant::now();
-
-        // Create the required argument for the updated quick_score function
-        let peptide_seen = (0..scorer.db.peptides.len()).map(|_| AtomicBool::new(false)).collect::<Vec<_>>();
-
-        let peptide_idxs: Vec<_> = spectra
-            .par_iter()
-            .filter(|spec| spec.peaks.len() >= self.parameters.min_peaks && spec.level == 2)
-            .map(|x| {
-                let prev = counter.fetch_add(1, Ordering::Relaxed);
-                if prev > 0 && prev % 10_000 == 0 {
-                    let duration = Instant::now().duration_since(start).as_millis() as usize;
-
-                    let rate = prev * 1000 / (duration + 1);
-                    log::trace!("- searched {} spectra ({} spectra/s)", prev, rate);
-                }
-                x
-            })
-            .flat_map(|spec| {
-                // Pass the new argument to the function call
-                scorer.quick_score(spec, self.parameters.database.prefilter_low_memory, &peptide_seen)
-            })
-            .collect();
-
-        let duration = Instant::now().duration_since(start).as_millis() as usize;
-        let prev = counter.load(Ordering::Relaxed);
-        let rate = prev * 1000 / (duration + 1);
-        log::info!("- search:  {:8} ms ({} spectra/s)", duration, rate);
-        peptide_idxs
-    }
+	fn peptide_filter_processed_spectra(
+		&self,
+		scorer: &Scorer,
+		spectra: &Vec<ProcessedSpectrum<sage_core::spectrum::Peak>>,
+	) -> Vec<PeptideIx> {
+		use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
+		let counter = AtomicUsize::new(0);
+		let start = Instant::now();
+	
+		// 1. Create the required argument for the updated quick_score function
+		let peptide_seen = (0..scorer.db.peptides.len()).map(|_| AtomicBool::new(false)).collect::<Vec<_>>();
+	
+		let peptide_idxs: Vec<_> = spectra
+			.par_iter()
+			.filter(|spec| spec.peaks.len() >= self.parameters.min_peaks && spec.level == 2)
+			.map(|x| {
+				let prev = counter.fetch_add(1, Ordering::Relaxed);
+				if prev > 0 && prev % 10_000 == 0 {
+					let duration = Instant::now().duration_since(start).as_millis() as usize;
+	
+					let rate = prev * 1000 / (duration + 1);
+					log::trace!("- searched {} spectra ({} spectra/s)", prev, rate);
+				}
+				x
+			})
+			.flat_map(|spec| {
+				// 2. Pass the new argument to the function call
+				scorer.quick_score(spec, self.parameters.database.prefilter_low_memory, &peptide_seen)
+			})
+			.collect();
+	
+		let duration = Instant::now().duration_since(start).as_millis() as usize;
+		let prev = counter.load(Ordering::Relaxed);
+		let rate = prev * 1000 / (duration + 1);
+		log::info!("- search:  {:8} ms ({} spectra/s)", duration, rate);
+		peptide_idxs
+	}
 
     // This is the unified final FDR function.
 	fn spectrum_fdr(&self, features: &mut [Feature]) -> usize {
