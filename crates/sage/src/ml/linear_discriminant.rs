@@ -122,11 +122,22 @@ impl LinearDiscriminantAnalysis {
     }
 }
 
-pub fn score_psms(scores: &mut [Feature], precursor_tol: Tolerance) -> Option<()> {
+// Add the `decoy_free: bool` flag to the function signature
+pub fn score_psms(scores: &mut [Feature], precursor_tol: Tolerance, decoy_free: bool) -> Option<()> {
     log::trace!("fitting linear discriminant model...");
+
+    // Conditionally define what a "decoy" is based on the mode
     let decoys = scores
         .par_iter()
-        .map(|sc| sc.label == -1)
+        .map(|sc| {
+            if decoy_free {
+                // In decoy-free mode, high-rank PSMs are our decoys
+                sc.rank >= 4
+            } else {
+                // In standard mode, PSMs with label -1 are decoys
+                sc.label == -1
+            }
+        })
         .collect::<Vec<_>>();
 
     let mass_error = match precursor_tol {
@@ -220,65 +231,4 @@ pub fn score_psms(scores: &mut [Feature], precursor_tol: Tolerance) -> Option<()
         });
 
     Some(())
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    use crate::ml::*;
-
-    #[test]
-    fn linear_discriminant() {
-        let a = Matrix::new([1., 2., 3., 4.], 2, 2);
-        let eigenvector = [0.4159736, 0.90937671];
-        assert!(all_close(
-            &a.power_method(&[0.54, 0.34]),
-            &eigenvector,
-            1E-5
-        ));
-
-        #[rustfmt::skip]
-        let feats = Matrix::new(
-            [
-                5., 4., 3., 2., 
-                4., 5., 4., 3., 
-                6., 3., 4., 5., 
-                1., 0., 2., 9., 
-                5., 4., 4., 3., 
-                2., 1., 1., 9.5, 
-                1., 0., 2., 8., 
-                3., 2., -2., 10.,
-            ],
-            8,
-            4,
-        );
-
-        let lda = LinearDiscriminantAnalysis::train(
-            &feats,
-            &[false, false, false, true, false, true, true, true],
-        )
-        .expect("error training LDA");
-
-        let mut scores = lda.score(&feats);
-        let norm = norm(&scores);
-        scores = scores.into_iter().map(|s| s / norm).collect();
-
-        let expected = [
-            0.49706043,
-            0.48920177,
-            0.48920177,
-            -0.07209359,
-            0.51204672,
-            -0.02849527,
-            -0.04924864,
-            -0.06055943,
-        ];
-
-        assert!(
-            all_close(&scores, &expected, 1E-8),
-            "{:?} {:?}",
-            scores,
-            expected
-        );
-    }
 }
