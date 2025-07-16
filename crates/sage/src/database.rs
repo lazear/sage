@@ -140,7 +140,7 @@ pub struct Parameters {
 
 impl Parameters {
     pub fn auto_calculate_prefilter_chunk_size(&mut self, fasta: &Fasta) {
-        const MAX_PEPS_PER_CHUNK: usize = 2usize.pow(23);
+        const MAX_PEPS_PER_CHUNK: usize = 10_000_000;
         self.prefilter_chunk_size = match self.prefilter_chunk_size {
             0 => {
                 let enzyme = self.enzyme.clone().into();
@@ -477,8 +477,18 @@ pub struct IndexedQuery<'d> {
 
 impl IndexedQuery<'_> {
     /// Search for a specified `fragment_mz` within the database
-    pub fn page_search(&self, mass: f32) -> impl Iterator<Item = &Theoretical> {
-        let (fragment_lo, fragment_hi) = self.fragment_tol.bounds(mass);
+    pub fn page_search(&self, fragment_mz: f32, charge: u8) -> impl Iterator<Item = &Theoretical> {
+        let mass = fragment_mz * charge as f32;
+
+        // Account for multiplication of observed decharged mass
+        // - relative tolerance needs to be proportionally decreased
+        let tol = match self.fragment_tol {
+            Tolerance::Ppm(lo, hi) => Tolerance::Ppm(lo / charge as f32, hi / charge as f32),
+            Tolerance::Pct(_, _) => unreachable!("Pct tolerance should never be used on mz"),
+            Tolerance::Da(_, _) => self.fragment_tol,
+        };
+
+        let (fragment_lo, fragment_hi) = tol.bounds(mass);
         let (precursor_lo, precursor_hi) = self.precursor_tol.bounds(self.precursor_mass);
 
         // Locate the left and right page indices that contain matching fragments

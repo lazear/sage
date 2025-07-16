@@ -231,31 +231,42 @@ impl Runner {
         all_peptides
     }
 
-    // This function is simplified to be sequential, resolving the build errors.
     fn peptide_filter_processed_spectra(
         &self,
         scorer: &Scorer,
-        spectra: &[ProcessedSpectrum<sage_core::spectrum::Peak>],
+        spectra: &Vec<ProcessedSpectrum<sage_core::spectrum::Peak>>,
     ) -> Vec<PeptideIx> {
-        let peptide_seen = (0..scorer.db.peptides.len())
-            .map(|_| std::sync::atomic::AtomicBool::new(false))
-            .collect::<Vec<_>>();
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let counter = AtomicUsize::new(0);
+        let start = Instant::now();
 
-        spectra
-            .iter()
+        let peptide_idxs: Vec<_> = spectra
+            .par_iter()
             .filter(|spec| spec.peaks.len() >= self.parameters.min_peaks && spec.level == 2)
-            .flat_map(|spec| {
-                scorer.quick_score(
-                    spec,
-                    self.parameters.database.prefilter_low_memory,
-                    &peptide_seen,
-                )
+            .map(|x| {
+                let prev = counter.fetch_add(1, Ordering::Relaxed);
+                if prev > 0 && prev % 10_000 == 0 {
+                    let duration = Instant::now().duration_since(start).as_millis() as usize;
+
+                    let rate = prev * 1000 / (duration + 1);
+                    log::trace!("- searched {} spectra ({} spectra/s)", prev, rate);
+                }
+                x
             })
-            .collect()
+            .flat_map(|spec| {
+                scorer.quick_score(spec, self.parameters.database.prefilter_low_memory)
+            })
+            .collect();
+
+        let duration = Instant::now().duration_since(start).as_millis() as usize;
+        let prev = counter.load(Ordering::Relaxed);
+        let rate = prev * 1000 / (duration + 1);
+        log::info!("- search:  {:8} ms ({} spectra/s)", duration, rate);
+        peptide_idxs
     }
 
     // This is the unified final FDR function.
-    fn spectrum_fdr(&self, features: &mut [Feature]) -> usize {
+	fn spectrum_fdr(&self, features: &mut [Feature]) -> usize {
 		if score_psms(features, self.parameters.precursor_tol, self.decoy_free_mode).is_none() {
 			log::warn!("linear model fitting failed, using heuristic score");
 			features.par_iter_mut().for_each(|feat| {
@@ -502,79 +513,76 @@ impl Runner {
 		let alignments;
 		let areas;
 
-        if self.decoy_free_mode {
-            // DECOY-FREE WORKFLOW
-            outputs.features = sage_core::decoy_free_fdr::calculate_q_values(&outputs.features);
-            let q_spectrum = outputs.features.iter().filter(|f| f.spectrum_q <= 0.01).count();
-            log::info!("discovered {} target peptide-spectrum matches at 1% FDR", q_spectrum);
+		if self.decoy_free_mode {
+			// DECOY-FREE WORKFLOW
+			outputs.features = sage_core::decoy_free_fdr::calculate_q_values(&outputs.features);
+			let q_spectrum = outputs.features.iter().filter(|f| f.spectrum_q <= 0.01).count();
+			log::info!("discovered {} target peptide-spectrum matches at 1% FDR", q_spectrum);
 
-            let q_peptide = sage_core::decoy_free_fdr::calculate_peptide_q(&mut outputs.features, &self.database);
-            let q_protein = sage_core::decoy_free_fdr::calculate_protein_q(&mut outputs.features, &self.database);
-            log::info!("discovered {} target peptides at 1% FDR", q_peptide);
-            log::info!("discovered {} target proteins at 1% FDR", q_protein);
+			let q_peptide = sage_core::decoy_free_fdr::calculate_peptide_q(&mut outputs.features, &self.database);
+			let q_protein = sage_core::decoy_free_fdr::calculate_protein_q(&mut outputs.features, &self.database);
+			log::info!("discovered {} target peptides at 1% FDR", q_peptide);
+			log::info!("discovered {} target proteins at 1% FDR", q_protein);
+			
+			alignments = if self.parameters.predict_rt {
+                // These functions now infer the mode and do not need the flag.
+				let local_alignments = sage_core::ml::retention_alignment::global_alignment(&mut outputs.features, self.parameters.mzml_paths.len(), self.decoy_free_mode);
+				let _ = sage_core::ml::retention_model::predict(&self.database, &mut outputs.features);
+				let _ = sage_core::ml::mobility_model::predict(&self.database, &mut outputs.features, self.decoy_free_mode);
+				Some(local_alignments)
+			} else {
+				None
+			};
 
-            alignments = if self.parameters.predict_rt {
-                let local_alignments = sage_core::ml::retention_alignment::global_alignment(&mut outputs.features, self.parameters.mzml_paths.len());
-                let _ = sage_core::ml::retention_model::predict(&self.database, &mut outputs.features);
-                let _ = sage_core::ml::mobility_model::predict(&self.database, &mut outputs.features);
-                Some(local_alignments)
-            } else {
-                None
-            };
+			areas = alignments.as_ref().and_then(|alignments_ref| {
+				if self.parameters.quant.lfq {
+                    // This function also infers the mode now.
+					let mut areas_map = sage_core::lfq::build_feature_map(self.parameters.quant.lfq_settings, self.parameters.precursor_charge, &outputs.features, self.decoy_free_mode)
+						.quantify(&self.database, &outputs.ms1, alignments_ref);
+					let q_precursor = sage_core::decoy_free_fdr::decoy_free_precursor(&mut areas_map);
+					log::info!("discovered {} target MS1 peaks at 5% FDR", q_precursor);
+					Some(areas_map)
+				} else {
+					None
+				}
+			});
 
-            areas = alignments.as_ref().and_then(|alignments_ref| {
-                if self.parameters.quant.lfq {
-                    let mut areas_map = sage_core::lfq::build_feature_map(
-                        self.parameters.quant.lfq_settings,
-                        self.parameters.precursor_charge,
-                        &outputs.features,
-                    )
-                    .quantify(&self.database, &outputs.ms1, alignments_ref);
-                    let q_precursor = sage_core::decoy_free_fdr::decoy_free_precursor(&mut areas_map);
-                    log::info!("discovered {} target MS1 peaks at 5% FDR", q_precursor);
-                    Some(areas_map)
-                } else {
-                    None
-                }
-            });
-        } else {
-            // TARGET-DECOY WORKFLOW
-            alignments = if self.parameters.predict_rt {
-                outputs.features.par_sort_unstable_by(|a, b| a.poisson.total_cmp(&b.poisson));
-                sage_core::ml::qvalue::spectrum_q_value(&mut outputs.features);
+		} else {
+			// TARGET-DECOY WORKFLOW
+			alignments = if self.parameters.predict_rt {
+				outputs.features.par_sort_unstable_by(|a, b| a.poisson.total_cmp(&b.poisson));
+				sage_core::ml::qvalue::spectrum_q_value(&mut outputs.features);
 
-                let local_alignments = sage_core::ml::retention_alignment::global_alignment(&mut outputs.features, self.parameters.mzml_paths.len());
-                let _ = sage_core::ml::retention_model::predict(&self.database, &mut outputs.features);
-                let _ = sage_core::ml::mobility_model::predict(&self.database, &mut outputs.features);
-                Some(local_alignments)
-            } else {
-                None
-            };
+                // These functions now infer the mode and do not need the flag.
+				let local_alignments = sage_core::ml::retention_alignment::global_alignment(&mut outputs.features, self.parameters.mzml_paths.len(), self.decoy_free_mode);
+				let _ = sage_core::ml::retention_model::predict(&self.database, &mut outputs.features);
+				let _ = sage_core::ml::mobility_model::predict(&self.database, &mut outputs.features, self.decoy_free_mode);
+				Some(local_alignments)
+			} else {
+				None
+			};
 
-            let q_spectrum = self.spectrum_fdr(&mut outputs.features);
-            log::info!("discovered {} target peptide-spectrum matches at 1% FDR", q_spectrum);
+			let q_spectrum = self.spectrum_fdr(&mut outputs.features);
+			log::info!("discovered {} target peptide-spectrum matches at 1% FDR", q_spectrum);
 
-            let q_peptide = sage_core::fdr::picked_peptide(&self.database, &mut outputs.features);
-            let q_protein = sage_core::fdr::picked_protein(&self.database, &mut outputs.features);
-            log::info!("discovered {} target peptides at 1% FDR", q_peptide);
-            log::info!("discovered {} target proteins at 1% FDR", q_protein);
+			let q_peptide = sage_core::fdr::picked_peptide(&self.database, &mut outputs.features);
+			let q_protein = sage_core::fdr::picked_protein(&self.database, &mut outputs.features);
+			log::info!("discovered {} target peptides at 1% FDR", q_peptide);
+			log::info!("discovered {} target proteins at 1% FDR", q_protein);
 
-            areas = alignments.as_ref().and_then(|alignments_ref| {
-                if self.parameters.quant.lfq {
-                    let mut areas_map = sage_core::lfq::build_feature_map(
-                        self.parameters.quant.lfq_settings,
-                        self.parameters.precursor_charge,
-                        &outputs.features,
-                    )
-                    .quantify(&self.database, &outputs.ms1, alignments_ref);
-                    let q_precursor = sage_core::fdr::picked_precursor(&mut areas_map);
-                    log::info!("discovered {} target MS1 peaks at 5% FDR", q_precursor);
-                    Some(areas_map)
-                } else {
-                    None
-                }
-            });
-        }
+			areas = alignments.as_ref().and_then(|alignments_ref| {
+				if self.parameters.quant.lfq {
+                    // This function also infers the mode now.
+					let mut areas_map = sage_core::lfq::build_feature_map(self.parameters.quant.lfq_settings, self.parameters.precursor_charge, &outputs.features, self.decoy_free_mode)
+						.quantify(&self.database, &outputs.ms1, alignments_ref);
+					let q_precursor = sage_core::fdr::picked_precursor(&mut areas_map);
+					log::info!("discovered {} target MS1 peaks at 5% FDR", q_precursor);
+					Some(areas_map)
+				} else {
+					None
+				}
+			});
+		}
 
 		// ADD THE FILENAMES BLOCK HERE
 		let filenames = self

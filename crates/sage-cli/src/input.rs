@@ -41,9 +41,6 @@ pub struct Search {
     pub write_pin: bool,
 
     #[serde(skip_serializing)]
-    pub write_report: bool,
-
-    #[serde(skip_serializing)]
     pub annotate_matches: bool,
 
     pub score_type: ScoreType,
@@ -74,7 +71,6 @@ pub struct Input {
 
     pub annotate_matches: Option<bool>,
     pub write_pin: Option<bool>,
-    pub write_report: Option<bool>,
     pub score_type: Option<ScoreType>,
 }
 
@@ -203,10 +199,6 @@ impl Input {
 
         if let Some(write_pin) = matches.get_one::<bool>("write-pin").copied() {
             input.write_pin = Some(write_pin);
-        }
-
-        if let Some(write_report) = matches.get_one::<bool>("write-report").copied() {
-            input.write_report = Some(write_report);
         }
 
         if let Some(annotate_matches) = matches.get_one::<bool>("annotate-matches").copied() {
@@ -341,7 +333,6 @@ impl Input {
             output_paths: Vec::new(),
             write_pin: self.write_pin.unwrap_or(false),
             bruker_config: self.bruker_config.unwrap_or_default(),
-            write_report: self.write_report.unwrap_or(false),
             score_type,
         })
     }
