@@ -256,10 +256,7 @@ impl Runner {
 				}
 				x
 			})
-			.flat_map(|spec| {
-				// 2. Pass the new argument to the function call
-				scorer.quick_score(spec, self.parameters.database.prefilter_low_memory, &peptide_seen)
-			})
+			.flat_map(|spec| scorer.quick_score(spec, self.parameters.database.prefilter_low_memory, &peptide_seen))
 			.collect();
 	
 		let duration = Instant::now().duration_since(start).as_millis() as usize;
