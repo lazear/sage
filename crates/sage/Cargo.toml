@@ -18,6 +18,11 @@ log = "0.4.0"
 rayon = "1.5"
 regex = "1.6"
 serde = { version="1.0", features = ["derive"] }
+argmin = "0.10.0"
+argmin-math = { version = "0.4.0", features = ["nalgebra_latest"] }
+nalgebra = "0.32"
+statrs = "0.18.0"
+adjustp = "0.1.6"
 
 [dev-dependencies]
 quickcheck = "1"
