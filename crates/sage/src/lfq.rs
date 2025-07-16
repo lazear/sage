@@ -93,19 +93,26 @@ pub fn build_feature_map(
     settings: LfqSettings,
     precursor_charge: (u8, u8),
     features: &[Feature],
+    decoy_free: bool,
 ) -> FeatureMap {
     let map: DashMap<PeptideIx, PrecursorRange, fnv::FnvBuildHasher> = DashMap::default();
     features
         .iter()
-        .filter(|feat| feat.peptide_q <= 0.01 && feat.label == 1)
+        .filter(|feat| {
+            // This is the conditional filter for building the LFQ feature map
+            if decoy_free {
+                // For decoy-free, we must include all top-ranked peptides to ensure
+                // that artificial decoys can be generated for the null model.
+                feat.rank == 1
+            } else {
+                // For standard target-decoy, we can use a much stricter filter,
+                // selecting only high-confidence target peptides for quantification.
+                feat.peptide_q <= 0.01 && feat.label == 1
+            }
+        })
         .for_each(|feat| {
             // `features` is sorted by confidence, so just take the first entry
             if !map.contains_key(&feat.peptide_idx) {
-                // let mass = if feat.isotope_error > 0.0 || feat.delta_mass >= settings.ppm_tolerance * 3.0 {
-                //    feat.expmass - feat.isotope_error
-                // } else {
-                //     feat.calcmass
-                // };
                 let (mobility_lo, mobility_hi) = Tolerance::Pct(
                     -settings.mobility_pct_tolerance,
                     settings.mobility_pct_tolerance,
