@@ -235,7 +235,7 @@ impl Runner {
     fn peptide_filter_processed_spectra(
         &self,
         scorer: &Scorer,
-        spectra: &[ProcessedSpectrum<sage_core::spectrum::Peak>>,
+        spectra: &[ProcessedSpectrum<sage_core::spectrum::Peak>],
     ) -> Vec<PeptideIx> {
         let peptide_seen = (0..scorer.db.peptides.len())
             .map(|_| std::sync::atomic::AtomicBool::new(false))
