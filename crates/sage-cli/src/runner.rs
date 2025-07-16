@@ -16,19 +16,16 @@ use sage_core::scoring::Fragments;
 use sage_core::scoring::{Feature, Scorer};
 use sage_core::spectrum::{MS1Spectra, ProcessedSpectrum, RawSpectrum, SpectrumProcessor};
 use sage_core::tmt::TmtQuant;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::time::Instant;
-// HTML report specific imports
-use maud::{html, PreEscaped};
-use report_builder::{
-    plots::{plot_boxplot, plot_pp, plot_scatter, plot_score_histogram},
-    Report, ReportSection,
-};
+use sage_core::ml::linear_discriminant::score_psms;
 
 pub struct Runner {
     pub database: IndexedDatabase,
     pub parameters: Search,
     start: Instant,
+    decoy_free_mode: bool,
 }
 
 #[derive(Default)]
@@ -86,91 +83,107 @@ impl FromIterator<RawSpectrum> for RawSpectrumAccumulator {
 
 impl Runner {
     pub fn new(parameters: Search, parallel: usize) -> anyhow::Result<Self> {
-        let mut parameters = parameters.clone();
-        let start = Instant::now();
-        let fasta = sage_cloudpath::util::read_fasta(
-            &parameters.database.fasta,
-            &parameters.database.decoy_tag,
-            parameters.database.generate_decoys,
-        )
-        .with_context(|| {
-            format!(
-                "Failed to build database from `{}`",
-                parameters.database.fasta
-            )
-        })?;
+		let mut parameters = parameters.clone();
+		let start = Instant::now();
 
-        let database = match parameters.database.prefilter {
-            false => parameters.database.clone().build(fasta),
-            true => {
-                parameters
-                    .database
-                    .auto_calculate_prefilter_chunk_size(&fasta);
-                if parameters.database.prefilter_chunk_size >= fasta.targets.len() {
-                    parameters.database.clone().build(fasta)
-                } else {
-                    info!(
-                        "using {} db chunks of size {}",
-                        (fasta.targets.len() + parameters.database.prefilter_chunk_size - 1)
-                            / parameters.database.prefilter_chunk_size,
-                        parameters.database.prefilter_chunk_size,
-                    );
-                    let mini_runner = Self {
-                        database: IndexedDatabase::default(),
-                        parameters: parameters.clone(),
-                        start,
-                    };
-                    let peptides = mini_runner.prefilter_peptides(parallel, fasta);
-                    parameters.database.clone().build_from_peptides(peptides)
-                }
-            }
-        };
+		let fasta = sage_cloudpath::util::read_fasta(
+			&parameters.database.fasta,
+			&parameters.database.decoy_tag,
+			false,
+		)
+		.with_context(|| {
+			format!(
+				"Failed to build database from `{}`",
+				parameters.database.fasta
+			)
+		})?;
 
-        info!(
-            "generated {} fragments, {} peptides in {:#?}",
-            database.fragments.len(),
-            database.peptides.len(),
-            (start.elapsed())
-        );
-        Ok(Self {
-            database,
-            parameters,
-            start,
-        })
-    }
+		let decoy_free_mode = if !parameters.database.generate_decoys && parameters.database.decoy_tag.is_empty() {
+			log::info!("Decoy-free mode activated. No decoys will be generated or used.");
+			if parameters.report_psms < 10 {
+				log::warn!(
+					"Parameter `report_psms` was {} but decoy-free mode requires at least 10. Forcing `report_psms` to 10.",
+					parameters.report_psms
+				);
+				parameters.report_psms = 10;
+			}
+			true
+		} else {
+			false
+		};
+
+		let database = match parameters.database.prefilter {
+			false => {
+				let fasta_for_build = sage_cloudpath::util::read_fasta(
+					&parameters.database.fasta,
+					&parameters.database.decoy_tag,
+					parameters.database.generate_decoys,
+				)?;
+				parameters.database.clone().build(fasta_for_build)
+			},
+			true => {
+				parameters
+					.database
+					.auto_calculate_prefilter_chunk_size(&fasta);
+				if parameters.database.prefilter_chunk_size >= fasta.targets.len() {
+					parameters.database.clone().build(fasta)
+				} else {
+					info!(
+						"using {} db chunks of size {}",
+						(fasta.targets.len() + parameters.database.prefilter_chunk_size - 1)
+							/ parameters.database.prefilter_chunk_size,
+						parameters.database.prefilter_chunk_size,
+					);
+					let mini_runner = Self {
+						database: IndexedDatabase::default(),
+						parameters: parameters.clone(),
+						start,
+						decoy_free_mode,
+					};
+					let peptides = mini_runner.prefilter_peptides(parallel, fasta);
+					parameters.database.clone().build_from_peptides(peptides)
+				}
+			}
+		};
+
+		info!(
+			"generated {} fragments, {} peptides in {:#?}",
+			database.fragments.len(),
+			database.peptides.len(),
+			(start.elapsed())
+		);
+		
+		Ok(Self {
+			database,
+			parameters,
+			start,
+			decoy_free_mode,
+		})
+	}
 
     pub fn prefilter_peptides(self, parallel: usize, fasta: Fasta) -> Vec<Peptide> {
-        let spectra: Option<Vec<ProcessedSpectrum<_>>> =
-            match parallel >= self.parameters.mzml_paths.len() {
-                true => Some(self.read_processed_spectra(&self.parameters.mzml_paths, 0, 0).1),
-                false => None,
-            };
-        
-        let mut db_params = self.parameters.database.clone();
-        // TODO: Don't generate decoys for fast searching
-        // * if `generate_decoys` is used, we should re-generate at the end
-        //  to ensure that picked-peptide conditions are used, otherwise, 
-        //  if the user supplied decoys in the fasta file, then we should retain them
-        //
-        // db_params.generate_decoys = false;
-
+        let spectra: Option<(
+            MS1Spectra,
+            Vec<ProcessedSpectrum<sage_core::spectrum::Peak>>,
+        )> = match parallel >= self.parameters.mzml_paths.len() {
+            true => Some(self.read_processed_spectra(&self.parameters.mzml_paths, 0, 0)),
+            false => None,
+        };
         let mut all_peptides: Vec<Peptide> = fasta
             .iter_chunks(self.parameters.database.prefilter_chunk_size)
             .enumerate()
             .flat_map(|(chunk_id, fasta_chunk)| {
                 let start = Instant::now();
                 info!("pre-filtering fasta chunk {}", chunk_id,);
-                let mut db = db_params.clone().build(fasta_chunk);
-
+                let db = &self.parameters.database.clone().build(fasta_chunk);
                 info!(
                     "generated {} fragments, {} peptides in {}ms",
                     db.fragments.len(),
                     db.peptides.len(),
                     (Instant::now() - start).as_millis()
                 );
-
                 let scorer = Scorer {
-                    db: &db,
+                    db,
                     precursor_tol: self.parameters.precursor_tol,
                     fragment_tol: self.parameters.fragment_tol,
                     min_matched_peaks: self.parameters.min_matched_peaks,
@@ -181,40 +194,31 @@ impl Runner {
                     override_precursor_charge: self.parameters.override_precursor_charge,
                     max_fragment_charge: self.parameters.max_fragment_charge,
                     chimera: self.parameters.chimera,
-                    report_psms: self.parameters.report_psms + 1, // Q: Why is 1 being added here? (JSPP: Feb 2024)
+                    report_psms: self.parameters.report_psms + 1,
                     wide_window: self.parameters.wide_window,
                     annotate_matches: self.parameters.annotate_matches,
                     score_type: self.parameters.score_type,
                 };
-
-                // Allocate an array of booleans indicating whether a peptide was identified in a 
-                // preliminary pass of the data
-                let keep = (0..db.peptides.len()).map(|_| std::sync::atomic::AtomicBool::new(false)).collect::<Vec<_>>();
-
-                match &spectra {
-                    Some(spectra) => self.peptide_filter_processed_spectra(&scorer, &spectra, &keep),
+                let peptide_idxs: HashSet<PeptideIx> = match &spectra {
+                    Some(spectra) => self.peptide_filter_processed_spectra(&scorer, &spectra.1),
                     None => self
                         .parameters
                         .mzml_paths
                         .chunks(parallel)
                         .enumerate()
-                        .for_each(|(chunk_idx, chunk)| {
+                        .flat_map(|(chunk_idx, chunk)| {
                             let spectra_chunk =
-                                self.read_processed_spectra(chunk, chunk_idx, parallel).1;
-                            self.peptide_filter_processed_spectra(&scorer, &spectra_chunk, &keep)
-                        }),
-                };
-
-                // Retain only peptides where `keep[ix] = true`
-                let peptides = db.peptides.drain(..).enumerate().filter_map(|(ix, peptide)| {
-                    let val = keep[ix].load(std::sync::atomic::Ordering::Relaxed);
-                    if val {
-                        Some(peptide)
-                    } else {
-                        None
-                    }
-                }).collect::<Vec<_>>();
-
+                                self.read_processed_spectra(chunk, chunk_idx, parallel);
+                            self.peptide_filter_processed_spectra(&scorer, &spectra_chunk.1)
+                        })
+                        .collect(),
+                }
+                .into_iter()
+                .collect();
+                let peptides: Vec<Peptide> = peptide_idxs
+                    .into_iter()
+                    .map(|idx| db[idx].clone())
+                    .collect();
                 info!(
                     "found {} pre-filtered peptides for fasta chunk {}",
                     peptides.len(),
@@ -223,7 +227,6 @@ impl Runner {
                 peptides
             })
             .collect();
-
         Parameters::reorder_peptides(&mut all_peptides);
         all_peptides
     }
@@ -232,16 +235,15 @@ impl Runner {
         &self,
         scorer: &Scorer,
         spectra: &Vec<ProcessedSpectrum<sage_core::spectrum::Peak>>,
-        keep: &[std::sync::atomic::AtomicBool],
-    ) {
+    ) -> Vec<PeptideIx> {
         use std::sync::atomic::{AtomicUsize, Ordering};
         let counter = AtomicUsize::new(0);
         let start = Instant::now();
 
-        spectra
+        let peptide_idxs: Vec<_> = spectra
             .par_iter()
             .filter(|spec| spec.peaks.len() >= self.parameters.min_peaks && spec.level == 2)
-            .for_each(|spectrum| {
+            .map(|x| {
                 let prev = counter.fetch_add(1, Ordering::Relaxed);
                 if prev > 0 && prev % 10_000 == 0 {
                     let duration = Instant::now().duration_since(start).as_millis() as usize;
@@ -249,30 +251,43 @@ impl Runner {
                     let rate = prev * 1000 / (duration + 1);
                     log::trace!("- searched {} spectra ({} spectra/s)", prev, rate);
                 }
-                scorer.quick_score(spectrum, self.parameters.database.prefilter_low_memory, keep)
-            });
+                x
+            })
+            .flat_map(|spec| {
+                scorer.quick_score(spec, self.parameters.database.prefilter_low_memory)
+            })
+            .collect();
 
         let duration = Instant::now().duration_since(start).as_millis() as usize;
         let prev = counter.load(Ordering::Relaxed);
         let rate = prev * 1000 / (duration + 1);
-        log::info!("- prefilter search:  {:8} ms ({} spectra/s)", duration, rate);
+        log::info!("- search:  {:8} ms ({} spectra/s)", duration, rate);
+        peptide_idxs
     }
 
-    fn spectrum_fdr(&self, features: &mut [Feature]) -> usize {
-        if sage_core::ml::linear_discriminant::score_psms(features, self.parameters.precursor_tol)
-            .is_none()
-        {
-            log::warn!("linear model fitting failed, falling back to heuristic discriminant score");
-            features.par_iter_mut().for_each(|feat| {
-                feat.discriminant_score = (-feat.poisson as f32).ln_1p() + feat.longest_y_pct / 3.0
-            });
-        }
-        features.par_sort_unstable_by(|a, b| b.discriminant_score.total_cmp(&a.discriminant_score));
-        sage_core::ml::qvalue::spectrum_q_value(features)
-    }
+    // This is the unified final FDR function.
+	fn spectrum_fdr(&self, features: &mut [Feature]) -> usize {
+		if score_psms(features, self.parameters.precursor_tol, self.decoy_free_mode).is_none() {
+			log::warn!("linear model fitting failed, using heuristic score");
+			features.par_iter_mut().for_each(|feat| {
+				feat.discriminant_score = (-feat.poisson as f32).ln_1p() + feat.longest_y_pct / 3.0
+			});
+			features.par_sort_unstable_by(|a, b| b.discriminant_score.total_cmp(&a.discriminant_score));
+			return sage_core::ml::qvalue::spectrum_q_value(features);
+		}
+		
+		features.sort_unstable_by(|a, b| a.discriminant_score.total_cmp(&b.discriminant_score));
+		
+		let mut min_pep: f32 = 1.0;
+		for feat in features.iter_mut().rev() {
+			let pep = 10.0f32.powf(feat.posterior_error);
+			min_pep = min_pep.min(pep);
+			feat.spectrum_q = min_pep;
+		}
+		
+		features.iter().filter(|f| f.rank == 1 && f.spectrum_q <= 0.01).count()
+	}
 
-    // Create a path for `file_name` in the specified output directory, if it exists,
-    // otherwise, write to current directory
     fn make_path<S: AsRef<str>>(&self, file_name: S) -> CloudPath {
         let mut path = self.parameters.output_directory.clone();
         path.push(file_name);
@@ -363,7 +378,6 @@ impl Runner {
         MS1Spectra,
         Vec<ProcessedSpectrum<sage_core::spectrum::Peak>>,
     ) {
-        // Read all of the spectra at once - this can help prevent memory over-consumption issues
         info!(
             "processing files {} .. {} ",
             batch_size * chunk_idx,
@@ -392,9 +406,6 @@ impl Runner {
             min_deisotope_mz.unwrap_or(0.0),
         );
 
-        // If the file format supports parallel reading, then we can read
-        // then it is faster to read each file in series. (since each spectra
-        // will be processed internally in parallel).
         let file_serial_read = chunk
             .iter()
             .all(|path| FileFormat::from(path.as_ref()).within_file_parallel());
@@ -443,9 +454,6 @@ impl Runner {
             .map(|s| sp.process(s))
             .collect::<Vec<_>>();
 
-        // If all the MS1 spectra contain IMS, then we can process them
-        // we use the IMS! otherwise we dont.
-        // Note: Empty iterators return true.
         let all_contain_ims = spectra.ms1.iter().all(|x| x.mobility.is_some());
         let ms1_empty = spectra.ms1.is_empty();
         let ms1_spectra = if ms1_empty {
@@ -480,90 +488,123 @@ impl Runner {
             .collect::<SageResults>()
     }
 
-    pub fn run(mut self, parallel: usize, parquet: bool) -> anyhow::Result<telemetry::Telemetry> {
-        let scorer = Scorer {
-            db: &self.database,
-            precursor_tol: self.parameters.precursor_tol,
-            fragment_tol: self.parameters.fragment_tol,
-            min_matched_peaks: self.parameters.min_matched_peaks,
-            min_isotope_err: self.parameters.isotope_errors.0,
-            max_isotope_err: self.parameters.isotope_errors.1,
-            min_precursor_charge: self.parameters.precursor_charge.0,
-            max_precursor_charge: self.parameters.precursor_charge.1,
-            override_precursor_charge: self.parameters.override_precursor_charge,
-            max_fragment_charge: self.parameters.max_fragment_charge,
-            chimera: self.parameters.chimera,
-            report_psms: self.parameters.report_psms,
-            wide_window: self.parameters.wide_window,
-            annotate_matches: self.parameters.annotate_matches,
-            score_type: self.parameters.score_type,
-        };
+	pub fn run(mut self, parallel: usize, parquet: bool) -> anyhow::Result<telemetry::Telemetry> {
+		let scorer = Scorer {
+			db: &self.database,
+			precursor_tol: self.parameters.precursor_tol,
+			fragment_tol: self.parameters.fragment_tol,
+			min_matched_peaks: self.parameters.min_matched_peaks,
+			min_isotope_err: self.parameters.isotope_errors.0,
+			max_isotope_err: self.parameters.isotope_errors.1,
+			min_precursor_charge: self.parameters.precursor_charge.0,
+			max_precursor_charge: self.parameters.precursor_charge.1,
+			override_precursor_charge: self.parameters.override_precursor_charge,
+			max_fragment_charge: self.parameters.max_fragment_charge,
+			chimera: self.parameters.chimera,
+			report_psms: self.parameters.report_psms,
+			wide_window: self.parameters.wide_window,
+			annotate_matches: self.parameters.annotate_matches,
+			score_type: self.parameters.score_type,
+		};
 
-        //Collect all results into a single container
-        let mut outputs = self.batch_files(&scorer, parallel);
+		let mut outputs = self.batch_files(&scorer, parallel);
+		
+		// We need to define these outside the if/else so they can be used by the file writer
+		let alignments;
+		let areas;
 
-        let alignments = if self.parameters.predict_rt {
-            // Poisson probability is usually the best single feature for refining FDR.
-            // Take our set of 1% FDR filtered PSMs, and use them to train a linear
-            // regression model for predicting retention time
-            outputs
-                .features
-                .par_sort_unstable_by(|a, b| a.poisson.total_cmp(&b.poisson));
-            sage_core::ml::qvalue::spectrum_q_value(&mut outputs.features);
+		if self.decoy_free_mode {
+			// DECOY-FREE WORKFLOW
+			outputs.features = sage_core::decoy_free_fdr::calculate_q_values(&outputs.features);
+			let q_spectrum = outputs.features.iter().filter(|f| f.spectrum_q <= 0.01).count();
+			log::info!("discovered {} target peptide-spectrum matches at 1% FDR", q_spectrum);
 
-            let alignments = sage_core::ml::retention_alignment::global_alignment(
-                &mut outputs.features,
-                self.parameters.mzml_paths.len(),
-            );
-            let _ = sage_core::ml::retention_model::predict(&self.database, &mut outputs.features);
-            let _ = sage_core::ml::mobility_model::predict(&self.database, &mut outputs.features);
-            Some(alignments)
-        } else {
-            None
-        };
+			let q_peptide = sage_core::decoy_free_fdr::calculate_peptide_q(&mut outputs.features, &self.database);
+			let q_protein = sage_core::decoy_free_fdr::calculate_protein_q(&mut outputs.features, &self.database);
+			log::info!("discovered {} target peptides at 1% FDR", q_peptide);
+			log::info!("discovered {} target proteins at 1% FDR", q_protein);
+			
+			alignments = if self.parameters.predict_rt {
+                // These functions now infer the mode and do not need the flag.
+				let local_alignments = sage_core::ml::retention_alignment::global_alignment(&mut outputs.features, self.parameters.mzml_paths.len(), self.decoy_free_mode);
+				let _ = sage_core::ml::retention_model::predict(&self.database, &mut outputs.features);
+				let _ = sage_core::ml::mobility_model::predict(&self.database, &mut outputs.features, self.decoy_free_mode);
+				Some(local_alignments)
+			} else {
+				None
+			};
 
-        let q_spectrum = self.spectrum_fdr(&mut outputs.features);
-        let q_peptide = sage_core::fdr::picked_peptide(&self.database, &mut outputs.features);
-        let q_protein = sage_core::fdr::picked_protein(&self.database, &mut outputs.features);
+			areas = alignments.as_ref().and_then(|alignments_ref| {
+				if self.parameters.quant.lfq {
+                    // This function also infers the mode now.
+					let mut areas_map = sage_core::lfq::build_feature_map(self.parameters.quant.lfq_settings, self.parameters.precursor_charge, &outputs.features, self.decoy_free_mode)
+						.quantify(&self.database, &outputs.ms1, alignments_ref);
+					let q_precursor = sage_core::decoy_free_fdr::decoy_free_precursor(&mut areas_map);
+					log::info!("discovered {} target MS1 peaks at 5% FDR", q_precursor);
+					Some(areas_map)
+				} else {
+					None
+				}
+			});
 
-        let filenames = self
-            .parameters
-            .mzml_paths
-            .iter()
-            .map(|s| {
-                s.parse::<CloudPath>()
-                    .ok()
-                    .and_then(|c| c.filename().map(|s| s.to_string()))
-                    .unwrap_or_else(|| s.clone())
-            })
-            .collect::<Vec<_>>();
+		} else {
+			// TARGET-DECOY WORKFLOW
+			alignments = if self.parameters.predict_rt {
+				outputs.features.par_sort_unstable_by(|a, b| a.poisson.total_cmp(&b.poisson));
+				sage_core::ml::qvalue::spectrum_q_value(&mut outputs.features);
 
-        let areas = alignments.and_then(|alignments| {
-            if self.parameters.quant.lfq {
-                log::trace!("performing LFQ");
-                let mut areas = sage_core::lfq::build_feature_map(
-                    self.parameters.quant.lfq_settings,
-                    self.parameters.precursor_charge,
-                    &outputs.features,
-                )
-                .quantify(&self.database, &outputs.ms1, &alignments);
+                // These functions now infer the mode and do not need the flag.
+				let local_alignments = sage_core::ml::retention_alignment::global_alignment(&mut outputs.features, self.parameters.mzml_paths.len(), self.decoy_free_mode);
+				let _ = sage_core::ml::retention_model::predict(&self.database, &mut outputs.features);
+				let _ = sage_core::ml::mobility_model::predict(&self.database, &mut outputs.features, self.decoy_free_mode);
+				Some(local_alignments)
+			} else {
+				None
+			};
 
-                let q_precursor = sage_core::fdr::picked_precursor(&mut areas);
+			let q_spectrum = self.spectrum_fdr(&mut outputs.features);
+			log::info!("discovered {} target peptide-spectrum matches at 1% FDR", q_spectrum);
 
-                log::info!("discovered {} target MS1 peaks at 5% FDR", q_precursor);
-                Some(areas)
-            } else {
-                None
-            }
-        });
+			let q_peptide = sage_core::fdr::picked_peptide(&self.database, &mut outputs.features);
+			let q_protein = sage_core::fdr::picked_protein(&self.database, &mut outputs.features);
+			log::info!("discovered {} target peptides at 1% FDR", q_peptide);
+			log::info!("discovered {} target proteins at 1% FDR", q_protein);
 
-        log::info!(
-            "discovered {} target peptide-spectrum matches at 1% FDR",
-            q_spectrum
-        );
-        log::info!("discovered {} target peptides at 1% FDR", q_peptide);
-        log::info!("discovered {} target proteins at 1% FDR", q_protein);
-        log::trace!("writing outputs");
+			areas = alignments.as_ref().and_then(|alignments_ref| {
+				if self.parameters.quant.lfq {
+                    // This function also infers the mode now.
+					let mut areas_map = sage_core::lfq::build_feature_map(self.parameters.quant.lfq_settings, self.parameters.precursor_charge, &outputs.features, self.decoy_free_mode)
+						.quantify(&self.database, &outputs.ms1, alignments_ref);
+					let q_precursor = sage_core::fdr::picked_precursor(&mut areas_map);
+					log::info!("discovered {} target MS1 peaks at 5% FDR", q_precursor);
+					Some(areas_map)
+				} else {
+					None
+				}
+			});
+		}
+
+		// ADD THE FILENAMES BLOCK HERE
+		let filenames = self
+			.parameters
+			.mzml_paths
+			.iter()
+			.map(|s| {
+				s.parse::<CloudPath>()
+					.ok()
+					.and_then(|c| c.filename().map(|s| s.to_string()))
+					.unwrap_or_else(|| s.clone())
+			})
+			.collect::<Vec<_>>();
+		
+		// ADD THE LOGGING BLOCK HERE
+		log::trace!("Runner view of q-values (first 5):");
+		for feat in outputs.features.iter().take(5) {
+			log::trace!("  - PSM {}: spectrum_q = {}", feat.psm_id, feat.spectrum_q);
+		}
+		// END LOGGING BLOCK
+
+		log::trace!("writing outputs");
 
         // Write either a single parquet file, or multiple tsv files
         if parquet {
@@ -612,7 +653,7 @@ impl Runner {
                     .output_paths
                     .push(self.write_tmt(&outputs.quant, &filenames)?);
             }
-            if let Some(areas) = areas.clone() {
+            if let Some(areas) = areas {
                 self.parameters
                     .output_paths
                     .push(self.write_lfq(areas, &filenames)?);
@@ -624,15 +665,6 @@ impl Runner {
             self.parameters
                 .output_paths
                 .push(self.write_pin(&outputs.features, &filenames)?);
-        }
-
-        // Write an html report if requested
-        if self.parameters.write_report {
-            self.parameters.output_paths.push(self.write_report(
-                &outputs.features,
-                areas,
-                &filenames,
-            )?);
         }
 
         let path = self.make_path("results.json");
@@ -657,88 +689,94 @@ impl Runner {
         Ok(telemetry)
     }
     pub fn serialize_feature(&self, feature: &Feature, filenames: &[String]) -> csv::ByteRecord {
-        let mut record = csv::ByteRecord::new();
+		let mut record = csv::ByteRecord::new();
 
-        record.push_field(itoa::Buffer::new().format(feature.psm_id).as_bytes());
+		record.push_field(itoa::Buffer::new().format(feature.psm_id).as_bytes());
 
-        let peptide = &self.database[feature.peptide_idx];
-        record.push_field(peptide.to_string().as_bytes());
-        record.push_field(
-            peptide
-                .proteins(&self.database.decoy_tag, self.database.generate_decoys)
-                .as_bytes(),
-        );
-        record.push_field(
-            itoa::Buffer::new()
-                .format(peptide.proteins.len())
-                .as_bytes(),
-        );
-        record.push_field(filenames[feature.file_id].as_bytes());
-        record.push_field(feature.spec_id.as_bytes());
-        record.push_field(itoa::Buffer::new().format(feature.rank).as_bytes());
-        record.push_field(itoa::Buffer::new().format(feature.label).as_bytes());
-        record.push_field(ryu::Buffer::new().format(feature.expmass).as_bytes());
-        record.push_field(ryu::Buffer::new().format(feature.calcmass).as_bytes());
-        record.push_field(itoa::Buffer::new().format(feature.charge).as_bytes());
-        record.push_field(itoa::Buffer::new().format(feature.peptide_len).as_bytes());
-        record.push_field(
-            itoa::Buffer::new()
-                .format(feature.missed_cleavages)
-                .as_bytes(),
-        );
-        record.push_field(
-            itoa::Buffer::new()
-                .format(peptide.semi_enzymatic as u8)
-                .as_bytes(),
-        );
-        record.push_field(ryu::Buffer::new().format(feature.isotope_error).as_bytes());
-        record.push_field(ryu::Buffer::new().format(feature.delta_mass).as_bytes());
-        record.push_field(ryu::Buffer::new().format(feature.average_ppm).as_bytes());
-        record.push_field(ryu::Buffer::new().format(feature.hyperscore).as_bytes());
-        record.push_field(ryu::Buffer::new().format(feature.delta_next).as_bytes());
-        record.push_field(ryu::Buffer::new().format(feature.delta_best).as_bytes());
-        record.push_field(ryu::Buffer::new().format(feature.rt).as_bytes());
-        record.push_field(ryu::Buffer::new().format(feature.aligned_rt).as_bytes());
-        record.push_field(ryu::Buffer::new().format(feature.predicted_rt).as_bytes());
-        record.push_field(ryu::Buffer::new().format(feature.delta_rt_model).as_bytes());
-        record.push_field(ryu::Buffer::new().format(feature.ims).as_bytes());
-        record.push_field(ryu::Buffer::new().format(feature.predicted_ims).as_bytes());
-        record.push_field(
-            ryu::Buffer::new()
-                .format(feature.delta_ims_model)
-                .as_bytes(),
-        );
-        record.push_field(itoa::Buffer::new().format(feature.matched_peaks).as_bytes());
-        record.push_field(itoa::Buffer::new().format(feature.longest_b).as_bytes());
-        record.push_field(itoa::Buffer::new().format(feature.longest_y).as_bytes());
-        record.push_field(ryu::Buffer::new().format(feature.longest_y_pct).as_bytes());
-        record.push_field(
-            ryu::Buffer::new()
-                .format(feature.matched_intensity_pct)
-                .as_bytes(),
-        );
-        record.push_field(
-            itoa::Buffer::new()
-                .format(feature.scored_candidates)
-                .as_bytes(),
-        );
-        record.push_field(ryu::Buffer::new().format(feature.poisson).as_bytes());
-        record.push_field(
-            ryu::Buffer::new()
-                .format(feature.discriminant_score)
-                .as_bytes(),
-        );
-        record.push_field(
-            ryu::Buffer::new()
-                .format(feature.posterior_error)
-                .as_bytes(),
-        );
-        record.push_field(ryu::Buffer::new().format(feature.spectrum_q).as_bytes());
-        record.push_field(ryu::Buffer::new().format(feature.peptide_q).as_bytes());
-        record.push_field(ryu::Buffer::new().format(feature.protein_q).as_bytes());
-        record.push_field(ryu::Buffer::new().format(feature.ms2_intensity).as_bytes());
-        record
-    }
+		let peptide = &self.database[feature.peptide_idx];
+		record.push_field(peptide.to_string().as_bytes());
+		record.push_field(
+			peptide
+				.proteins(&self.database.decoy_tag, self.database.generate_decoys)
+				.as_bytes(),
+		);
+		record.push_field(
+			itoa::Buffer::new()
+				.format(peptide.proteins.len())
+				.as_bytes(),
+		);
+		record.push_field(filenames[feature.file_id].as_bytes());
+		record.push_field(feature.spec_id.as_bytes());
+		record.push_field(itoa::Buffer::new().format(feature.rank).as_bytes());
+		record.push_field(itoa::Buffer::new().format(feature.label).as_bytes());
+		record.push_field(ryu::Buffer::new().format(feature.expmass).as_bytes());
+		record.push_field(ryu::Buffer::new().format(feature.calcmass).as_bytes());
+		record.push_field(itoa::Buffer::new().format(feature.charge).as_bytes());
+		record.push_field(itoa::Buffer::new().format(feature.peptide_len).as_bytes());
+		record.push_field(
+			itoa::Buffer::new()
+				.format(feature.missed_cleavages)
+				.as_bytes(),
+		);
+		record.push_field(
+			itoa::Buffer::new()
+				.format(peptide.semi_enzymatic as u8)
+				.as_bytes(),
+		);
+		record.push_field(ryu::Buffer::new().format(feature.isotope_error).as_bytes());
+		record.push_field(ryu::Buffer::new().format(feature.delta_mass).as_bytes());
+		record.push_field(ryu::Buffer::new().format(feature.average_ppm).as_bytes());
+		record.push_field(ryu::Buffer::new().format(feature.hyperscore).as_bytes());
+		record.push_field(ryu::Buffer::new().format(feature.delta_next).as_bytes());
+		record.push_field(ryu::Buffer::new().format(feature.delta_best).as_bytes());
+		record.push_field(ryu::Buffer::new().format(feature.rt).as_bytes());
+		record.push_field(ryu::Buffer::new().format(feature.aligned_rt).as_bytes());
+		record.push_field(ryu::Buffer::new().format(feature.predicted_rt).as_bytes());
+		record.push_field(ryu::Buffer::new().format(feature.delta_rt_model).as_bytes());
+		record.push_field(ryu::Buffer::new().format(feature.ims).as_bytes());
+		record.push_field(ryu::Buffer::new().format(feature.predicted_ims).as_bytes());
+		record.push_field(
+			ryu::Buffer::new()
+				.format(feature.delta_ims_model)
+				.as_bytes(),
+		);
+		record.push_field(itoa::Buffer::new().format(feature.matched_peaks).as_bytes());
+		record.push_field(itoa::Buffer::new().format(feature.longest_b).as_bytes());
+		record.push_field(itoa::Buffer::new().format(feature.longest_y).as_bytes());
+		record.push_field(ryu::Buffer::new().format(feature.longest_y_pct).as_bytes());
+		record.push_field(
+			ryu::Buffer::new()
+				.format(feature.matched_intensity_pct)
+				.as_bytes(),
+		);
+		record.push_field(
+			itoa::Buffer::new()
+				.format(feature.scored_candidates)
+				.as_bytes(),
+		);
+
+		record.push_field(ryu::Buffer::new().format(feature.poisson).as_bytes());
+
+		let raw_p = 10f64.powf(feature.poisson);
+		record.push_field(ryu::Buffer::new().format(raw_p).as_bytes());
+
+		record.push_field(
+			ryu::Buffer::new()
+				.format(feature.discriminant_score)
+				.as_bytes(),
+		);
+		record.push_field(
+			ryu::Buffer::new()
+				.format(feature.posterior_error)
+				.as_bytes(),
+		);
+		record.push_field(ryu::Buffer::new().format(feature.spectrum_q).as_bytes());
+		record.push_field(ryu::Buffer::new().format(feature.peptide_q).as_bytes());
+		record.push_field(ryu::Buffer::new().format(feature.protein_q).as_bytes());
+		record.push_field(ryu::Buffer::new().format(feature.ms2_intensity).as_bytes());
+
+		record
+	}
 
     pub fn serialize_fragments(
         &self,
@@ -834,6 +872,7 @@ impl Runner {
             "matched_intensity_pct",
             "scored_candidates",
             "poisson",
+			"spectrum_p_value",
             "sage_discriminant_score",
             "posterior_error",
             "spectrum_q",
@@ -1194,568 +1233,6 @@ impl Runner {
 
         let bytes = wtr.into_inner()?;
         path.write_bytes_sync(bytes)?;
-        Ok(path.to_string())
-    }
-
-    fn write_report(
-        &self,
-        features: &[Feature],
-        areas: Option<HashMap<(PrecursorId, bool), (Peak, Vec<f64>), fnv::FnvBuildHasher>>,
-        filenames: &[String],
-    ) -> anyhow::Result<String> {
-        let path = self.make_path("results.sage.report.html");
-
-        let global_q_value_filter = 0.01;
-        let predict_section_q_value_filter = 0.01;
-
-        // Create a new report
-        let mut report = Report::new(
-            "Sage",
-            &self.parameters.version,
-            Some("https://github.com/lazear/sage/blob/master/figures/logo.png?raw=true"),
-            "Sage Report",
-        );
-
-        /* Section 1: Introduction */
-        {
-            let mut intro_section = ReportSection::new("Results Overview");
-            intro_section.add_content(html! {
-                "The following files were processed:"
-                ul {
-                    @for filename in filenames {
-                        li { (filename) }
-                    }
-                }
-            });
-
-            // Number of targets identified at global q-value filter at spectrum level per file
-            let num_psm_targets_per_file: Vec<usize> = filenames
-                .iter()
-                .map(|filename| {
-                    features
-                        .iter()
-                        .filter(|f| {
-                            f.label == 1
-                                && f.spectrum_q <= global_q_value_filter
-                                && filenames[f.file_id] == filename.to_string()
-                        })
-                        .count()
-                })
-                .collect();
-
-            // Number of peptides identified at global q-value filter at peptide level per file
-            let mut num_peptide_targets_per_file: Vec<usize> = Vec::new();
-            for filename in filenames {
-                let mut peptides = HashSet::new();
-                for feature in features.iter().filter(|f| {
-                    f.label == 1
-                        && f.peptide_q <= global_q_value_filter
-                        && filenames[f.file_id] == filename.to_string()
-                }) {
-                    peptides.insert(self.database[feature.peptide_idx].to_string());
-                }
-                num_peptide_targets_per_file.push(peptides.len());
-            }
-
-            // Number of proteins identified at global q-value filter at protein level per file
-            let mut num_protein_targets_per_file: Vec<usize> = Vec::new();
-            for filename in filenames {
-                let mut proteins = HashSet::new();
-                for feature in features.iter().filter(|f| {
-                    f.label == 1
-                        && f.protein_q <= global_q_value_filter
-                        && filenames[f.file_id] == filename.to_string()
-                }) {
-                    proteins.insert(
-                        self.database[feature.peptide_idx]
-                            .proteins(&self.database.decoy_tag, self.database.generate_decoys),
-                    );
-                }
-                num_protein_targets_per_file.push(proteins.len());
-            }
-
-            // Total MS2 intensity at global q-value filter at each level per file
-            let total_ms2_intensity_per_file: Vec<f32> = filenames
-                .iter()
-                .map(|filename| {
-                    features
-                        .iter()
-                        .filter(|f| {
-                            f.label == 1
-                                && f.spectrum_q <= global_q_value_filter
-                                && f.peptide_q <= global_q_value_filter
-                                && f.protein_q <= global_q_value_filter
-                                && filenames[f.file_id] == filename.to_string()
-                        })
-                        .map(|f| f.ms2_intensity)
-                        .sum()
-                })
-                .collect();
-
-            // Total LFQ (MS1) intensity at global q-value filter per file (if LFQ is enabled)
-            let total_lfq_intensity_per_file: Vec<f32> = if let Some(areas) = &areas {
-                let mut total_lfq_intensities = Vec::new();
-                for i in 0..filenames.len() {
-                    let mut intensities = Vec::new();
-                    for ((id, decoy), (peak, data)) in areas {
-                        if !decoy && peak.q_value <= global_q_value_filter {
-                            intensities.push(data[i] as f32);
-                        }
-                    }
-                    total_lfq_intensities.push(intensities.iter().sum());
-                }
-                total_lfq_intensities
-            } else {
-                vec![0.0; filenames.len()]
-            };
-
-            // Mmedian MS1 mass accuracy for each file, using feature.delta_mass
-            let median_ms1_mass_accuracy_per_file: Vec<f32> = filenames
-                .iter()
-                .map(|filename| {
-                    let mut accuracies = Vec::new();
-                    for feature in features.iter().filter(|f| {
-                        filenames[f.file_id] == filename.to_string()
-                            && f.label == 1
-                            && f.spectrum_q <= global_q_value_filter
-                    }) {
-                        accuracies.push(feature.delta_mass);
-                    }
-                    accuracies.sort_by(|a, b| a.partial_cmp(b).unwrap());
-                    let mid = accuracies.len() / 2;
-
-                    if accuracies.is_empty() {
-                        return std::f32::NAN;
-                    }
-
-                    if accuracies.len() % 2 == 0 {
-                        if mid > 0 {
-                            (accuracies[mid - 1] + accuracies[mid]) / 2.0
-                        } else {
-                            accuracies[mid]
-                        }
-                    } else {
-                        accuracies[mid]
-                    }
-                })
-                .collect();
-
-            // Median MS2 mass accuracy for each file, using feature.average_ppm
-            let median_ms2_mass_accuracy_per_file: Vec<f32> = filenames
-                .iter()
-                .map(|filename| {
-                    let mut accuracies = Vec::new();
-                    for feature in features.iter().filter(|f| {
-                        filenames[f.file_id] == filename.to_string()
-                            && f.label == 1
-                            && f.spectrum_q <= global_q_value_filter
-                    }) {
-                        accuracies.push(feature.average_ppm);
-                    }
-                    accuracies.sort_by(|a, b| a.partial_cmp(b).unwrap());
-                    let mid = accuracies.len() / 2;
-
-                    if accuracies.is_empty() {
-                        return std::f32::NAN;
-                    }
-
-                    if accuracies.len() % 2 == 0 {
-                        if mid > 0 {
-                            (accuracies[mid - 1] + accuracies[mid]) / 2.0
-                        } else {
-                            accuracies[mid]
-                        }
-                    } else {
-                        accuracies[mid]
-                    }
-                })
-                .collect();
-
-            // Median RT deviation for each file, using feature.delta_rt_model
-            let median_rt_deviation_per_file: Vec<f32> = filenames
-                .iter()
-                .map(|filename| {
-                    let mut deviations = Vec::new();
-                    for feature in features.iter().filter(|f| {
-                        filenames[f.file_id] == filename.to_string()
-                            && f.label == 1
-                            && f.spectrum_q <= global_q_value_filter
-                    }) {
-                        deviations.push(feature.delta_rt_model);
-                    }
-                    deviations.sort_by(|a, b| a.partial_cmp(b).unwrap());
-                    let mid = deviations.len() / 2;
-
-                    if deviations.is_empty() {
-                        return std::f32::NAN;
-                    }
-
-                    if deviations.len() % 2 == 0 {
-                        if mid > 0 {
-                            (deviations[mid - 1] + deviations[mid]) / 2.0
-                        } else {
-                            deviations[mid]
-                        }
-                    } else {
-                        deviations[mid]
-                    }
-                })
-                .collect();
-
-            // Median IM deviation for each file, using feature.delta_ims_model
-            let median_im_deviation_per_file: Vec<f32> = filenames
-                .iter()
-                .map(|filename| {
-                    let mut deviations = Vec::new();
-                    for feature in features.iter().filter(|f| {
-                        filenames[f.file_id] == filename.to_string()
-                            && f.label == 1
-                            && f.spectrum_q <= global_q_value_filter
-                    }) {
-                        deviations.push(feature.delta_ims_model);
-                    }
-                    deviations.sort_by(|a, b| a.partial_cmp(b).unwrap());
-                    let mid = deviations.len() / 2;
-
-                    if deviations.is_empty() {
-                        return std::f32::NAN;
-                    }
-
-                    if deviations.len() % 2 == 0 {
-                        if mid > 0 {
-                            (deviations[mid - 1] + deviations[mid]) / 2.0
-                        } else {
-                            deviations[mid]
-                        }
-                    } else {
-                        deviations[mid]
-                    }
-                })
-                .collect();
-
-            // Average peptide length for each file
-            let avg_peptide_length_per_file: Vec<f32> = filenames
-                .iter()
-                .map(|filename| {
-                    let mut lengths = Vec::new();
-                    for feature in features.iter().filter(|f| {
-                        filenames[f.file_id] == filename.to_string()
-                            && f.label == 1
-                            && f.spectrum_q <= global_q_value_filter
-                    }) {
-                        lengths.push(feature.peptide_len as f32);
-                    }
-                    lengths.iter().sum::<f32>() / lengths.len() as f32
-                })
-                .collect();
-
-            // Average peptide charge for each file
-            let avg_peptide_charge_per_file: Vec<f32> = filenames
-                .iter()
-                .map(|filename| {
-                    let mut charges = Vec::new();
-                    for feature in features.iter().filter(|f| {
-                        filenames[f.file_id] == filename.to_string()
-                            && f.label == 1
-                            && f.spectrum_q <= global_q_value_filter
-                    }) {
-                        charges.push(feature.charge as f32);
-                    }
-                    charges.iter().sum::<f32>() / charges.len() as f32
-                })
-                .collect();
-
-            // Average number of matched peaks for each file
-            let avg_matched_peaks_per_file: Vec<f32> = filenames
-                .iter()
-                .map(|filename| {
-                    let mut peaks = Vec::new();
-                    for feature in features.iter().filter(|f| {
-                        filenames[f.file_id] == filename.to_string()
-                            && f.label == 1
-                            && f.spectrum_q <= global_q_value_filter
-                    }) {
-                        peaks.push(feature.matched_peaks as f32);
-                    }
-                    peaks.iter().sum::<f32>() / peaks.len() as f32
-                })
-                .collect();
-
-            // Prepare html table to add to the report
-            let table = html! {
-                div class="table-container" {
-                    table id="dataTable"  class="display" {
-                        thead {
-                            tr {
-                                th { "File" }
-                                th { "PSMs" }
-                                th { "Peptides" }
-                                th { "Proteins" }
-                                th { "Total MS1 Intensity" }
-                                th { "Total MS2 Intensity" }
-                                th { "Median MS1 Delta Mass" }
-                                th { "Median MS2 Delta Mass" }
-                                th { "Median RT Deviation" }
-                                th { "Median IM Deviation" }
-                                th { "Average Peptide Length" }
-                                th { "Average Peptide Charge" }
-                                th { "Average Matched Peaks" }
-                            }
-                        }
-                        tbody {
-                            @for (i, filename) in filenames.iter().enumerate() {
-                                tr {
-                                    td { (filename) }
-                                    td { (num_psm_targets_per_file[i]) }
-                                    td { (num_peptide_targets_per_file[i]) }
-                                    td { (num_protein_targets_per_file[i]) }
-                                    td { (total_lfq_intensity_per_file[i]) }
-                                    td { (total_ms2_intensity_per_file[i]) }
-                                    td { (median_ms1_mass_accuracy_per_file[i]) }
-                                    td { (median_ms2_mass_accuracy_per_file[i]) }
-                                    td { (median_rt_deviation_per_file[i]) }
-                                    td { (median_im_deviation_per_file[i]) }
-                                    td { (avg_peptide_length_per_file[i]) }
-                                    td { (avg_peptide_charge_per_file[i]) }
-                                    td { (avg_matched_peaks_per_file[i]) }
-                                }
-                            }
-                        }
-                    }
-                    button id="downloadCsv" { "Download as CSV" }
-                }
-            };
-
-            intro_section.add_content(table);
-
-            // Add boxplot of the LFQ intensities from areas if available
-            if let Some(areas) = areas {
-                let mut lfq_intensities: Vec<Vec<f64>> = Vec::new();
-                for i in 0..filenames.len() {
-                    let mut intensities = Vec::new();
-                    for ((_id, decoy), (peak, data)) in &areas {
-                        if !decoy && peak.q_value <= global_q_value_filter {
-                            intensities.push(data[i].log2());
-                        }
-                    }
-                    lfq_intensities.push(intensities);
-                }
-
-                let lfq_boxplot = plot_boxplot(
-                    &lfq_intensities,
-                    filenames.to_vec(),
-                    &format!("LFQ Intensities ({:?}% Q-value)", global_q_value_filter),
-                    "Run",
-                    "Log2(Intensity)",
-                )
-                .unwrap();
-                intro_section.add_plot(lfq_boxplot);
-            }
-
-            report.add_section(intro_section);
-        }
-
-        /* Section 2: Scoring QC */
-        {
-            let mut scoring_section = ReportSection::new("Scoring Quality Control");
-
-            scoring_section.add_content(html! {
-                "It is important to assess the quality of the scoring model to ensure that the model is performing as expected, and that we're not overfitting or violating any assumptions of the Target-Decoy approach. The plot below shows the distribution of discriminant scores for each PSM, colored by whether the PSM is a target or decoy. We would expect the target distributions to be bimodal, where the first mode represents false targets that should align with the decoy distribution, and the second mode represents true targets."
-            });
-
-            // Extract sage_discriminant_score and label from features
-            let (scores, labels): (Vec<f64>, Vec<i32>) = features
-                .iter()
-                .map(|f| (f.discriminant_score as f64, f.label))
-                .unzip();
-
-            if !scores.is_empty() && scores.len() > 100 {
-                let score_histogram =
-                    plot_score_histogram(&scores, &labels, "LDA Score", "Score").unwrap();
-
-                scoring_section.add_plot(score_histogram);
-
-                let pp_plot = plot_pp(&scores, &labels, "PP Plot").unwrap();
-
-                scoring_section.add_content(html! {
-                    "The Probability-Probability (PP) plot is a diagnostic tool that can be used to assess the quality of the scoring model. It plots the empirical cumulative distribution function (ECDF) of the target distribution against the ECDF of the decoy distribution. See: Debrie, E. et. al. (2023) Journal of Proteome Research. for more information."
-                });
-                scoring_section.add_plot(pp_plot);
-
-                let spectrum_q_histogram = plot_score_histogram(
-                    &features
-                        .iter()
-                        .map(|f| f.spectrum_q as f64)
-                        .collect::<Vec<f64>>(),
-                    &labels,
-                    "Spectrum Q-value",
-                    "Q-value",
-                )
-                .unwrap();
-                scoring_section.add_plot(spectrum_q_histogram);
-
-                let peptide_q_histogram = plot_score_histogram(
-                    &features
-                        .iter()
-                        .map(|f| f.peptide_q as f64)
-                        .collect::<Vec<f64>>(),
-                    &labels,
-                    "Peptide Q-value",
-                    "Q-value",
-                )
-                .unwrap();
-                scoring_section.add_plot(peptide_q_histogram);
-
-                let protein_q_histogram = plot_score_histogram(
-                    &features
-                        .iter()
-                        .map(|f| f.protein_q as f64)
-                        .collect::<Vec<f64>>(),
-                    &labels,
-                    "Protein Q-value",
-                    "Q-value",
-                )
-                .unwrap();
-                scoring_section.add_plot(protein_q_histogram);
-            } else {
-                scoring_section.add_content(html! {
-                    div style="margin-top: 10px; margin-bottom: 10px; padding: 15px; background-color: #ffe6e6; border: 1px solid #ff9999; color: #cc0000; border-radius: 5px; white-space: pre-line;" {
-                        p {
-                            "There are not enough scores to plot the scoring quality control plots."
-                        }
-                    }
-                });
-            }
-
-            report.add_section(scoring_section);
-        }
-
-        /* Section 3: Predicted Properties */
-        {
-            let mut predicted_properties_section = ReportSection::new("Predicted Properties");
-
-            predicted_properties_section.add_content(html! {
-                "The following plots show the predicted properties of target peptides. The plots show the predicted retention time and ion mobility if present. The predicted properties are used to assess the quality of the model and to identify potential outliers."
-            });
-
-            // Normalized experimental RT per file
-            let mut rt_per_file: Vec<Vec<f64>> = Vec::new();
-            for i in 0..filenames.len() {
-                let mut rts = Vec::new();
-                for feature in features.iter().filter(|f| {
-                    f.label == 1
-                        && f.spectrum_q <= predict_section_q_value_filter
-                        && filenames[f.file_id] == filenames[i]
-                }) {
-                    rts.push(feature.rt as f64);
-                }
-
-                let min_rt = rts.iter().cloned().fold(f64::INFINITY, f64::min);
-                let max_rt = rts.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-                rts = rts
-                    .iter()
-                    .map(|rt| (rt - min_rt) / (max_rt - min_rt))
-                    .collect();
-
-                rt_per_file.push(rts);
-            }
-
-            // Predicted RT per file
-            let mut predicted_rt_per_file: Vec<Vec<f64>> = Vec::new();
-            for i in 0..filenames.len() {
-                let mut predicted_rts = Vec::new();
-                for feature in features.iter().filter(|f| {
-                    f.label == 1
-                        && f.spectrum_q <= predict_section_q_value_filter
-                        && filenames[f.file_id] == filenames[i]
-                }) {
-                    predicted_rts.push(feature.predicted_rt as f64);
-                }
-                predicted_rt_per_file.push(predicted_rts);
-            }
-
-            let rt_scatter = plot_scatter(
-                &rt_per_file,
-                &predicted_rt_per_file,
-                filenames.to_vec(),
-                "Retention Time LR Model",
-                "Retention Time",
-                "Predicted Retention Time",
-            )
-            .unwrap();
-            predicted_properties_section.add_plot(rt_scatter);
-
-            // Experimental IMS per file
-            let mut ims_per_file: Vec<Vec<f64>> = Vec::new();
-            for i in 0..filenames.len() {
-                let mut imss = Vec::new();
-                for feature in features.iter().filter(|f| {
-                    f.label == 1
-                        && f.spectrum_q <= predict_section_q_value_filter
-                        && filenames[f.file_id] == filenames[i]
-                }) {
-                    imss.push(feature.ims as f64);
-                }
-
-                ims_per_file.push(imss);
-            }
-
-            // Predicted IMS per file
-            let mut predicted_ims_per_file: Vec<Vec<f64>> = Vec::new();
-            for i in 0..filenames.len() {
-                let mut predicted_imss = Vec::new();
-                for feature in features.iter().filter(|f| {
-                    f.label == 1
-                        && f.spectrum_q <= predict_section_q_value_filter
-                        && filenames[f.file_id] == filenames[i]
-                }) {
-                    predicted_imss.push(feature.predicted_ims as f64);
-                }
-                predicted_ims_per_file.push(predicted_imss);
-            }
-
-            if !ims_per_file.is_empty() && !predicted_ims_per_file.is_empty() {
-                let ims_scatter = plot_scatter(
-                    &ims_per_file,
-                    &predicted_ims_per_file,
-                    filenames.to_vec(),
-                    "Ion Mobility LR Model",
-                    "Ion Mobility",
-                    "Predicted Ion Mobility",
-                )
-                .unwrap();
-                predicted_properties_section.add_plot(ims_scatter);
-            }
-
-            report.add_section(predicted_properties_section);
-        }
-
-        /* Section 4: Configuration */
-        {
-            let mut config_section = ReportSection::new("Configuration");
-            config_section.add_content(html! {
-                style {
-                    ".code-container {
-                        background-color: #f5f5f5;
-                        padding: 10px;
-                        border-radius: 5px;
-                        overflow-x: auto;
-                        font-family: monospace;
-                        white-space: pre-wrap;
-                    }"
-                }
-                div class="code-container" {
-                    pre {
-                        code { (PreEscaped(serde_json::to_string_pretty(&self.parameters)?)) }
-                    }
-                }
-            });
-            report.add_section(config_section);
-        }
-
-        // Save the report to HTML file
-        report.save_to_file(&path.to_string())?;
-
         Ok(path.to_string())
     }
 }
