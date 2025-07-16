@@ -11,9 +11,11 @@ use crate::scoring::Feature;
 use rayon::prelude::*;
 
 /// Try to fit a retention time prediction model
-pub fn predict(db: &IndexedDatabase, features: &mut [Feature]) -> Option<()> {
+// Add `decoy_free: bool` to the function signature
+pub fn predict(db: &IndexedDatabase, features: &mut [Feature], decoy_free: bool) -> Option<()> {
     // Training LR might fail - not enough values, or r-squared is < 0.7
-    let lr = match MobilityModel::fit(db, features) {
+    // Pass the flag down to the `fit` function
+    let lr = match MobilityModel::fit(db, features, decoy_free) {
         Some(lr) => lr,
         None => {
             log::warn!("Mobility model failed to train");
@@ -149,18 +151,41 @@ impl MobilityModel {
     }
 
     /// Attempt to fit a linear regression model: peptide sequence + charge ~ retention time
-    pub fn fit(db: &IndexedDatabase, training_set: &[Feature]) -> Option<Self> {
+    // Add `decoy_free: bool` to the function signature
+    pub fn fit(db: &IndexedDatabase, training_set: &[Feature], decoy_free: bool) -> Option<Self> {
+
         // Create a mapping from amino acid character to vector embedding
         let mut map = [0; 26];
         for (idx, aa) in VALID_AA.iter().enumerate() {
             map[(aa - b'A') as usize] = idx;
         }
 
-        let ims = training_set
+        // Create a filtered iterator of high-quality PSMs ONCE.
+        let training_candidates = training_set
             .par_iter()
-            .filter(|feat| feat.label == 1 && feat.spectrum_q <= 0.01)
-            .map(|psm| psm.ims as f64)
-            .collect::<Vec<f64>>();
+            .filter(|feat| {
+                // This is the new conditional filter logic
+                let is_target = if decoy_free {
+                    feat.rank == 1
+                } else {
+                    feat.label == 1
+                };
+                // In both cases, we only want to train on high-confidence peptides
+                is_target && feat.spectrum_q <= 0.01
+            });
+
+        // Use the filtered iterator to collect ion mobilities
+        let ims = training_candidates.clone().map(|psm| psm.ims as f64).collect::<Vec<f64>>();
+		
+		// ADD THIS CHECK
+		if ims.len() < 10 {
+			log::warn!(
+				"Not enough high-quality PSMs ({}) to train the ion mobility model.",
+				ims.len()
+			);
+			return None;
+		}
+		// END ADDITION
 
         let ims_mean = ims.iter().sum::<f64>() / ims.len() as f64;
         let ims_var = ims.iter().map(|rt| (rt - ims_mean).powi(2)).sum::<f64>();
@@ -169,7 +194,7 @@ impl MobilityModel {
 
         let features = training_set
             .par_iter()
-            .filter(|feat| feat.label == 1 && feat.spectrum_q <= 0.01)
+            .filter(|feat| feat.rank == 1 && feat.spectrum_q <= 0.01)
             .flat_map_iter(|psm| Self::embed(&db[psm.peptide_idx], &psm.charge, &map))
             .collect::<Vec<_>>();
 
