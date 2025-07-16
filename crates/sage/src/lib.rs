@@ -6,6 +6,7 @@ pub mod heap;
 pub mod ion_series;
 pub mod isotopes;
 pub mod lfq;
+pub mod decoy_free_fdr;
 pub mod mass;
 pub mod ml;
 pub mod modification;
