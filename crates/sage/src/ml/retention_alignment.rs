@@ -41,11 +41,20 @@ fn max_rt_by_file(features: &[Feature], n_files: usize) -> Vec<f64> {
 
 /// Return a map from PeptideIx to a map from File ID to average RT of the parent
 /// PeptideIX
-fn mean_rt_by_file(features: &[Feature]) -> FnvDashMap<PeptideIx, HashMap<usize, f64>> {
+// Add the `decoy_free: bool` flag to the function signature
+fn mean_rt_by_file(features: &[Feature], decoy_free: bool) -> FnvDashMap<PeptideIx, HashMap<usize, f64>> {
     let rts: FnvDashMap<PeptideIx, HashMap<usize, f64>> = DashMap::default();
     features
         .par_iter()
-        .filter(|feat| feat.label == 1 && feat.spectrum_q <= 0.01)
+        .filter(|feat| {
+            // This is the new conditional filter logic
+            let is_target = if decoy_free {
+                feat.rank == 1
+            } else {
+                feat.label == 1
+            };
+            is_target && feat.spectrum_q <= 0.01
+        })
         .for_each(|feat| {
             rts.entry(feat.peptide_idx)
                 .or_default()
@@ -56,15 +65,16 @@ fn mean_rt_by_file(features: &[Feature]) -> FnvDashMap<PeptideIx, HashMap<usize,
     rts
 }
 
-fn rt_matrix(features: &[Feature], max_rt: &[f64]) -> (HashMap<PeptideIx, f64>, Matrix) {
-    let mean_rt = mean_rt_by_file(features);
+// Add the `decoy_free: bool` flag to the function signature
+fn rt_matrix(features: &[Feature], max_rt: &[f64], decoy_free: bool) -> (HashMap<PeptideIx, f64>, Matrix) {
+    // Pass the flag down
+    let mean_rt = mean_rt_by_file(features, decoy_free);
 
     let (means, mat): (HashMap<PeptideIx, f64>, Vec<_>) = mean_rt
         .par_iter()
         .map(|entry| {
             let mut v = vec![f64::NAN; max_rt.len()];
 
-            // While we're here, calculate the mean RT across all runs
             let mut sum = 0.0;
             let mut len = 0.0;
             for (&file_id, &rt) in entry.value() {
@@ -92,9 +102,11 @@ pub struct Alignment {
     pub intercept: f32,
 }
 
-pub fn global_alignment(features: &mut [Feature], n_files: usize) -> Vec<Alignment> {
+// Add the `decoy_free: bool` flag to the function signature
+pub fn global_alignment(features: &mut [Feature], n_files: usize, decoy_free: bool) -> Vec<Alignment> {
     let max_rt = max_rt_by_file(features, n_files);
-    let (_, rt) = rt_matrix(features, &max_rt);
+    // Pass the flag down
+    let (_, rt) = rt_matrix(features, &max_rt, decoy_free);
 
     let mean_rts: Vec<f64> = (0..rt.rows)
         .into_par_iter()
