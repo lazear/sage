@@ -12,7 +12,7 @@ use rayon::prelude::*;
 
 /// Try to fit a retention time prediction model
 pub fn predict(db: &IndexedDatabase, features: &mut [Feature]) -> Option<()> {
-    // Training LR might fail - not enough values, or r-squared is < 0.7
+    // The `fit` function no longer needs the flag passed to it
     let lr = RetentionModel::fit(db, features)?;
     features.par_iter_mut().for_each(|feat| {
         // LR can sometimes predict crazy values - clamp predicted RT
@@ -60,17 +60,42 @@ impl RetentionModel {
 
     /// Attempt to fit a linear regression model: peptide sequence ~ retention time
     pub fn fit(db: &IndexedDatabase, training_set: &[Feature]) -> Option<Self> {
-        // Create a mapping from amino acid character to vector embedding
+        // The logging block can be removed for the final version if you wish
+		log::trace!("RetentionModel::fit received training_set (first 5 q-values):");
+		for feat in training_set.iter().take(5) {
+			log::trace!("  - PSM {}: spectrum_q = {}", feat.psm_id, feat.spectrum_q);
+		}
+        // 1. Detect the mode by inspecting the data.
+        let decoy_free = !training_set.iter().any(|f| f.label == -1);
+
         let mut map = [0; 26];
         for (idx, aa) in VALID_AA.iter().enumerate() {
             map[(aa - b'A') as usize] = idx;
         }
 
+        // 2. Create the filtered iterator using the local `decoy_free` variable.
         let rt = training_set
             .par_iter()
-            .filter(|feat| feat.label == 1 && feat.spectrum_q <= 0.01)
+            .filter(|feat| {
+                let is_target = if decoy_free {
+                    feat.rank == 1
+                } else {
+                    feat.label == 1
+                };
+                is_target && feat.spectrum_q <= 0.01
+            })
             .map(|psm| psm.aligned_rt as f64)
             .collect::<Vec<f64>>();
+            
+        // ADD THIS CHECK
+		if rt.len() < 10 {
+			log::warn!(
+				"Not enough high-quality PSMs ({}) to train the retention time model.",
+				rt.len()
+			);
+			return None;
+		}
+		// END ADDITION
 
         let rt_mean = rt.iter().sum::<f64>() / rt.len() as f64;
         let rt_var = rt.iter().map(|rt| (rt - rt_mean).powi(2)).sum::<f64>();
@@ -79,7 +104,15 @@ impl RetentionModel {
 
         let features = training_set
             .par_iter()
-            .filter(|feat| feat.label == 1 && feat.spectrum_q <= 0.01)
+            .filter(|feat| {
+                // Apply the same conditional filter here
+                let is_target = if decoy_free {
+                    feat.rank == 1
+                } else {
+                    feat.label == 1
+                };
+                is_target && feat.spectrum_q <= 0.01
+            })
             .flat_map_iter(|psm| Self::embed(&db[psm.peptide_idx], &map))
             .collect::<Vec<_>>();
 
