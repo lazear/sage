@@ -509,6 +509,18 @@ impl Runner {
 
 		let mut outputs = self.batch_files(&scorer, parallel);
 		
+		// ======================== DECOY-FREE CODE BLOCK ========================
+		// In decoy-free mode, force all labels to 1 (target).
+		// This is necessary because the default scoring logic incorrectly marks
+		// all peptides as decoys (-1) when the decoy_tag is empty.
+		if self.decoy_free_mode {
+			log::info!("Decoy-free mode: setting all PSM labels to 1.");
+			outputs.features.par_iter_mut().for_each(|feat| {
+				feat.label = 1;
+			});
+		}
+		// =====================================================================
+		
 		// We need to define these outside the if/else so they can be used by the file writer
 		let alignments;
 		let areas;
