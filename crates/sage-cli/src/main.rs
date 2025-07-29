@@ -1,8 +1,18 @@
 use clap::{value_parser, Arg, Command, ValueHint};
 use sage_cli::input::Input;
 use sage_cli::runner::Runner;
+use rayon::ThreadPoolBuilder;   // ← add this to increase stack size to fix stack overflow
 
 fn main() -> anyhow::Result<()> {
+
+    // ── enlarge Rayon worker-thread stacks ───────────────────────────
+    ThreadPoolBuilder::new()
+        .stack_size(64 * 1024 * 1024)   // 64 MiB per worker thread
+        .build_global()
+        .expect("configure Rayon pool");
+
+    // ── the rest of your original startup code ───────────────────────
+
     env_logger::Builder::default()
         .filter_level(log::LevelFilter::Error)
         .parse_env(env_logger::Env::default().filter_or("SAGE_LOG", "error,sage=info"))
