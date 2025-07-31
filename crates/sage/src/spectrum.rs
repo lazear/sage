@@ -1,4 +1,5 @@
 use crate::database::binary_search_slice;
+use crate::group_indices_by;
 use crate::mass::{Tolerance, NEUTRON, PROTON};
 
 /// A charge-less peak at monoisotopic mass
@@ -158,6 +159,41 @@ pub enum MS1Spectra {
 impl Default for MS1Spectra {
     fn default() -> Self {
         Self::Empty
+    }
+}
+
+impl MS1Spectra {
+    pub fn split_by_file(&self) -> impl Iterator<Item = MS1Spectra> + '_ {
+        let spectrum_indices = match self {
+            Self::NoMobility(spectra) => group_indices_by(spectra, |i| i.file_id),
+            Self::WithMobility(spectra) => group_indices_by(spectra, |i| i.file_id),
+            Self::Empty => vec![vec![]],
+        };
+        spectrum_indices.into_iter().map(move |indices| match self {
+            Self::NoMobility(all_spectra) => {
+                let spectra = indices
+                    .into_iter()
+                    .map(|i| {
+                        let mut spec = all_spectra[i].clone();
+                        spec.file_id = 0;
+                        spec
+                    })
+                    .collect::<Vec<_>>();
+                MS1Spectra::NoMobility(spectra)
+            }
+            Self::WithMobility(all_spectra) => {
+                let spectra = indices
+                    .into_iter()
+                    .map(|i| {
+                        let mut spec = all_spectra[i].clone();
+                        spec.file_id = 0;
+                        spec
+                    })
+                    .collect::<Vec<_>>();
+                MS1Spectra::WithMobility(spectra)
+            }
+            Self::Empty => Self::Empty,
+        })
     }
 }
 
@@ -394,7 +430,7 @@ impl SpectrumProcessor {
         }
     }
 
-    pub fn process_with_mobility(&self, spectrum: RawSpectrum) -> ProcessedSpectrum<IMPeak> {
+    pub fn process_with_mobility(spectrum: RawSpectrum) -> ProcessedSpectrum<IMPeak> {
         assert!(
             spectrum.ms_level == 1,
             "Logic error, mobility processing should only be used for MS1"
