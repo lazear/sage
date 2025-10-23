@@ -380,8 +380,7 @@ impl PeakBuffer {
             }
         }
 
-        self
-            .agg_buff
+        self.agg_buff
             .sort_unstable_by(|a, b| a.mz.partial_cmp(&b.mz).unwrap());
         // println!("Centroiding: Start len: {}; end len: {};", arr_len, result.len());
         // Ultra data is usually start: 40k end 10k,
@@ -389,12 +388,10 @@ impl PeakBuffer {
         // rarely leaves peaks with intensity > 200 ... ive never seen
         // it happen. -JSP 2025-Jan
 
-        self
-            .agg_buff
+        self.agg_buff
             .drain(..)
             .into_iter()
             .map(|x| (x.mz, (x.intensity, x.im)))
             .unzip()
     }
 }
-

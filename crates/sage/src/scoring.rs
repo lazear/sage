@@ -252,7 +252,7 @@ impl<'db> Scorer<'db> {
         &self,
         query: &ProcessedSpectrum<Peak>,
         prefilter_low_memory: bool,
-        keep: &[AtomicBool]
+        keep: &[AtomicBool],
     ) {
         assert_eq!(
             query.level, 2,
