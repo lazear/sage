@@ -91,10 +91,44 @@ impl CloudPath {
         }
     }
 
+    /// Return the name of the analyzed file. If the actual filename ends with '.tdf',
+    /// return the parent directory instead
     pub fn filename(&self) -> Option<&str> {
-        match self {
+        let filename = match self {
             CloudPath::S3 { key, .. } => key.split('/').last(),
             CloudPath::Local(path) => path.file_name().and_then(|s| s.to_str()),
+        };
+
+        if let Some(inner) = filename {
+            if inner.ends_with("tdf") {
+                return self.parent();
+            }
+        }
+        filename
+    }
+
+    /// Return the parent directory, if it exists
+    fn parent(&self) -> Option<&str> {
+        match self {
+            CloudPath::S3 { key, .. } => {
+                // take the second to last part
+                let mut a = None;
+                let mut b = None;
+                for part in key.split("/") {
+                    a = b;
+                    b = Some(part);
+                }
+                a
+            }
+            CloudPath::Local(path) => {
+                let mut a = None;
+                let mut b = None;
+                for part in path.components() {
+                    a = b;
+                    b = part.as_os_str().to_str();
+                }
+                a
+            }
         }
     }
 
@@ -290,6 +324,8 @@ pub enum Error {
 
 #[cfg(test)]
 mod test {
+    use std::path::PathBuf;
+
     use super::read_and_execute;
     use super::CloudPath;
 
@@ -346,5 +382,23 @@ mod test {
     #[test]
     fn invalid_file_cloudpath() {
         assert!(read_and_execute("s3://my-bucket", |_| async move { Ok(()) }).is_err())
+    }
+
+    #[test]
+    fn bruker_filenames() {
+        let path = PathBuf::from("foo/bar/baz/20251005_sample_a.d/analysis.tdf");
+        let c = CloudPath::Local(path);
+        assert_eq!(c.parent(), Some("20251005_sample_a.d"));
+        assert_eq!(c.filename(), Some("20251005_sample_a.d"));
+
+        let path = PathBuf::from("foo/bar/baz/20251005_sample_a.d");
+        let c = CloudPath::Local(path);
+        assert_eq!(c.parent(), Some("baz"));
+        assert_eq!(c.filename(), Some("20251005_sample_a.d"));
+
+        let path = PathBuf::from("foo/bar/baz/20251005_sample_a.mzML");
+        let c = CloudPath::Local(path);
+        assert_eq!(c.parent(), Some("baz"));
+        assert_eq!(c.filename(), Some("20251005_sample_a.mzML"));
     }
 }
