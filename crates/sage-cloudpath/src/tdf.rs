@@ -60,8 +60,7 @@ impl TdfReader {
     ) -> Result<Vec<RawSpectrum>, timsrust::TimsRustError> {
         let start = std::time::Instant::now();
         let frame_reader = timsrust::readers::FrameReader::new(path_name.as_ref())?;
-        let tdf_path = std::path::Path::new(path_name.as_ref()).join("analysis.tdf");
-        let metadata = timsrust::readers::MetadataReader::new(tdf_path)?;
+        let metadata = timsrust::readers::MetadataReader::new(path_name.as_ref())?;
         let mz_converter = metadata.mz_converter;
         let ims_converter = metadata.im_converter;
         let tol_ppm = config.mz_ppm;
