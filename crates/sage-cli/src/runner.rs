@@ -552,7 +552,7 @@ impl Runner {
             &self.database,
             &mut outputs.features,
             self.parameters.protein_grouping,
-            Some(self.parameters.protein_grouping_fdr),
+            Some(self.parameters.protein_grouping_peptide_fdr),
         );
         // Uses the "Picked Group FDR" approach to compute proteingroup FDR for the IDPicker groups,
         // including rescued subset grouping (rsG). Shared peptides (between different groups)
