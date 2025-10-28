@@ -3,6 +3,7 @@ use super::output::SageResults;
 use super::telemetry;
 use anyhow::Context;
 use csv::ByteRecord;
+use fnv::FnvHashMap;
 use log::info;
 use rayon::prelude::*;
 use sage_cloudpath::{CloudPath, FileFormat};
@@ -11,6 +12,7 @@ use sage_core::fasta::Fasta;
 use sage_core::ion_series::Kind;
 use sage_core::lfq::{Peak, PrecursorId};
 use sage_core::mass::Tolerance;
+use sage_core::ml::retention_alignment::Alignment;
 use sage_core::peptide::Peptide;
 use sage_core::scoring::Fragments;
 use sage_core::scoring::{Feature, Scorer};
@@ -476,7 +478,7 @@ impl Runner {
             let spectra = spectra
                 .ms1
                 .into_iter()
-                .map(|x| sp.process_with_mobility(x))
+                .map(|x| SpectrumProcessor::process_with_mobility(x))
                 .collect();
             MS1Spectra::WithMobility(spectra)
         } else {
@@ -522,26 +524,18 @@ impl Runner {
         //Collect all results into a single container
         let mut outputs = self.batch_files(&scorer, parallel);
 
-        let alignments = if self.parameters.predict_rt {
-            // Poisson probability is usually the best single feature for refining FDR.
-            // Take our set of 1% FDR filtered PSMs, and use them to train a linear
-            // regression model for predicting retention time
-            outputs
-                .features
-                .par_sort_unstable_by(|a, b| a.poisson.total_cmp(&b.poisson));
-            sage_core::ml::qvalue::spectrum_q_value(&mut outputs.features);
+        // Poisson probability is usually the best single feature for refining FDR.
+        // Take our set of 1% FDR filtered PSMs, and use them to train a linear
+        // regression model for predicting retention time
+        outputs
+            .features
+            .par_sort_unstable_by(|a, b| a.poisson.total_cmp(&b.poisson));
+        sage_core::ml::qvalue::spectrum_q_value(&mut outputs.features);
 
-            let alignments = sage_core::ml::retention_alignment::global_alignment(
-                &mut outputs.features,
-                self.parameters.mzml_paths.len(),
-            );
-            let _ = sage_core::ml::retention_model::predict(&self.database, &mut outputs.features);
-            let _ = sage_core::ml::mobility_model::predict(&self.database, &mut outputs.features);
-            Some(alignments)
-        } else {
-            None
-        };
+        let alignments = Self::align(&self.parameters, &mut outputs.features);
+        Self::predict(&self.parameters, &self.database, &mut outputs.features);
 
+        log::info!("Calculating FDR");
         let q_spectrum = self.spectrum_fdr(&mut outputs.features);
         let q_peptide = sage_core::fdr::picked_peptide(&self.database, &mut outputs.features);
         let q_protein = sage_core::fdr::picked_protein(&self.database, &mut outputs.features);
@@ -558,24 +552,13 @@ impl Runner {
             })
             .collect::<Vec<_>>();
 
-        let areas = alignments.and_then(|alignments| {
-            if self.parameters.quant.lfq {
-                log::trace!("performing LFQ");
-                let mut areas = sage_core::lfq::build_feature_map(
-                    self.parameters.quant.lfq_settings,
-                    self.parameters.precursor_charge,
-                    &outputs.features,
-                )
-                .quantify(&self.database, &outputs.ms1, &alignments);
-
-                let q_precursor = sage_core::fdr::picked_precursor(&mut areas);
-
-                log::info!("discovered {} target MS1 peaks at 5% FDR", q_precursor);
-                Some(areas)
-            } else {
-                None
-            }
-        });
+        let areas = Self::quantify(
+            &self.parameters,
+            &self.database,
+            &outputs.features,
+            &outputs.ms1,
+            alignments,
+        );
 
         log::info!(
             "discovered {} target peptide-spectrum matches at 1% FDR",
@@ -676,6 +659,56 @@ impl Runner {
 
         Ok(telemetry)
     }
+
+    pub fn align(parameters: &Search, features: &mut [Feature]) -> Vec<Alignment> {
+        let alignments = if parameters.align_rt {
+            log::info!("aligning retention times");
+            sage_core::ml::retention_alignment::global_alignment(
+                features,
+                parameters.mzml_paths.len(),
+            )
+        } else {
+            sage_core::ml::retention_alignment::no_alignment(features, parameters.mzml_paths.len())
+        };
+        alignments
+    }
+
+    pub fn predict(parameters: &Search, database: &IndexedDatabase, features: &mut [Feature]) {
+        if parameters.predict_rt {
+            log::info!("predicting retention times ");
+            let _ = sage_core::ml::retention_model::predict(database, features);
+        };
+        if parameters.predict_im {
+            log::info!("predicting mobility values");
+            let _ = sage_core::ml::mobility_model::predict(database, features);
+        };
+    }
+
+    pub fn quantify(
+        parameters: &Search,
+        database: &IndexedDatabase,
+        features: &[Feature],
+        ms1_spectra: &MS1Spectra,
+        alignments: Vec<Alignment>,
+    ) -> Option<FnvHashMap<(PrecursorId, bool), (Peak, Vec<f64>)>> {
+        let areas = if parameters.quant.lfq {
+            let mut areas = sage_core::lfq::quantify(
+                &parameters.quant.lfq_settings,
+                parameters.precursor_charge,
+                database,
+                features,
+                ms1_spectra,
+                alignments,
+            );
+            let q_precursor = sage_core::fdr::picked_precursor(&mut areas);
+            log::info!("discovered {} target MS1 peaks at 5% FDR", q_precursor);
+            Some(areas)
+        } else {
+            None
+        };
+        areas
+    }
+
     pub fn serialize_feature(&self, feature: &Feature, filenames: &[String]) -> csv::ByteRecord {
         let mut record = csv::ByteRecord::new();
 
