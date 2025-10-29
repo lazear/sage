@@ -372,10 +372,19 @@ impl ProteinGroupMap {
     }
 }
 
-pub fn generate_proteingroups(db: &IndexedDatabase, features: &mut [Feature]) {
+pub fn generate_proteingroups(
+    db: &IndexedDatabase,
+    features: &mut [Feature],
+    protein_grouping: bool,
+    confident_peptide_threshold: Option<f32>,
+) {
     let time = Instant::now();
-    update_features_with_proteingroups(features, db, |f| (f.label != -1) && (f.peptide_q < 0.01));
-    update_features_with_proteingroups(features, db, |f| (f.label != -1));
+    if protein_grouping {
+        if confident_peptide_threshold.is_some() {
+            update_features_with_proteingroups(features, db, confident_peptide_threshold);
+        }
+        update_features_with_proteingroups(features, db, None);
+    }
     features
         .par_iter_mut()
         .filter(|f| f.proteingroups.is_none())
@@ -396,11 +405,24 @@ pub fn generate_proteingroups(db: &IndexedDatabase, features: &mut [Feature]) {
 fn update_features_with_proteingroups(
     features: &mut [Feature],
     db: &IndexedDatabase,
-    predicate: fn(&&Feature) -> bool,
+    confident_peptide_threshold: Option<f32>,
 ) {
     let time = Instant::now();
     info!("Protein grouping with {} features", features.len());
-    let peps = get_peps(features, predicate);
+    let peps = if let Some(threshold) = confident_peptide_threshold {
+        let t = threshold.max(0.0).min(1.0);
+        features
+            .par_iter()
+            .filter(|f| (f.label != -1) && (f.peptide_q < t))
+            .map(|feature| feature.peptide_idx)
+            .collect::<FnvHashSet<_>>()
+    } else {
+        features
+            .par_iter()
+            .filter(|f| (f.label != -1))
+            .map(|feature| feature.peptide_idx)
+            .collect::<FnvHashSet<_>>()
+    };
     info!(
         "-  found {} unique peptides in {:?}ms",
         peps.len(),
@@ -440,14 +462,6 @@ fn update_features_with_proteingroups(
     );
 }
 
-fn get_peps(features: &[Feature], predicate: fn(&&Feature) -> bool) -> FnvHashSet<PeptideIx> {
-    features
-        .par_iter()
-        .filter(predicate)
-        .map(|feature| feature.peptide_idx)
-        .collect()
-}
-
 pub fn annotate_proteins<'a>(
     proteins: &'a [Arc<str>],
     decoy_tag: &'a str,
@@ -468,13 +482,13 @@ pub fn annotate_proteins<'a>(
 
 #[cfg(test)]
 mod test {
-    use itertools::equal;
+    use crate::peptide;
 
     use super::*;
     use std::sync::Arc;
 
-    fn build_db_and_features() -> (IndexedDatabase, Vec<Feature>) {
-        let peptide_proteins = vec![
+    fn get_data() -> (Vec<Vec<impl AsRef<str>>>, Vec<bool>, Vec<f32>) {
+        let proteins = vec![
             vec!["protein_7"],
             vec!["protein_4", "protein_6", "protein_9"],
             vec!["protein_1"],
@@ -486,18 +500,31 @@ mod test {
             vec!["protein_1"],
             vec!["protein_4", "protein_9"],
         ];
-        let features: Vec<Feature> = (0..peptide_proteins.len())
+        let decoys = vec![false; proteins.len()];
+        let q_vals = vec![0.0; proteins.len()];
+        (proteins, decoys, q_vals)
+    }
+
+    fn build_db_and_features(
+        proteins: &[Vec<impl AsRef<str>>],
+        decoys: &[bool],
+        q_vals: &[f32],
+    ) -> (IndexedDatabase, Vec<Feature>) {
+        let features: Vec<Feature> = (0..proteins.len())
             .map(|ix| Feature {
                 peptide_idx: PeptideIx(ix as u32),
+                label: if decoys[ix] { -1 } else { 1 },
+                peptide_q: q_vals[ix],
                 ..Default::default()
             })
             .collect();
         let db = IndexedDatabase {
-            peptides: peptide_proteins
+            peptides: proteins
                 .into_iter()
-                .map(|prots| Peptide {
-                    proteins: prots.into_iter().map(|s| Arc::from(s)).collect(),
-                    decoy: false,
+                .zip(decoys)
+                .map(|(prots, decoy)| Peptide {
+                    proteins: prots.into_iter().map(|s| Arc::from(s.as_ref())).collect(),
+                    decoy: *decoy,
                     ..Default::default()
                 })
                 .collect(),
@@ -510,9 +537,10 @@ mod test {
 
     #[test]
     fn test_protein_grouping_expected_groups() {
-        let (db, mut features) = build_db_and_features();
-        // dbg!(&db[PeptideIx(8)]);
-        generate_proteingroups(&db, &mut features);
+        let (proteins, decoys, q_vals) = get_data();
+        // let protein_slices = proteins.iter().map(|v| v.as_slice()).collect::<Vec<_>>();
+        let (db, mut features) = build_db_and_features(&proteins, &decoys, &q_vals);
+        generate_proteingroups(&db, &mut features, true, Some(0.01));
         let expected = vec![
             "protein_7",
             "protein_4/protein_9;protein_6",

@@ -142,14 +142,17 @@ impl Runner {
     pub fn prefilter_peptides(self, parallel: usize, fasta: Fasta) -> Vec<Peptide> {
         let spectra: Option<Vec<ProcessedSpectrum<_>>> =
             match parallel >= self.parameters.mzml_paths.len() {
-                true => Some(self.read_processed_spectra(&self.parameters.mzml_paths, 0, 0).1),
+                true => Some(
+                    self.read_processed_spectra(&self.parameters.mzml_paths, 0, 0)
+                        .1,
+                ),
                 false => None,
             };
-        
+
         let mut db_params = self.parameters.database.clone();
         // TODO: Don't generate decoys for fast searching
         // * if `generate_decoys` is used, we should re-generate at the end
-        //  to ensure that picked-peptide conditions are used, otherwise, 
+        //  to ensure that picked-peptide conditions are used, otherwise,
         //  if the user supplied decoys in the fasta file, then we should retain them
         //
         // db_params.generate_decoys = false;
@@ -187,12 +190,16 @@ impl Runner {
                     score_type: self.parameters.score_type,
                 };
 
-                // Allocate an array of booleans indicating whether a peptide was identified in a 
+                // Allocate an array of booleans indicating whether a peptide was identified in a
                 // preliminary pass of the data
-                let keep = (0..db.peptides.len()).map(|_| std::sync::atomic::AtomicBool::new(false)).collect::<Vec<_>>();
+                let keep = (0..db.peptides.len())
+                    .map(|_| std::sync::atomic::AtomicBool::new(false))
+                    .collect::<Vec<_>>();
 
                 match &spectra {
-                    Some(spectra) => self.peptide_filter_processed_spectra(&scorer, &spectra, &keep),
+                    Some(spectra) => {
+                        self.peptide_filter_processed_spectra(&scorer, &spectra, &keep)
+                    }
                     None => self
                         .parameters
                         .mzml_paths
@@ -206,14 +213,19 @@ impl Runner {
                 };
 
                 // Retain only peptides where `keep[ix] = true`
-                let peptides = db.peptides.drain(..).enumerate().filter_map(|(ix, peptide)| {
-                    let val = keep[ix].load(std::sync::atomic::Ordering::Relaxed);
-                    if val {
-                        Some(peptide)
-                    } else {
-                        None
-                    }
-                }).collect::<Vec<_>>();
+                let peptides = db
+                    .peptides
+                    .drain(..)
+                    .enumerate()
+                    .filter_map(|(ix, peptide)| {
+                        let val = keep[ix].load(std::sync::atomic::Ordering::Relaxed);
+                        if val {
+                            Some(peptide)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>();
 
                 info!(
                     "found {} pre-filtered peptides for fasta chunk {}",
@@ -249,13 +261,21 @@ impl Runner {
                     let rate = prev * 1000 / (duration + 1);
                     log::trace!("- searched {} spectra ({} spectra/s)", prev, rate);
                 }
-                scorer.quick_score(spectrum, self.parameters.database.prefilter_low_memory, keep)
+                scorer.quick_score(
+                    spectrum,
+                    self.parameters.database.prefilter_low_memory,
+                    keep,
+                )
             });
 
         let duration = Instant::now().duration_since(start).as_millis() as usize;
         let prev = counter.load(Ordering::Relaxed);
         let rate = prev * 1000 / (duration + 1);
-        log::info!("- prefilter search:  {:8} ms ({} spectra/s)", duration, rate);
+        log::info!(
+            "- prefilter search:  {:8} ms ({} spectra/s)",
+            duration,
+            rate
+        );
     }
 
     fn spectrum_fdr(&self, features: &mut [Feature]) -> usize {
@@ -528,7 +548,12 @@ impl Runner {
         // are reported with protein FDR = 1.0
         let q_protein = sage_core::fdr::picked_protein(&self.database, &mut outputs.features);
         // Conducts "IDPicker-based protein grouping at 1% peptide FDR"
-        sage_core::protein_grouping::generate_proteingroups(&self.database, &mut outputs.features);
+        sage_core::protein_grouping::generate_proteingroups(
+            &self.database,
+            &mut outputs.features,
+            self.parameters.protein_grouping,
+            Some(self.parameters.protein_grouping_peptide_fdr),
+        );
         // Uses the "Picked Group FDR" approach to compute proteingroup FDR for the IDPicker groups,
         // including rescued subset grouping (rsG). Shared peptides (between different groups)
         // are reported with proteingroup FDR = 1.0
