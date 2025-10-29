@@ -33,6 +33,8 @@ pub struct Search {
     pub mzml_paths: Vec<String>,
     pub output_paths: Vec<String>,
     pub bruker_config: BrukerProcessingConfig,
+    pub protein_grouping: bool,
+    pub protein_grouping_peptide_fdr: f32,
 
     #[serde(skip_serializing)]
     pub output_directory: CloudPath,
@@ -71,6 +73,8 @@ pub struct Input {
     pub output_directory: Option<String>,
     pub mzml_paths: Option<Vec<String>>,
     pub bruker_config: Option<BrukerProcessingConfig>,
+    pub protein_grouping: Option<bool>,
+    pub protein_grouping_peptide_fdr: Option<f32>,
 
     pub annotate_matches: Option<bool>,
     pub write_pin: Option<bool>,
@@ -342,6 +346,8 @@ impl Input {
             write_pin: self.write_pin.unwrap_or(false),
             bruker_config: self.bruker_config.unwrap_or_default(),
             write_report: self.write_report.unwrap_or(false),
+            protein_grouping: self.protein_grouping.unwrap_or(true),
+            protein_grouping_peptide_fdr: self.protein_grouping_peptide_fdr.unwrap_or(0.01),
             score_type,
         })
     }
