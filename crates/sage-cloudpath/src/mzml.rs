@@ -56,6 +56,7 @@ const SELECTED_ION_MZ: &[u8] = b"MS:1000744";
 const SELECTED_ION_INT: &[u8] = b"MS:1000042";
 const SELECTED_ION_CHARGE: &[u8] = b"MS:1000041";
 
+const ISO_WINDOW_TARGET: &[u8] = b"MS:1000827";
 const ISO_WINDOW_LOWER: &[u8] = b"MS:1000828";
 const ISO_WINDOW_UPPER: &[u8] = b"MS:1000829";
 
@@ -221,6 +222,14 @@ impl MzMLReader {
                     (Some(State::Precursor), b"cvParam") => {
                         let accession = extract!(ev, b"accession");
                         match accession.as_ref() {
+                            ISO_WINDOW_TARGET => {
+                                // use isolation window target for precursor m/z, e.g. to handle
+                                // DIA setups where the mzML conversion software doesn't write
+                                // a selection ion tag
+                                if precursor.mz == 0.0 {
+                                    precursor.mz = extract_value!(ev)
+                                }
+                            }
                             ISO_WINDOW_LOWER => iso_window_lo = Some(extract_value!(ev)),
                             ISO_WINDOW_UPPER => iso_window_hi = Some(extract_value!(ev)),
                             _ => {}
