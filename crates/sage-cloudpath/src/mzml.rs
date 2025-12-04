@@ -242,7 +242,9 @@ impl MzMLReader {
                                 precursor.charge = Some(extract_value!(ev));
                             }
                             SELECTED_ION_MZ => {
-                                precursor.mz = extract_value!(ev);
+                                if precursor.mz == 0.0 {
+                                    precursor.mz = extract_value!(ev)
+                                }
                             }
                             SELECTED_ION_INT => {
                                 precursor.intensity = Some(extract_value!(ev));
