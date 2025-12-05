@@ -30,6 +30,8 @@ pub struct Search {
     pub min_matched_peaks: u16,
     pub report_psms: usize,
     pub predict_rt: bool,
+    pub predict_im: bool,
+    pub align_rt: bool,
     pub mzml_paths: Vec<String>,
     pub output_paths: Vec<String>,
     pub bruker_config: BrukerProcessingConfig,
@@ -68,6 +70,8 @@ pub struct Input {
     pub deisotope: Option<bool>,
     pub quant: Option<QuantOptions>,
     pub predict_rt: Option<bool>,
+    pub predict_im: Option<bool>,
+    pub align_rt: Option<bool>,
     pub output_directory: Option<String>,
     pub mzml_paths: Option<Vec<String>>,
     pub bruker_config: Option<BrukerProcessingConfig>,
@@ -86,6 +90,7 @@ pub struct LfqOptions {
     pub ppm_tolerance: Option<f32>,
     pub mobility_pct_tolerance: Option<f32>,
     pub combine_charge_states: Option<bool>,
+    pub mbr: Option<bool>,
 }
 
 impl From<LfqOptions> for LfqSettings {
@@ -102,6 +107,7 @@ impl From<LfqOptions> for LfqSettings {
             combine_charge_states: value
                 .combine_charge_states
                 .unwrap_or(default.combine_charge_states),
+            mbr: value.mbr.unwrap_or(true),
         };
         if settings.ppm_tolerance > 20.0 {
             log::warn!("lfq_settings.ppm_tolerance is higher than expected");
@@ -293,13 +299,24 @@ impl Input {
             }
         }
 
-        if !self.predict_rt.unwrap_or(true)
-            && self.quant.as_ref().and_then(|q| q.lfq).unwrap_or(false)
-        {
-            log::warn!(
-                "`predict_rt: false` and `lfq: true` are incompatible. Setting `predict_rt: true`"
-            );
-            self.predict_rt = Some(true);
+        if !self.align_rt.unwrap_or(true) {
+            if self.predict_rt.unwrap_or(true) {
+                log::warn!(
+                    "`predict_rt: true` and `align_rt: false` are incompatible. Setting `align_rt: true`"
+                );
+                self.align_rt = Some(true);
+            } else if let Some(quant) = &self.quant {
+                if quant.lfq.unwrap_or(false)
+                    && quant
+                        .lfq_options
+                        .as_ref()
+                        .and_then(|f| f.mbr)
+                        .unwrap_or(true)
+                {
+                    log::warn!("`mbr: true` and `align_rt: false` are incompatible. Setting `align_rt: true`");
+                    self.align_rt = Some(true);
+                }
+            }
         }
 
         let mzml_paths = self.mzml_paths.expect("'mzml_paths' must be provided!");
@@ -338,6 +355,8 @@ impl Input {
             chimera: self.chimera.unwrap_or(false),
             wide_window: self.wide_window.unwrap_or(false),
             predict_rt: self.predict_rt.unwrap_or(true),
+            predict_im: self.predict_im.unwrap_or(true),
+            align_rt: self.align_rt.unwrap_or(true),
             output_paths: Vec::new(),
             write_pin: self.write_pin.unwrap_or(false),
             bruker_config: self.bruker_config.unwrap_or_default(),

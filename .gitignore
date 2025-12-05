@@ -11,3 +11,4 @@ data/
 *.fasta
 *.fas
 **/*.DS_Store
+*.parquet
