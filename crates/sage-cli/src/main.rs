@@ -88,6 +88,33 @@ fn main() -> anyhow::Result<()> {
                 .action(clap::ArgAction::SetFalse)
                 .help("Disable sending telemetry data"),
         )
+        .arg(
+            Arg::new("save-index")
+                .long("save-index")
+                .value_parser(clap::builder::NonEmptyStringValueParser::new())
+                .help("Save the built index to a parquet directory for reuse")
+                .value_hint(ValueHint::DirPath),
+        )
+        .arg(
+            Arg::new("load-index")
+                .long("load-index")
+                .value_parser(clap::builder::NonEmptyStringValueParser::new())
+                .help("Load a pre-built index from parquet directory (skips FASTA processing)")
+                .value_hint(ValueHint::DirPath),
+        )
+        .arg(
+            Arg::new("export-index")
+                .long("export-index")
+                .value_parser(clap::builder::NonEmptyStringValueParser::new())
+                .help("Export a user-friendly peptide index parquet file")
+                .value_hint(ValueHint::FilePath),
+        )
+        .arg(
+            Arg::new("validate-index")
+                .long("validate-index")
+                .action(clap::ArgAction::SetTrue)
+                .help("Validate loaded index matches what would be built from FASTA"),
+        )
         .help_template(
             "{usage-heading} {usage}\n\n\
              {about-with-newline}\n\

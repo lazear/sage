@@ -49,6 +49,7 @@ If you use Sage in a scientific publication, please cite the following paper:
 - Configuration by [JSON file](https://sage-docs.vercel.app/docs/configuration#file)
 - Built-in support for reading gzipped-mzML files
 - Support for reading/writing directly from [AWS S3](https://sage-docs.vercel.app/docs/configuration/aws)
+- Index serialization to parquet for fast reloading (`--save-index`, `--load-index`)
 
 ## Interoperability
 

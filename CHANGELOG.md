@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Speedup on the generation of databases when large number of peptides are redundant.
 - Initial support for searching diaPASEF data
 - `override_precursor_charge` setting that forces multiple charge states to be searched
+- Index serialization to parquet format (`--save-index`, `--load-index`, `--export-index`, `--validate-index`)
 ### Breaking Changes
 - `precursor_ppm` field reports the non-absoluted average mass error, rather than the absoluted average mass error.
 - Don't deisotope reporter ion regions if MS2-based TMT/iTRAQ is used

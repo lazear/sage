@@ -88,50 +88,107 @@ impl Runner {
     pub fn new(parameters: Search, parallel: usize) -> anyhow::Result<Self> {
         let mut parameters = parameters.clone();
         let start = Instant::now();
-        let fasta = sage_cloudpath::util::read_fasta(
-            &parameters.database.fasta,
-            &parameters.database.decoy_tag,
-            parameters.database.generate_decoys,
-        )
-        .with_context(|| {
-            format!(
-                "Failed to build database from `{}`",
-                parameters.database.fasta
-            )
-        })?;
 
-        let database = match parameters.database.prefilter {
-            false => parameters.database.clone().build(fasta),
-            true => {
-                parameters
-                    .database
-                    .auto_calculate_prefilter_chunk_size(&fasta);
-                if parameters.database.prefilter_chunk_size >= fasta.targets.len() {
-                    parameters.database.clone().build(fasta)
-                } else {
-                    info!(
-                        "using {} db chunks of size {}",
-                        (fasta.targets.len() + parameters.database.prefilter_chunk_size - 1)
-                            / parameters.database.prefilter_chunk_size,
-                        parameters.database.prefilter_chunk_size,
-                    );
-                    let mini_runner = Self {
-                        database: IndexedDatabase::default(),
-                        parameters: parameters.clone(),
-                        start,
-                    };
-                    let peptides = mini_runner.prefilter_peptides(parallel, fasta);
-                    parameters.database.clone().build_from_peptides(peptides)
-                }
+        // Check if we should load a pre-built index
+        let database = if let Some(ref load_path) = parameters.load_index {
+            info!("Loading pre-built index from {}", load_path);
+            let path = load_path.parse::<CloudPath>()?;
+            let loaded_db = sage_cloudpath::index_parquet::deserialize_index(&path)
+                .with_context(|| format!("Failed to load index from `{}`", load_path))?;
+
+            info!(
+                "loaded {} fragments, {} peptides in {:#?}",
+                loaded_db.fragments.len(),
+                loaded_db.peptides.len(),
+                start.elapsed()
+            );
+
+            // Optional validation: build from FASTA and compare
+            if parameters.validate_index {
+                info!("Validating loaded index against FASTA build...");
+                let fasta = sage_cloudpath::util::read_fasta(
+                    &parameters.database.fasta,
+                    &parameters.database.decoy_tag,
+                    parameters.database.generate_decoys,
+                )
+                .with_context(|| {
+                    format!("Failed to read FASTA from `{}`", parameters.database.fasta)
+                })?;
+                let built_db = parameters.database.clone().build(fasta);
+                sage_cloudpath::index_parquet::validate_index(&built_db, &loaded_db)
+                    .with_context(|| "Index validation failed")?;
+                info!("Index validation passed!");
             }
+
+            loaded_db
+        } else {
+            // Build from FASTA as usual
+            let fasta = sage_cloudpath::util::read_fasta(
+                &parameters.database.fasta,
+                &parameters.database.decoy_tag,
+                parameters.database.generate_decoys,
+            )
+            .with_context(|| {
+                format!(
+                    "Failed to build database from `{}`",
+                    parameters.database.fasta
+                )
+            })?;
+
+            let built_db = match parameters.database.prefilter {
+                false => parameters.database.clone().build(fasta),
+                true => {
+                    parameters
+                        .database
+                        .auto_calculate_prefilter_chunk_size(&fasta);
+                    if parameters.database.prefilter_chunk_size >= fasta.targets.len() {
+                        parameters.database.clone().build(fasta)
+                    } else {
+                        info!(
+                            "using {} db chunks of size {}",
+                            (fasta.targets.len() + parameters.database.prefilter_chunk_size - 1)
+                                / parameters.database.prefilter_chunk_size,
+                            parameters.database.prefilter_chunk_size,
+                        );
+                        let mini_runner = Self {
+                            database: IndexedDatabase::default(),
+                            parameters: parameters.clone(),
+                            start,
+                        };
+                        let peptides = mini_runner.prefilter_peptides(parallel, fasta);
+                        parameters.database.clone().build_from_peptides(peptides)
+                    }
+                }
+            };
+
+            info!(
+                "generated {} fragments, {} peptides in {:#?}",
+                built_db.fragments.len(),
+                built_db.peptides.len(),
+                start.elapsed()
+            );
+
+            // Save index if requested
+            if let Some(ref save_path) = parameters.save_index {
+                info!("Saving index to {}", save_path);
+                let path = save_path.parse::<CloudPath>()?;
+                sage_cloudpath::index_parquet::serialize_index(&built_db, &path)
+                    .with_context(|| format!("Failed to save index to `{}`", save_path))?;
+                info!("Index saved successfully");
+            }
+
+            // Export user-friendly index if requested
+            if let Some(ref export_path) = parameters.export_index {
+                info!("Exporting user-friendly index to {}", export_path);
+                let path = export_path.parse::<CloudPath>()?;
+                sage_cloudpath::index_parquet::export_index(&built_db, &path)
+                    .with_context(|| format!("Failed to export index to `{}`", export_path))?;
+                info!("Index exported successfully");
+            }
+
+            built_db
         };
 
-        info!(
-            "generated {} fragments, {} peptides in {:#?}",
-            database.fragments.len(),
-            database.peptides.len(),
-            (start.elapsed())
-        );
         Ok(Self {
             database,
             parameters,

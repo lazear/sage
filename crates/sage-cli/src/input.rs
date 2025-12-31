@@ -47,6 +47,18 @@ pub struct Search {
     pub annotate_matches: bool,
 
     pub score_type: ScoreType,
+
+    #[serde(skip_serializing)]
+    pub save_index: Option<String>,
+
+    #[serde(skip_serializing)]
+    pub load_index: Option<String>,
+
+    #[serde(skip_serializing)]
+    pub export_index: Option<String>,
+
+    #[serde(skip_serializing)]
+    pub validate_index: bool,
 }
 
 #[derive(Deserialize)]
@@ -76,6 +88,15 @@ pub struct Input {
     pub write_pin: Option<bool>,
     pub write_report: Option<bool>,
     pub score_type: Option<ScoreType>,
+
+    #[serde(skip)]
+    pub save_index: Option<String>,
+    #[serde(skip)]
+    pub load_index: Option<String>,
+    #[serde(skip)]
+    pub export_index: Option<String>,
+    #[serde(skip)]
+    pub validate_index: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -213,6 +234,20 @@ impl Input {
             input.annotate_matches = Some(annotate_matches);
         }
 
+        // Index serialization options
+        if let Some(save_index) = matches.get_one::<String>("save-index") {
+            input.save_index = Some(save_index.clone());
+        }
+        if let Some(load_index) = matches.get_one::<String>("load-index") {
+            input.load_index = Some(load_index.clone());
+        }
+        if let Some(export_index) = matches.get_one::<String>("export-index") {
+            input.export_index = Some(export_index.clone());
+        }
+        if let Some(validate_index) = matches.get_one::<bool>("validate-index").copied() {
+            input.validate_index = Some(validate_index);
+        }
+
         // avoid to later panic if these parameters are not set (but doesn't check if files exist)
 
         ensure!(
@@ -343,6 +378,10 @@ impl Input {
             bruker_config: self.bruker_config.unwrap_or_default(),
             write_report: self.write_report.unwrap_or(false),
             score_type,
+            save_index: self.save_index,
+            load_index: self.load_index,
+            export_index: self.export_index,
+            validate_index: self.validate_index.unwrap_or(false),
         })
     }
 }
