@@ -177,15 +177,6 @@ impl Runner {
                 info!("Index saved successfully");
             }
 
-            // Export user-friendly index if requested
-            if let Some(ref export_path) = parameters.export_index {
-                info!("Exporting user-friendly index to {}", export_path);
-                let path = export_path.parse::<CloudPath>()?;
-                sage_cloudpath::index_parquet::export_index(&built_db, &path)
-                    .with_context(|| format!("Failed to export index to `{}`", export_path))?;
-                info!("Index exported successfully");
-            }
-
             built_db
         };
 

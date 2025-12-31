@@ -55,9 +55,6 @@ pub struct Search {
     pub load_index: Option<String>,
 
     #[serde(skip_serializing)]
-    pub export_index: Option<String>,
-
-    #[serde(skip_serializing)]
     pub validate_index: bool,
 }
 
@@ -93,8 +90,6 @@ pub struct Input {
     pub save_index: Option<String>,
     #[serde(skip)]
     pub load_index: Option<String>,
-    #[serde(skip)]
-    pub export_index: Option<String>,
     #[serde(skip)]
     pub validate_index: Option<bool>,
 }
@@ -241,9 +236,6 @@ impl Input {
         if let Some(load_index) = matches.get_one::<String>("load-index") {
             input.load_index = Some(load_index.clone());
         }
-        if let Some(export_index) = matches.get_one::<String>("export-index") {
-            input.export_index = Some(export_index.clone());
-        }
         if let Some(validate_index) = matches.get_one::<bool>("validate-index").copied() {
             input.validate_index = Some(validate_index);
         }
@@ -380,7 +372,6 @@ impl Input {
             score_type,
             save_index: self.save_index,
             load_index: self.load_index,
-            export_index: self.export_index,
             validate_index: self.validate_index.unwrap_or(false),
         })
     }

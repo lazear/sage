@@ -103,13 +103,6 @@ fn main() -> anyhow::Result<()> {
                 .value_hint(ValueHint::DirPath),
         )
         .arg(
-            Arg::new("export-index")
-                .long("export-index")
-                .value_parser(clap::builder::NonEmptyStringValueParser::new())
-                .help("Export a user-friendly peptide index parquet file")
-                .value_hint(ValueHint::FilePath),
-        )
-        .arg(
             Arg::new("validate-index")
                 .long("validate-index")
                 .action(clap::ArgAction::SetTrue)
