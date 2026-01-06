@@ -66,7 +66,7 @@ impl AddAssign<InitialHits> for InitialHits {
     }
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Clone, Debug, Default)]
 /// Features of a candidate peptide spectrum match
 pub struct Feature {
     #[serde(skip_serializing)]
@@ -138,8 +138,12 @@ pub struct Feature {
     pub spectrum_q: f32,
     pub peptide_q: f32,
     pub protein_q: f32,
+    pub proteingroup_q: f32,
 
     pub ms2_intensity: f32,
+
+    pub proteingroups: Option<String>,
+    pub num_proteingroups: i32,
 
     pub fragments: Option<Fragments>,
 }
@@ -580,7 +584,10 @@ impl<'db> Scorer<'db> {
                 ms2_intensity: score.summed_b + score.summed_y,
 
                 //Fragments
+                proteingroups: None,
+                num_proteingroups: 0,
                 fragments,
+                proteingroup_q: 1.0,
             })
         }
     }

@@ -10,6 +10,7 @@ pub mod mass;
 pub mod ml;
 pub mod modification;
 pub mod peptide;
+pub mod protein_grouping;
 pub mod scoring;
 pub mod spectrum;
 pub mod tmt;
