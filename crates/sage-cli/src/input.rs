@@ -86,6 +86,7 @@ pub struct LfqOptions {
     pub ppm_tolerance: Option<f32>,
     pub mobility_pct_tolerance: Option<f32>,
     pub combine_charge_states: Option<bool>,
+    pub peptide_q_value: Option<f32>,
 }
 
 impl From<LfqOptions> for LfqSettings {
@@ -96,6 +97,7 @@ impl From<LfqOptions> for LfqSettings {
             integration: value.integration.unwrap_or(default.integration),
             spectral_angle: value.spectral_angle.unwrap_or(default.spectral_angle).abs(),
             ppm_tolerance: value.ppm_tolerance.unwrap_or(default.ppm_tolerance).abs(),
+            peptide_q_value: value.peptide_q_value.unwrap_or(default.peptide_q_value),
             mobility_pct_tolerance: value
                 .mobility_pct_tolerance
                 .unwrap_or(default.mobility_pct_tolerance),
@@ -114,6 +116,12 @@ impl From<LfqOptions> for LfqSettings {
         }
         if settings.spectral_angle < 0.50 {
             log::warn!("lfq_settings.spectral_angle is lower than expected");
+        }
+        if settings.peptide_q_value > 0.01 {
+            log::info!("lfq_settings.peptide_q_value is higher than expected, expect increased runtime and memory usage");
+        }
+        if settings.peptide_q_value < 0.01 {
+            log::warn!("lfq_settings.peptide_q_value is lower than expected, not all identified peptides will have MS1 intensities extracted");
         }
 
         settings
