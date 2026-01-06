@@ -984,7 +984,7 @@ impl Runner {
         record.push_field(ryu::Buffer::new().format(feature.isotope_error).as_bytes());
         record.push_field(
             ryu::Buffer::new()
-                .format(feature.delta_mass.ln_1p())
+                .format(feature.delta_mass.abs().ln_1p())
                 .as_bytes(),
         );
         record.push_field(ryu::Buffer::new().format(feature.average_ppm).as_bytes());
