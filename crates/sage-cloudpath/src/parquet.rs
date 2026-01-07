@@ -8,6 +8,10 @@
 
 #![cfg(feature = "parquet")]
 
+// Shared constants for parquet serialization
+pub const ROW_GROUP_SIZE: usize = 65536;
+pub const ZSTD_COMPRESSION_LEVEL: i32 = 3;
+
 use std::collections::HashMap;
 use std::hash::BuildHasher;
 
@@ -133,13 +137,15 @@ pub fn serialize_features(
     let schema = build_schema()?;
 
     let options = WriterProperties::builder()
-        .set_compression(parquet::basic::Compression::ZSTD(ZstdLevel::try_new(3)?))
+        .set_compression(parquet::basic::Compression::ZSTD(ZstdLevel::try_new(
+            ZSTD_COMPRESSION_LEVEL,
+        )?))
         .build();
 
     let buf = Vec::new();
     let mut writer = SerializedFileWriter::new(buf, schema.into(), options.into())?;
 
-    for features in features.chunks(65536) {
+    for features in features.chunks(ROW_GROUP_SIZE) {
         let mut rg = writer.next_row_group()?;
         macro_rules! write_col {
             ($field:ident, $ty:ident) => {
@@ -265,14 +271,16 @@ pub fn serialize_matched_fragments(
     let schema = build_matched_fragment_schema()?;
 
     let options = WriterProperties::builder()
-        .set_compression(parquet::basic::Compression::ZSTD(ZstdLevel::try_new(3)?))
+        .set_compression(parquet::basic::Compression::ZSTD(ZstdLevel::try_new(
+            ZSTD_COMPRESSION_LEVEL,
+        )?))
         .build();
 
     let buf = Vec::new();
 
     let mut writer = SerializedFileWriter::new(buf, schema.into(), options.into())?;
 
-    for features in features.chunks(65536) {
+    for features in features.chunks(ROW_GROUP_SIZE) {
         let mut rg = writer.next_row_group()?;
 
         if let Some(mut col) = rg.next_column()? {
@@ -426,7 +434,9 @@ pub fn serialize_lfq<H: BuildHasher>(
     let schema = build_lfq_schema()?;
 
     let options = WriterProperties::builder()
-        .set_compression(parquet::basic::Compression::ZSTD(ZstdLevel::try_new(3)?))
+        .set_compression(parquet::basic::Compression::ZSTD(ZstdLevel::try_new(
+            ZSTD_COMPRESSION_LEVEL,
+        )?))
         .build();
 
     let buf = Vec::new();

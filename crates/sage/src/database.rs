@@ -381,7 +381,7 @@ pub struct Theoretical {
     pub fragment_mz: f32,
 }
 
-#[derive(Default)]
+#[derive(Default, PartialEq)]
 pub struct IndexedDatabase {
     pub peptides: Vec<Peptide>,
     pub fragments: Vec<Theoretical>,
