@@ -637,6 +637,11 @@ impl Runner {
                     .output_paths
                     .push(self.write_lfq(areas, &filenames)?);
             }
+
+            // Always write QC statistics
+            self.parameters
+                .output_paths
+                .push(self.write_qc_stats(&outputs.features, &filenames)?);
         }
 
         // Write percolator input file if requested
@@ -1214,6 +1219,132 @@ impl Runner {
 
         let bytes = wtr.into_inner()?;
         path.write_bytes_sync(bytes)?;
+        Ok(path.to_string())
+    }
+
+    /// Write QC statistics summary per file, similar to DIA-NN's stats.tsv
+    pub fn write_qc_stats(
+        &self,
+        features: &[Feature],
+        filenames: &[String],
+    ) -> anyhow::Result<String> {
+        let path = self.make_path("stats.tsv");
+
+        let mut wtr = csv::WriterBuilder::new()
+            .delimiter(b'\t')
+            .from_writer(vec![]);
+
+        let headers = csv::ByteRecord::from(vec![
+            "File",
+            "Total.PSMs",
+            "PSMs.1%FDR",
+            "Peptides.1%FDR",
+            "Proteins.1%FDR",
+            "Median.Precursor.PPM",
+            "Median.Fragment.PPM",
+            "Median.RT",
+            "Median.MS2.Intensity",
+        ]);
+
+        wtr.write_byte_record(&headers)?;
+
+        // Calculate statistics per file
+        for (file_id, filename) in filenames.iter().enumerate() {
+            let file_features: Vec<&Feature> = features
+                .iter()
+                .filter(|f| f.file_id == file_id && f.label == 1) // Only targets
+                .collect();
+
+            let total_psms = file_features.len();
+
+            // PSMs at 1% spectrum FDR
+            let psms_1pct: Vec<&Feature> = file_features
+                .iter()
+                .filter(|f| f.spectrum_q <= 0.01)
+                .copied()
+                .collect();
+            let psms_1pct_count = psms_1pct.len();
+
+            // Unique peptides at 1% FDR
+            let unique_peptides: HashSet<PeptideIx> = psms_1pct
+                .iter()
+                .map(|f| f.peptide_idx)
+                .collect();
+            let peptides_1pct_count = unique_peptides.len();
+
+            // Unique proteins at 1% FDR
+            let unique_proteins: HashSet<&str> = psms_1pct
+                .iter()
+                .flat_map(|f| {
+                    self.database[f.peptide_idx]
+                        .proteins(&self.database.decoy_tag, self.database.generate_decoys)
+                        .split(';')
+                })
+                .collect();
+            let proteins_1pct_count = unique_proteins.len();
+
+            // Median calculations for PSMs at 1% FDR
+            let median_precursor_ppm = if !psms_1pct.is_empty() {
+                let mut ppm_values: Vec<f32> = psms_1pct
+                    .iter()
+                    .map(|f| {
+                        // Calculate precursor ppm from delta_mass
+                        (f.delta_mass / f.calcmass) * 1_000_000.0
+                    })
+                    .collect();
+                ppm_values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                ppm_values[ppm_values.len() / 2]
+            } else {
+                0.0
+            };
+
+            let median_fragment_ppm = if !psms_1pct.is_empty() {
+                let mut ppm_values: Vec<f32> = psms_1pct
+                    .iter()
+                    .map(|f| f.average_ppm)
+                    .collect();
+                ppm_values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                ppm_values[ppm_values.len() / 2]
+            } else {
+                0.0
+            };
+
+            let median_rt = if !psms_1pct.is_empty() {
+                let mut rt_values: Vec<f32> = psms_1pct.iter().map(|f| f.rt).collect();
+                rt_values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                rt_values[rt_values.len() / 2]
+            } else {
+                0.0
+            };
+
+            let median_ms2_intensity = if !psms_1pct.is_empty() {
+                let mut intensity_values: Vec<f32> =
+                    psms_1pct.iter().map(|f| f.ms2_intensity).collect();
+                intensity_values
+                    .sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                intensity_values[intensity_values.len() / 2]
+            } else {
+                0.0
+            };
+
+            // Write record
+            let mut record = csv::ByteRecord::new();
+            record.push_field(filename.as_bytes());
+            record.push_field(itoa::Buffer::new().format(total_psms).as_bytes());
+            record.push_field(itoa::Buffer::new().format(psms_1pct_count).as_bytes());
+            record.push_field(itoa::Buffer::new().format(peptides_1pct_count).as_bytes());
+            record.push_field(itoa::Buffer::new().format(proteins_1pct_count).as_bytes());
+            record.push_field(ryu::Buffer::new().format(median_precursor_ppm).as_bytes());
+            record.push_field(ryu::Buffer::new().format(median_fragment_ppm).as_bytes());
+            record.push_field(ryu::Buffer::new().format(median_rt).as_bytes());
+            record.push_field(ryu::Buffer::new().format(median_ms2_intensity).as_bytes());
+            wtr.write_byte_record(&record)?;
+        }
+
+        wtr.flush()?;
+        let bytes = wtr.into_inner()?;
+        path.write_bytes_sync(bytes)?;
+        info!("wrote QC statistics to {}", path);
         Ok(path.to_string())
     }
 
