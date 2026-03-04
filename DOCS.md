@@ -160,7 +160,7 @@ For additional information about configuration options and output file formats, 
       "min_len": 5,           // Optional[int] {default=5}, Minimum AA length of peptides to search
       "max_len": 50,          // Optional[int] {default=50}, Maximum AA length of peptides to search
       "cleave_at": "KR",      // Optional[str] {default='KR'}. Amino acids to cleave at
-      "restrict": "P",        // Optional[char/single AA] {default='P'}. Do not cleave if this AA follows the cleavage site
+      "restrict": "P",        // Optional[str] {default='P'}. Do not cleave if one of these AAs follows the cleavage site
       "c_terminal": false,      // Optional[bool] {default=true}. Cleave at c terminus of matching amino acid
       "semi_enzymatic": false      // Optional[bool] {default=false}. Generate semi-enzymatic peptides
     },
@@ -270,7 +270,7 @@ The enzyme section contains parameters related to the enzyme used for digestion.
 - **min_len**: Integer. The minimum amino acid (AA) length of peptides to search (default: 5).
 - **max_len**: Integer. The maximum AA length of peptides to search (default: 50).
 - **cleave_at**: String. Amino acids to cleave at (default: 'KR').
-- **restrict**: Single character string. Do not cleave if this amino acid follows the cleavage site (default: 'P').
+- **restrict**: String. Do not cleave if one of these amino acids follows the cleavage site (default: 'P').
 - **c_terminal**: Boolean. Cleave at the C-terminus of matching amino acids (default:true).
 
 Example: 

@@ -122,13 +122,13 @@ pub struct EnzymeParameters {
     pub min_len: usize,
     /// Inclusive
     pub max_len: usize,
-    pub enyzme: Option<Enzyme>,
+    pub enzyme: Option<Enzyme>,
 }
 
 #[derive(Clone)]
 pub struct Enzyme {
-    // Skip cleaving if the site is followed matching this AA
-    pub skip_suffix: Option<char>,
+    // Skip cleaving if the site is followed by one of these AAs
+    pub skip_suffix: [bool; 26],
     // Regex for matching cleavage sites
     regex: Regex,
     // Cleave at c-terminal?
@@ -150,7 +150,7 @@ pub struct DigestSite {
 impl Enzyme {
     pub fn new(
         cleave: &str,
-        skip_suffix: Option<char>,
+        skip_suffix: &str,
         c_terminal: bool,
         semi_enzymatic: bool,
     ) -> Option<Self> {
@@ -160,11 +160,9 @@ impl Enzyme {
             cleave
         );
         assert!(
-            skip_suffix
-                .map(|x| VALID_AA.contains(&(x as u8)))
-                .unwrap_or(true),
-            "Enzyme cleavage restriction is non-amino acid character: {}",
-            skip_suffix.unwrap(),
+            skip_suffix.chars().all(|x| VALID_AA.contains(&(x as u8))),
+            "Enzyme cleavage restriction contains non-amino acid characters: {}",
+            skip_suffix,
         );
 
         // At this point, cleave can be three things: empty, "$", or a string of valid AA's
@@ -172,7 +170,7 @@ impl Enzyme {
             "" => None,
             "$" => Some(Enzyme {
                 regex: Regex::new("$").unwrap(),
-                skip_suffix: None,
+                skip_suffix: [false; 26],
                 // Allowing this to be set to false could cause unexpected behavior
                 c_terminal: true,
                 // Do not allow strange behavior
@@ -180,7 +178,13 @@ impl Enzyme {
             }),
             _ => Some(Enzyme {
                 regex: Regex::new(&format!("[{}]", cleave.replace('?', ""))).unwrap(),
-                skip_suffix,
+                skip_suffix: {
+                    let mut arr = [false; 26];
+                    for b in skip_suffix.bytes() {
+                        arr[(b - b'A') as usize] = true;
+                    }
+                    arr
+                },
                 c_terminal,
                 semi_enzymatic,
             }),
@@ -195,10 +199,8 @@ impl Enzyme {
                 true => mat.end(),
                 false => mat.start(),
             };
-            if let Some(skip) = self.skip_suffix {
-                if right < sequence.len() && sequence[right..].starts_with(skip) {
-                    continue;
-                }
+            if sequence.as_bytes().get(right).map_or(false, |b| self.skip_suffix[(b - b'A') as usize]) {
+                continue;
             }
             sites.push(DigestSite {
                 site: left..right,
@@ -218,7 +220,7 @@ impl Enzyme {
 
 impl EnzymeParameters {
     pub fn cleavage_sites(&self, sequence: &str) -> Vec<DigestSite> {
-        match &self.enyzme {
+        match &self.enzyme {
             Some(enzyme) => enzyme.cleavage_sites(sequence),
             None => {
                 // Perform a non-specific digest
@@ -260,7 +262,7 @@ impl EnzymeParameters {
     }
 
     fn is_semi_enzymatic(&self) -> bool {
-        match &self.enyzme {
+        match &self.enzyme {
             Some(enzyme) => enzyme.semi_enzymatic,
             None => false,
         }
@@ -297,7 +299,7 @@ impl EnzymeParameters {
         let mut sites = self.cleavage_sites(sequence);
         // Allowing missed_cleavages with non-specific digest causes OOB panics
         // in the below indexing code
-        let missed_cleavages = match self.enyzme {
+        let missed_cleavages = match self.enzyme {
             None => 0,
             _ => self.missed_cleavages,
         };
@@ -420,7 +422,7 @@ mod test {
             min_len: 2,
             max_len: 50,
             missed_cleavages: 0,
-            enyzme: Enzyme::new("KR", Some('P'), true, false),
+            enzyme: Enzyme::new("KR", "P", true, false),
         };
 
         assert_eq!(
@@ -453,7 +455,7 @@ mod test {
             min_len: 0,
             max_len: 50,
             missed_cleavages: 1,
-            enyzme: Enzyme::new("KR", Some('P'), true, false),
+            enzyme: Enzyme::new("KR", "P", true, false),
         };
 
         assert_eq!(
@@ -490,7 +492,7 @@ mod test {
             min_len: 0,
             max_len: 50,
             missed_cleavages: 2,
-            enyzme: Enzyme::new("KR", Some('P'), true, false),
+            enzyme: Enzyme::new("KR", "P", true, false),
         };
 
         assert_eq!(
@@ -518,7 +520,7 @@ mod test {
             min_len: 2,
             max_len: 50,
             missed_cleavages: 0,
-            enyzme: Enzyme::new("KR", None, true, false),
+            enzyme: Enzyme::new("KR", "", true, false),
         };
 
         assert_eq!(
@@ -539,7 +541,7 @@ mod test {
             min_len: 1,
             max_len: 50,
             missed_cleavages: 0,
-            enyzme: Enzyme::new("D", None, false, false),
+            enzyme: Enzyme::new("D", "", false, false),
         };
 
         assert_eq!(
@@ -568,7 +570,7 @@ mod test {
             min_len: 1,
             max_len: 50,
             missed_cleavages: 0,
-            enyzme: Enzyme::new("FYWL", None, true, false),
+            enzyme: Enzyme::new("FYWL", "", true, false),
         };
 
         assert_eq!(
@@ -594,7 +596,7 @@ mod test {
             min_len: 5,
             max_len: 5,
             missed_cleavages: 0,
-            enyzme: None,
+            enzyme: None,
         };
 
         assert_eq!(
@@ -623,7 +625,7 @@ mod test {
             min_len: 5,
             max_len: 7,
             missed_cleavages: 0,
-            enyzme: Enzyme::new("", None, true, false),
+            enzyme: Enzyme::new("", "", true, false),
         };
 
         assert_eq!(
@@ -644,7 +646,7 @@ mod test {
             min_len: 0,
             max_len: usize::MAX,
             missed_cleavages: 0,
-            enyzme: Enzyme::new("$", None, true, false),
+            enzyme: Enzyme::new("$", "", true, false),
         };
 
         assert_eq!(
@@ -665,7 +667,7 @@ mod test {
             min_len: 2,
             max_len: usize::MAX,
             missed_cleavages: 0,
-            enyzme: Enzyme::new("KR", None, true, false),
+            enzyme: Enzyme::new("KR", "", true, false),
         };
 
         assert_eq!(
@@ -688,7 +690,7 @@ mod test {
             min_len: 2,
             max_len: 50,
             missed_cleavages: 0,
-            enyzme: Enzyme::new("KR", None, true, true),
+            enzyme: Enzyme::new("KR", "P", true, true),
         };
 
         assert_eq!(
@@ -738,7 +740,7 @@ mod test {
             min_len: 3,
             max_len: 50,
             missed_cleavages: 1,
-            enyzme: Enzyme::new("KR", None, true, true),
+            enzyme: Enzyme::new("KR", "P", true, true),
         };
 
         for (digest, expected) in tryp
@@ -794,7 +796,7 @@ mod test {
             min_len: 3,
             max_len: 50,
             missed_cleavages: 2,
-            enyzme: Enzyme::new("KR", None, true, true),
+            enzyme: Enzyme::new("KR", "", true, true),
         };
 
         for digest in tryp.digest(&sequence, Arc::default()) {
