@@ -1,4 +1,5 @@
 use clap::{value_parser, Arg, Command, ValueHint};
+use rayon::ThreadPoolBuilder;
 use sage_cli::input::Input;
 use sage_cli::runner::Runner;
 
@@ -88,6 +89,13 @@ fn main() -> anyhow::Result<()> {
                 .action(clap::ArgAction::SetFalse)
                 .help("Disable sending telemetry data"),
         )
+        .arg(
+            Arg::new("stack-size")
+                .long("stack-size")
+                .value_parser(value_parser!(u32).range(1..))
+                .help("Set Rayon worker thread stack size in MiB (default: 2 MiB)")
+                .value_hint(ValueHint::Other),
+        )
         .help_template(
             "{usage-heading} {usage}\n\n\
              {about-with-newline}\n\
@@ -95,6 +103,17 @@ fn main() -> anyhow::Result<()> {
              {all-args}{after-help}",
         )
         .get_matches();
+
+    let stack_size_mib = matches.get_one::<u32>("stack-size").copied().unwrap_or(2);
+    let stack_size_bytes = stack_size_mib as usize * 1024 * 1024;
+    log::trace!(
+        "setting Rayon worker thread stack size to {} MiB",
+        stack_size_mib
+    );
+    ThreadPoolBuilder::new()
+        .stack_size(stack_size_bytes)
+        .build_global()
+        .expect("configure Rayon pool");
 
     let parallel = matches
         .get_one::<u16>("batch-size")
