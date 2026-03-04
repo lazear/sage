@@ -6,7 +6,7 @@ use csv::ByteRecord;
 use log::info;
 use rayon::prelude::*;
 use sage_cloudpath::{CloudPath, FileFormat};
-use sage_core::database::{IndexedDatabase, Parameters, PeptideIx};
+use sage_core::database::{IndexedDatabase, Parameters};
 use sage_core::fasta::Fasta;
 use sage_core::ion_series::Kind;
 use sage_core::lfq::{Peak, PrecursorId};
@@ -149,7 +149,7 @@ impl Runner {
                 false => None,
             };
 
-        let mut db_params = self.parameters.database.clone();
+        let db_params = self.parameters.database.clone();
         // TODO: Don't generate decoys for fast searching
         // * if `generate_decoys` is used, we should re-generate at the end
         //  to ensure that picked-peptide conditions are used, otherwise,
@@ -1317,7 +1317,7 @@ impl Runner {
                 let mut total_lfq_intensities = Vec::new();
                 for i in 0..filenames.len() {
                     let mut intensities = Vec::new();
-                    for ((id, decoy), (peak, data)) in areas {
+                    for ((_id, decoy), (peak, data)) in areas {
                         if !decoy && peak.q_value <= global_q_value_filter {
                             intensities.push(data[i] as f32);
                         }
