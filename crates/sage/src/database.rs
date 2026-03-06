@@ -21,7 +21,7 @@ pub struct EnzymeBuilder {
     /// Maximum peptide length that will be fragmented
     pub max_len: Option<usize>,
     pub cleave_at: Option<String>,
-    pub restrict: Option<char>,
+    pub restrict: Option<String>,
     pub c_terminal: Option<bool>,
     pub semi_enzymatic: Option<bool>,
 }
@@ -33,7 +33,7 @@ impl Default for EnzymeBuilder {
             min_len: Some(5),
             max_len: Some(50),
             cleave_at: Some("KR".into()),
-            restrict: Some('P'),
+            restrict: Some("P".into()),
             c_terminal: Some(true),
             semi_enzymatic: Some(false),
         }
@@ -46,9 +46,9 @@ impl From<EnzymeBuilder> for EnzymeParameters {
             missed_cleavages: en.missed_cleavages.unwrap_or(1),
             min_len: en.min_len.unwrap_or(5),
             max_len: en.max_len.unwrap_or(50),
-            enyzme: Enzyme::new(
+            enzyme: Enzyme::new(
                 &en.cleave_at.unwrap_or_else(|| "KR".into()),
-                en.restrict,
+                &en.restrict.unwrap_or_else(|| "".into()),
                 en.c_terminal.unwrap_or(true),
                 en.semi_enzymatic.unwrap_or(false),
             ),

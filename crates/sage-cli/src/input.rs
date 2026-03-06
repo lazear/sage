@@ -357,6 +357,8 @@ impl Input {
 
 #[cfg(test)]
 mod test {
+
+
     use sage_core::{database::EnzymeBuilder, enzyme::EnzymeParameters};
 
     #[test]
@@ -368,12 +370,22 @@ mod test {
             "cleave_at": "KR",
             "restrict": "P",
         }))?;
+        let c: EnzymeBuilder = serde_json::from_value(serde_json::json!({
+            "cleave_at": "KR",
+            "restrict": "",
+        }))?;
 
         let a: EnzymeParameters = a.into();
         let b: EnzymeParameters = b.into();
+        let c: EnzymeParameters = c.into();
 
-        assert_eq!(a.enyzme.and_then(|e| e.skip_suffix), None);
-        assert_eq!(b.enyzme.and_then(|e| e.skip_suffix), Some('P'));
+        assert_eq!(a.enzyme.map(|e| e.skip_suffix), Some([false; 26]));
+        {
+            let mut expected = [false; 26];
+            expected[(b'P' - b'A') as usize] = true;
+            assert_eq!(b.enzyme.map(|e| e.skip_suffix), Some(expected));
+        }
+        assert_eq!(c.enzyme.map(|e| e.skip_suffix), Some([false; 26]));
 
         Ok(())
     }
