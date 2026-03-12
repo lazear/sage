@@ -549,17 +549,17 @@ impl Runner {
         // are reported with protein FDR = 1.0
         let q_protein = sage_core::fdr::picked_protein(&self.database, &mut outputs.features);
         // Conducts "IDPicker-based protein grouping at 1% peptide FDR"
-        sage_core::protein_grouping::generate_proteingroups(
+        sage_core::protein_grouping::generate_protein_groups(
             &self.database,
             &mut outputs.features,
             self.parameters.protein_grouping,
             Some(self.parameters.protein_grouping_peptide_fdr),
         );
-        // Uses the "Picked Group FDR" approach to compute proteingroup FDR for the IDPicker groups,
+        // Uses the "Picked Group FDR" approach to compute protein group FDR for the IDPicker groups,
         // including rescued subset grouping (rsG). Shared peptides (between different groups)
-        // are reported with proteingroup FDR = 1.0
-        let q_proteingroup =
-            sage_core::fdr::picked_proteingroup(&self.database, &mut outputs.features);
+        // are reported with protein group FDR = 1.0
+        let q_protein_group =
+            sage_core::fdr::picked_protein_group(&self.database, &mut outputs.features);
 
         let filenames = self
             .parameters
@@ -601,8 +601,8 @@ impl Runner {
             q_protein
         );
         log::info!(
-            "discovered {} target proteingroups (supported by proteotypic peptides only) at 1% FDR",
-            q_proteingroup
+            "discovered {} target protein groups (supported by proteotypic peptides only) at 1% FDR",
+            q_protein_group
         );
         log::trace!("writing outputs");
 
@@ -709,7 +709,7 @@ impl Runner {
                 .proteins(&self.database.decoy_tag, self.database.generate_decoys)
                 .as_bytes(),
         );
-        record.push_field(feature.proteingroups.as_ref().unwrap().as_bytes());
+        record.push_field(feature.protein_groups.as_ref().unwrap().as_bytes());
         record.push_field(
             itoa::Buffer::new()
                 .format(peptide.proteins.len())
@@ -717,7 +717,7 @@ impl Runner {
         );
         record.push_field(
             itoa::Buffer::new()
-                .format(feature.num_proteingroups)
+                .format(feature.num_protein_groups)
                 .as_bytes(),
         );
         record.push_field(filenames[feature.file_id].as_bytes());
@@ -783,7 +783,7 @@ impl Runner {
         record.push_field(ryu::Buffer::new().format(feature.spectrum_q).as_bytes());
         record.push_field(ryu::Buffer::new().format(feature.peptide_q).as_bytes());
         record.push_field(ryu::Buffer::new().format(feature.protein_q).as_bytes());
-        record.push_field(ryu::Buffer::new().format(feature.proteingroup_q).as_bytes());
+        record.push_field(ryu::Buffer::new().format(feature.protein_group_q).as_bytes());
         record.push_field(ryu::Buffer::new().format(feature.ms2_intensity).as_bytes());
         record
     }
@@ -851,9 +851,9 @@ impl Runner {
             "psm_id",
             "peptide",
             "proteins",
-            "proteingroups",
+            "protein_groups",
             "num_proteins",
-            "num_proteingroups",
+            "num_protein_groups",
             "filename",
             "scannr",
             "rank",
@@ -889,7 +889,7 @@ impl Runner {
             "spectrum_q",
             "peptide_q",
             "protein_q",
-            "proteingroup_q",
+            "protein_group_q",
             "ms2_intensity",
         ];
 

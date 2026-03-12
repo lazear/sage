@@ -21,7 +21,7 @@
 //! minimal covering set ("Slim").
 //!
 //! ## Usage
-//! Use [`generate_proteingroups`] to annotate features with protein group information
+//! Use [`generate_protein_groups`] to annotate features with protein group information
 //! based on the provided indexed database and peptide identifications.
 //!
 //! ## Parallelization
@@ -372,7 +372,7 @@ impl ProteinGroupMap {
     }
 }
 
-pub fn generate_proteingroups(
+pub fn generate_protein_groups(
     db: &IndexedDatabase,
     features: &mut [Feature],
     protein_grouping: bool,
@@ -381,20 +381,20 @@ pub fn generate_proteingroups(
     let time = Instant::now();
     if protein_grouping {
         if confident_peptide_threshold.is_some() {
-            update_features_with_proteingroups(features, db, confident_peptide_threshold);
+            update_features_with_protein_groups(features, db, confident_peptide_threshold);
         }
-        update_features_with_proteingroups(features, db, None);
+        update_features_with_protein_groups(features, db, None);
     }
     features
         .par_iter_mut()
-        .filter(|f| f.proteingroups.is_none())
+        .filter(|f| f.protein_groups.is_none())
         .for_each(|feat| {
             let pep = &db[feat.peptide_idx];
-            let proteingroups =
+            let protein_groups =
                 annotate_proteins(&pep.proteins, &db.decoy_tag, db.generate_decoys, pep.decoy)
                     .collect::<Vec<_>>();
-            feat.proteingroups = Some(proteingroups.iter().sorted().join(";"));
-            feat.num_proteingroups = proteingroups.len() as i32;
+            feat.protein_groups = Some(protein_groups.iter().sorted().join(";"));
+            feat.num_protein_groups = protein_groups.len() as u32;
         });
     info!(
         "Grouped and inferred proteins in {:?}ms",
@@ -402,7 +402,7 @@ pub fn generate_proteingroups(
     );
 }
 
-fn update_features_with_proteingroups(
+fn update_features_with_protein_groups(
     features: &mut [Feature],
     db: &IndexedDatabase,
     confident_peptide_threshold: Option<f32>,
@@ -445,13 +445,13 @@ fn update_features_with_proteingroups(
     let counter = AtomicUsize::new(0);
     features
         .par_iter_mut()
-        .filter(|feat| feat.proteingroups.is_none())
+        .filter(|feat| feat.protein_groups.is_none())
         .for_each(|feat| {
             let pep = &db[feat.peptide_idx];
-            let proteingroups = protein_map.get_protein_group_string(pep, db);
-            if !proteingroups.is_empty() {
-                feat.proteingroups = Some(proteingroups.iter().sorted().join(";"));
-                feat.num_proteingroups = proteingroups.len() as i32;
+            let protein_groups = protein_map.get_protein_group_string(pep, db);
+            if !protein_groups.is_empty() {
+                feat.protein_groups = Some(protein_groups.iter().sorted().join(";"));
+                feat.num_protein_groups = protein_groups.len() as u32;
                 counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
         });
@@ -540,7 +540,7 @@ mod test {
         let (proteins, decoys, q_vals) = get_data();
         // let protein_slices = proteins.iter().map(|v| v.as_slice()).collect::<Vec<_>>();
         let (db, mut features) = build_db_and_features(&proteins, &decoys, &q_vals);
-        generate_proteingroups(&db, &mut features, true, Some(0.01));
+        generate_protein_groups(&db, &mut features, true, Some(0.01));
         let expected = vec![
             "protein_7",
             "protein_4/protein_9;protein_6",
@@ -560,7 +560,7 @@ mod test {
         let actual = features
             .into_iter()
             .enumerate()
-            .map(|(i, v)| (i + 1, v.proteingroups.unwrap()))
+            .map(|(i, v)| (i + 1, v.protein_groups.unwrap()))
             .collect::<Vec<_>>();
         // Compare actual and expected
         for (a, e) in actual.iter().zip(expected.iter()) {

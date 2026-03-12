@@ -138,12 +138,12 @@ pub struct Feature {
     pub spectrum_q: f32,
     pub peptide_q: f32,
     pub protein_q: f32,
-    pub proteingroup_q: f32,
+    pub protein_group_q: f32,
 
     pub ms2_intensity: f32,
 
-    pub proteingroups: Option<String>,
-    pub num_proteingroups: i32,
+    pub protein_groups: Option<String>,
+    pub num_protein_groups: u32,
 
     pub fragments: Option<Fragments>,
 }
@@ -584,10 +584,10 @@ impl<'db> Scorer<'db> {
                 ms2_intensity: score.summed_b + score.summed_y,
 
                 //Fragments
-                proteingroups: None,
-                num_proteingroups: 0,
+                protein_groups: None,
+                num_protein_groups: 0,
                 fragments,
-                proteingroup_q: 1.0,
+                protein_group_q: 1.0,
             })
         }
     }

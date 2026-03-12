@@ -183,22 +183,22 @@ pub fn picked_protein(db: &IndexedDatabase, features: &mut [Feature]) -> usize {
     passing
 }
 
-pub fn picked_proteingroup(db: &IndexedDatabase, features: &mut [Feature]) -> usize {
+pub fn picked_protein_group(db: &IndexedDatabase, features: &mut [Feature]) -> usize {
     // Critical: All non-proteotypic, non-unique, or shared peptides are discarded
     // else the assumptions of picked group FDR are invalid. Shared peptides are
-    // still reported, albeit with proteingroup FDR = 1.0
+    // still reported, albeit with protein group FDR = 1.0
     let mut map: FnvHashMap<_, Competition<String>> = FnvHashMap::default();
-    for feat in features.iter().filter(|x| x.num_proteingroups == 1) {
+    for feat in features.iter().filter(|x| x.num_protein_groups == 1) {
         let decoy = db[feat.peptide_idx].decoy;
-        let entry = map.entry(feat.proteingroups.clone()).or_default();
+        let entry = map.entry(feat.protein_groups.clone()).or_default();
         match decoy {
             true => {
                 entry.reverse = entry.reverse.max(feat.discriminant_score);
-                entry.reverse_ix = feat.proteingroups.clone();
+                entry.reverse_ix = feat.protein_groups.clone();
             }
             false => {
                 entry.forward = entry.forward.max(feat.discriminant_score);
-                entry.foward_ix = feat.proteingroups.clone();
+                entry.foward_ix = feat.protein_groups.clone();
             }
         }
     }
@@ -207,10 +207,10 @@ pub fn picked_proteingroup(db: &IndexedDatabase, features: &mut [Feature]) -> us
 
     features
         .par_iter_mut()
-        .filter(|x| x.num_proteingroups == 1)
+        .filter(|x| x.num_protein_groups == 1)
         .for_each(|feat| {
-            let proteingroups = feat.proteingroups.as_ref().unwrap().as_str().to_string();
-            feat.proteingroup_q = scores[&proteingroups];
+            let protein_groups = feat.protein_groups.as_ref().unwrap().as_str().to_string();
+            feat.protein_group_q = scores[&protein_groups];
         });
 
     passing
