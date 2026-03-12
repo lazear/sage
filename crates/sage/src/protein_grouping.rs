@@ -1,376 +1,299 @@
-//! # Protein Grouping and Inference
+//! Protein grouping and inference using IDPicker-style bipartite graph analysis
 //!
-//! This module provides functionality for grouping proteins based on peptide evidence
-//! and performing protein inference for proteomics data analysis. It supports grouping
-//! proteins and inferring (almost) minimal covering sets and annotating features with
-//! their corresponding protein groups.
+//! Proteins with identical peptide evidence are collapsed into groups, then a
+//! greedy set cover finds an (almost) minimal set of protein groups that
+//! explains all observed peptides.
 //!
-//! ## Main Features
-//! - Groups proteins when peptide evidence for proteins is identical.
-//! - Infers (almost) minimal protein-group covers using bipartite graph algorithms.
-//! - Supports different protein inference strategies (e.g., "All", "Slim").
-//! - Annotates features with protein group information in parallel for efficiency.
-//! - Handles decoy proteins and supports deterministic group naming.
-//!
-//! ## Key Types
-//! - `ProteinGroup`: Represents a group of proteins with identical peptide evidence.
-//! - `ProteinGrouping`: Builds protein groups and manages peptide-to-protein mapping.
-//! - `ProteinGroupMap`: Maps proteins to their groups for annotation.
-//! - `ProteinInference`: Enum specifying the strategy for protein inference,
-//! such as reporting all possible protein groups ("All") or inferring an (almost)
-//! minimal covering set ("Slim").
-//!
-//! ## Usage
-//! Use [`generate_protein_groups`] to annotate features with protein group information
-//! based on the provided indexed database and peptide identifications.
-//!
-//! ## Parallelization
-//! The module leverages Rayon for parallel processing of features to improve performance
-//! on large datasets.
-//!
-//! ## Dependencies
-//! Relies on FnvHashMap/FnvHashSet for efficient hashing, Rayon for parallelism, and
-//! Itertools for convenient iterator utilities.
-//!
-//! ## References
-// 1. Zhang, B., Chambers, M. C., & Tabb, D. L. (2007). Proteomic parsimony through
-// bipartite graph analysis improves accuracy and transparency. Journal of proteome research,
-// 6(9), 3549-3557. https://doi.org/10.1021/pr070230d
-//!
+//! Reference: Zhang, B., Chambers, M. C., & Tabb, D. L. (2007). Proteomic
+//! parsimony through bipartite graph analysis improves accuracy and transparency.
+//! J. Proteome Res., 6(9), 3549-3557. https://doi.org/10.1021/pr070230d
 
 use crate::database::{IndexedDatabase, PeptideIx};
-use crate::peptide::Peptide;
 use crate::scoring::Feature;
 use fnv::{FnvHashMap, FnvHashSet};
 use itertools::Itertools;
 use log::info;
 use rayon::prelude::*;
-use std::hash::Hash;
 use std::sync::Arc;
 use std::time::Instant;
 
-const PROTEIN_INFERENCE: ProteinInference = ProteinInference::Slim;
-
+/// Compact protein identifier used during grouping
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 struct ProteinIx(u32);
 
 impl ProteinIx {
-    fn to_string(
-        self,
-        protein_map: &[(Arc<str>, bool)],
-        decoy_tag: &str,
-        generate_decoys: bool,
-    ) -> String {
-        let (prot, decoy) = &protein_map[self.0 as usize];
+    fn format(&self, proteins: &[(Arc<str>, bool)], decoy_tag: &str, generate_decoys: bool) -> String {
+        let (name, decoy) = &proteins[self.0 as usize];
         if *decoy && generate_decoys {
-            format!("{}{}", decoy_tag, prot)
+            format!("{}{}", decoy_tag, name)
         } else {
-            prot.to_string()
+            name.to_string()
         }
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Default, PartialOrd, Ord)]
+/// A group of proteins with identical peptide evidence
+#[derive(Debug, Default, PartialEq, Eq, Hash, Clone, PartialOrd, Ord)]
 struct ProteinGroup(Vec<ProteinIx>);
 
 impl ProteinGroup {
-    fn to_string(
-        &self,
-        protein_map: &[(Arc<str>, bool)],
-        decoy_tag: &str,
-        generate_decoys: bool,
-    ) -> String {
+    fn format(&self, proteins: &[(Arc<str>, bool)], decoy_tag: &str, generate_decoys: bool) -> String {
         self.0
             .iter()
-            .map(|prot_ix| prot_ix.to_string(protein_map, decoy_tag, generate_decoys))
+            .map(|ix| ix.format(proteins, decoy_tag, generate_decoys))
             .sorted()
             .join("/")
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub enum ProteinInference {
-    All,
-    #[default]
-    Slim,
-}
-
-impl ProteinInference {
-    fn infer(
-        &self,
-        connections: Vec<(u32, u32)>,
-        peptide_count: usize,
-        protein_count: usize,
-    ) -> Vec<bool> {
-        match self {
-            ProteinInference::All => vec![true; protein_count],
-            ProteinInference::Slim => {
-                let mut graph = BipartiteGraph::new(connections, protein_count, peptide_count);
-                while !graph.is_empty() {
-                    graph.trim_connections();
-                    if !graph.is_empty() {
-                        graph.add_biggest_left_to_cover();
-                    }
-                }
-                graph.left_cover
-            }
-        }
-    }
-}
-
+/// Bipartite graph for greedy set cover of proteins (left) to peptides (right)
 struct BipartiteGraph {
-    connections: Vec<(u32, u32)>,
-    original_left: Vec<u32>,
-    remaining_left: Vec<u32>,
-    remaining_right: Vec<u32>,
+    edges: Vec<(u32, u32)>,
+    /// Degree of each left node at construction time (tiebreaker)
+    original_degree: Vec<u32>,
+    /// Current degree of each left node
+    left_degree: Vec<u32>,
+    /// Current degree of each right node
+    right_degree: Vec<u32>,
+    /// Whether each left node is in the cover
     left_cover: Vec<bool>,
+    /// Whether each right node is covered
     right_cover: Vec<bool>,
 }
 
 impl BipartiteGraph {
-    fn new(connections: Vec<(u32, u32)>, left_size: usize, right_size: usize) -> Self {
-        let mut remaining_left = vec![0; left_size];
-        let mut remaining_right = vec![0; right_size];
-        connections.iter().for_each(|(l, r)| {
-            remaining_left[*l as usize] += 1;
-            remaining_right[*r as usize] += 1;
-        });
-        let left_cover = vec![false; left_size];
-        let right_cover = vec![false; right_size];
+    fn new(edges: Vec<(u32, u32)>, left_count: usize, right_count: usize) -> Self {
+        let mut left_degree = vec![0u32; left_count];
+        let mut right_degree = vec![0u32; right_count];
+        for &(l, r) in &edges {
+            left_degree[l as usize] += 1;
+            right_degree[r as usize] += 1;
+        }
         Self {
-            connections,
-            original_left: remaining_left.clone(),
-            remaining_left,
-            remaining_right,
-            left_cover,
-            right_cover,
+            edges,
+            original_degree: left_degree.clone(),
+            left_degree,
+            right_degree,
+            left_cover: vec![false; left_count],
+            right_cover: vec![false; right_count],
         }
     }
 
-    fn is_empty(&self) -> bool {
-        self.connections.is_empty()
+    /// Compute a greedy minimal cover of left nodes that explains all right nodes
+    fn into_cover(mut self) -> Vec<bool> {
+        while !self.edges.is_empty() {
+            self.trim();
+            if !self.edges.is_empty() {
+                self.add_largest_to_cover();
+            }
+        }
+        self.left_cover
     }
 
-    fn remove_edge(&mut self, left_index: usize, right_index: usize) {
-        self.remaining_left[left_index] -= 1;
-        self.remaining_right[right_index] -= 1;
-    }
+    /// Iteratively add left nodes connected to degree-1 right nodes (unique
+    /// peptides force their protein into the cover), then remove all edges
+    /// incident to covered nodes.
+    fn trim(&mut self) {
+        let mut prev_len = 0;
+        while prev_len != self.edges.len() {
+            prev_len = self.edges.len();
 
-    fn trim_connections(&mut self) {
-        let mut connections = std::mem::take(&mut self.connections);
-        let mut connection_count = 0;
-        while connection_count != connections.len() {
-            connection_count = connections.len();
-            connections.iter().for_each(|(left_index, right_index)| {
-                let left_index = *left_index as usize;
-                let right_index = *right_index as usize;
-                if self.remaining_right[right_index] == 1 {
-                    self.left_cover[left_index] = true;
+            // Any right node with degree 1 forces its left neighbor into the cover
+            for &(l, r) in &self.edges {
+                if self.right_degree[r as usize] == 1 {
+                    self.left_cover[l as usize] = true;
                 }
-            });
-            connections.retain(|(left_index, right_index)| {
-                let left_index = *left_index as usize;
-                let right_index = *right_index as usize;
-                if self.left_cover[left_index] {
-                    self.right_cover[right_index] = true;
-                    self.remove_edge(left_index, right_index);
+            }
+
+            // Remove edges where the left node is now covered
+            self.edges.retain(|&(l, r)| {
+                if self.left_cover[l as usize] {
+                    self.right_cover[r as usize] = true;
+                    self.left_degree[l as usize] -= 1;
+                    self.right_degree[r as usize] -= 1;
                     false
                 } else {
                     true
                 }
             });
-            connections.retain(|(left_index, right_index)| {
-                let left_index = *left_index as usize;
-                let right_index = *right_index as usize;
-                if self.right_cover[right_index] {
-                    self.remove_edge(left_index, right_index);
+
+            // Remove edges where the right node is already covered
+            self.edges.retain(|&(l, r)| {
+                if self.right_cover[r as usize] {
+                    self.left_degree[l as usize] -= 1;
+                    self.right_degree[r as usize] -= 1;
                     false
                 } else {
                     true
                 }
             });
         }
-        self.connections = connections;
     }
 
-    /// Add the protein with the most remaining connections to the cover.
-    /// Ties are broken by original connection count (prefer proteins with
-    /// more total peptide evidence).
-    fn add_biggest_left_to_cover(&mut self) {
-        if let Some((index, _)) = self
-            .remaining_left
+    /// Add the left node with the most remaining connections to the cover.
+    /// Ties broken by original degree (prefer proteins with more total evidence).
+    fn add_largest_to_cover(&mut self) {
+        if let Some((idx, _)) = self
+            .left_degree
             .iter()
-            .zip(&self.original_left)
+            .zip(&self.original_degree)
             .enumerate()
             .max_by_key(|(_, (remaining, original))| (*remaining, *original))
         {
-            self.left_cover[index] = true;
+            self.left_cover[idx] = true;
         }
     }
 }
 
-#[derive(Debug, Default)]
-struct ProteinGrouping {
-    protein_groups: Vec<ProteinGroup>,
-    connections: Vec<(u32, u32)>,
-    prot_name_map: FnvHashMap<(Arc<str>, bool), ProteinIx>,
-    protein_cover: Vec<bool>,
+/// Assigns proteins to integer indices and groups them by shared peptide evidence
+struct ProteinGrouper {
+    /// Map from (protein_name, is_decoy) -> ProteinIx
+    protein_index: FnvHashMap<(Arc<str>, bool), ProteinIx>,
+    /// Protein groups discovered by collapsing identical evidence
+    groups: Vec<ProteinGroup>,
+    /// Edges from group index -> meta-peptide index
+    edges: Vec<(u32, u32)>,
+    /// Number of distinct peptides
     peptide_count: usize,
 }
 
-impl ProteinGrouping {
-    fn new(db: &IndexedDatabase, peps: FnvHashSet<PeptideIx>) -> Self {
-        let mut mapping = Self::default();
-        mapping.peptide_count = peps.len();
-        let time = Instant::now();
-        let meta_peptides = mapping.set_proteins_and_get_metapeptides(peps, db);
-        info!(
-            "-  found {} meta peptides in {:?}ms",
-            meta_peptides.len(),
-            time.elapsed().as_millis()
-        );
-        let time = Instant::now();
-        mapping.set_protein_groups_and_connections(meta_peptides);
-        info!(
-            "-  found {} protein groups in {:?}ms",
-            mapping.protein_groups.len(),
-            time.elapsed().as_millis()
-        );
-        mapping
-    }
+impl ProteinGrouper {
+    fn build(db: &IndexedDatabase, peptides: FnvHashSet<PeptideIx>) -> Self {
+        let mut protein_index: FnvHashMap<(Arc<str>, bool), ProteinIx> = FnvHashMap::default();
 
-    fn set_proteins_and_get_metapeptides(
-        &mut self,
-        peps: FnvHashSet<PeptideIx>,
-        db: &IndexedDatabase,
-    ) -> FnvHashSet<Vec<ProteinIx>> {
-        peps.into_iter()
-            .sorted() //Needed to ensure the same order for prot_name_map
-            .map(|pep_id| {
-                let db_peptide = &db[pep_id];
-                let prot_ids = db_peptide
+        // Map each peptide to a sorted vector of ProteinIx ("meta-peptide"),
+        // deduplicating peptides that map to identical protein sets
+        let meta_peptides: FnvHashSet<Vec<ProteinIx>> = peptides
+            .into_iter()
+            .sorted()
+            .map(|pep_ix| {
+                let peptide = &db[pep_ix];
+                peptide
                     .proteins
                     .iter()
-                    .map(|prot| {
-                        let prot = (prot.clone(), db_peptide.decoy);
-                        self.get_or_insert_prot(prot)
+                    .map(|name| {
+                        let key = (name.clone(), peptide.decoy);
+                        let next_id = ProteinIx(protein_index.len() as u32);
+                        *protein_index.entry(key).or_insert(next_id)
                     })
                     .sorted()
-                    .collect::<Vec<_>>();
-                prot_ids
+                    .collect()
             })
-            .collect()
-    }
+            .collect();
 
-    fn get_or_insert_prot(&mut self, prot: (Arc<str>, bool)) -> ProteinIx {
-        match self.prot_name_map.get(&prot) {
-            Some(&prot_id) => prot_id,
-            None => {
-                let prot_id = ProteinIx(self.prot_name_map.len() as u32);
-                self.prot_name_map.insert(prot, prot_id);
-                prot_id
+        info!(
+            "-  found {} meta peptides",
+            meta_peptides.len(),
+        );
+
+        // Invert: group proteins that share identical meta-peptide sets
+        let mut prot_to_metapeps: FnvHashMap<ProteinIx, Vec<usize>> = FnvHashMap::default();
+        for (i, meta_pep) in meta_peptides.iter().sorted().enumerate() {
+            for &prot_ix in meta_pep {
+                prot_to_metapeps.entry(prot_ix).or_default().push(i);
             }
         }
-    }
 
-    fn set_protein_groups_and_connections<'a>(
-        &mut self,
-        meta_peptides: FnvHashSet<Vec<ProteinIx>>,
-    ) {
-        let mut protein_map = FnvHashMap::default();
-        meta_peptides
-            .into_iter()
-            .sorted() //Needed to ensure the same order for protein_groups
-            .enumerate()
-            .for_each(|(i, prot_ids)| {
-                prot_ids.into_iter().for_each(|prot_id| {
-                    let entry = protein_map.entry(prot_id).or_insert_with(Vec::new);
-                    entry.push(i);
-                });
-            });
-        let mut mapping: FnvHashMap<Vec<usize>, ProteinGroup> = FnvHashMap::default();
-        protein_map
-            .into_iter()
-            .for_each(|(prot_id, meta_peptides)| {
-                let entry = mapping.entry(meta_peptides).or_default();
-                entry.0.push(prot_id);
-            });
-        let mut protein_groups = vec![];
-        let mut connections = vec![];
-        mapping.into_iter().sorted().enumerate().for_each(
-            |(meta_protein_index, (meta_peptides, meta_protein))| {
-                protein_groups.push(meta_protein);
-                meta_peptides.into_iter().for_each(|meta_peptide_index| {
-                    connections.push((meta_protein_index as u32, meta_peptide_index as u32));
-                });
-            },
-        );
-        self.protein_groups = protein_groups;
-        self.connections = connections;
-    }
-}
+        // Proteins with identical meta-peptide vectors form a group
+        let mut evidence_to_group: FnvHashMap<Vec<usize>, ProteinGroup> = FnvHashMap::default();
+        for (prot_ix, meta_peps) in prot_to_metapeps {
+            evidence_to_group.entry(meta_peps).or_default().0.push(prot_ix);
+        }
 
-struct ProteinGroupMap {
-    protein_groups: Vec<ProteinGroup>,
-    proteins: Vec<(Arc<str>, bool)>,
-    protein_group_map: FnvHashMap<(Arc<str>, bool), Vec<u32>>,
-}
+        let mut groups = Vec::new();
+        let mut edges = Vec::new();
+        for (group_idx, (meta_peps, group)) in evidence_to_group.into_iter().sorted().enumerate() {
+            groups.push(group);
+            for meta_pep_idx in meta_peps {
+                edges.push((group_idx as u32, meta_pep_idx as u32));
+            }
+        }
 
-impl ProteinGroupMap {
-    fn new(mapping: ProteinGrouping) -> Self {
-        let proteins = mapping
-            .prot_name_map
-            .into_iter()
-            .sorted_by_key(|(_, v)| v.0)
-            .map(|(k, _)| k.clone())
-            .collect::<Vec<_>>();
-        let mut protein_group_map = FnvHashMap::default();
-        mapping
-            .protein_cover
-            .into_iter()
-            .enumerate()
-            .filter(|(_, i)| *i)
-            .for_each(|(i, _)| {
-                let protein_group = &mapping.protein_groups[i];
-                protein_group.0.iter().for_each(|&prot_id| {
-                    let (name, decoy) = &proteins[prot_id.0 as usize];
-                    let entry = protein_group_map
-                        .entry((name.clone(), *decoy))
-                        .or_insert_with(std::vec::Vec::new);
-                    entry.push(i as u32);
-                });
-            });
-        let protein_group_map = protein_group_map;
+        info!("-  found {} protein groups", groups.len());
+
         Self {
-            protein_groups: mapping.protein_groups,
-            proteins,
-            protein_group_map,
+            protein_index,
+            groups,
+            edges,
+            peptide_count: meta_peptides.len(),
         }
     }
 
-    fn get_protein_group_string(&self, peptide: &Peptide, db: &IndexedDatabase) -> Vec<String> {
-        let proteingroups = peptide
+    /// Run set cover inference and produce a lookup map for annotation
+    fn into_group_map(self) -> ProteinGroupLookup {
+        let group_count = self.groups.len();
+        let cover = BipartiteGraph::new(self.edges, group_count, self.peptide_count).into_cover();
+
+        // Build protein name list ordered by ProteinIx
+        let proteins: Vec<(Arc<str>, bool)> = self
+            .protein_index
+            .into_iter()
+            .sorted_by_key(|(_, ix)| ix.0)
+            .map(|(key, _)| key)
+            .collect();
+
+        // Map each protein to its covered group indices
+        let mut protein_to_groups: FnvHashMap<(Arc<str>, bool), Vec<u32>> = FnvHashMap::default();
+        for (i, in_cover) in cover.into_iter().enumerate() {
+            if !in_cover {
+                continue;
+            }
+            for &prot_ix in &self.groups[i].0 {
+                let (name, decoy) = &proteins[prot_ix.0 as usize];
+                protein_to_groups
+                    .entry((name.clone(), *decoy))
+                    .or_default()
+                    .push(i as u32);
+            }
+        }
+
+        ProteinGroupLookup {
+            groups: self.groups,
+            proteins,
+            protein_to_groups,
+        }
+    }
+}
+
+/// Maps individual proteins to their group strings for feature annotation
+struct ProteinGroupLookup {
+    groups: Vec<ProteinGroup>,
+    proteins: Vec<(Arc<str>, bool)>,
+    protein_to_groups: FnvHashMap<(Arc<str>, bool), Vec<u32>>,
+}
+
+impl ProteinGroupLookup {
+    /// Get the sorted, semicolon-delimited protein group string for a peptide
+    fn group_string(&self, peptide: &crate::peptide::Peptide, db: &IndexedDatabase) -> Option<String> {
+        let group_set: FnvHashSet<&ProteinGroup> = peptide
             .proteins
             .iter()
-            .map(|protein| (protein.clone(), peptide.decoy))
-            .filter_map(|prot| self.protein_group_map.get(&prot))
-            .flat_map(|protein_group_indices| {
-                protein_group_indices
-                    .iter()
-                    .map(|&i| &self.protein_groups[i as usize])
-            })
-            .collect::<FnvHashSet<_>>();
-        if proteingroups.is_empty() {
-            vec![]
-        } else {
-            proteingroups
-                .iter()
-                .map(|p| p.to_string(&self.proteins, &db.decoy_tag, db.generate_decoys))
-                .collect()
+            .filter_map(|name| self.protein_to_groups.get(&(name.clone(), peptide.decoy)))
+            .flat_map(|indices| indices.iter().map(|&i| &self.groups[i as usize]))
+            .collect();
+
+        if group_set.is_empty() {
+            return None;
         }
+
+        Some(
+            group_set
+                .into_iter()
+                .map(|g| g.format(&self.proteins, &db.decoy_tag, db.generate_decoys))
+                .sorted()
+                .join(";"),
+        )
     }
 }
 
+/// Annotate features with protein group information.
+///
+/// When `protein_grouping` is enabled, proteins are grouped by shared peptide
+/// evidence and a minimal cover is inferred. If `confident_peptide_threshold`
+/// is provided, an initial grouping pass is run on only confident peptides,
+/// followed by a second pass on all peptides.
+///
+/// Features not assigned to a group are annotated with their raw protein list.
 pub fn generate_protein_groups(
     db: &IndexedDatabase,
     features: &mut [Feature],
@@ -380,10 +303,12 @@ pub fn generate_protein_groups(
     let time = Instant::now();
     if protein_grouping {
         if confident_peptide_threshold.is_some() {
-            update_features_with_protein_groups(features, db, confident_peptide_threshold);
+            annotate_features(features, db, confident_peptide_threshold);
         }
-        update_features_with_protein_groups(features, db, None);
+        annotate_features(features, db, None);
     }
+
+    // Fallback: features not assigned by grouping get their raw protein list
     features
         .par_iter_mut()
         .filter(|f| f.protein_groups.is_none())
@@ -398,61 +323,49 @@ pub fn generate_protein_groups(
     );
 }
 
-fn update_features_with_protein_groups(
+fn annotate_features(
     features: &mut [Feature],
     db: &IndexedDatabase,
     confident_peptide_threshold: Option<f32>,
 ) {
     let time = Instant::now();
-    info!("Protein grouping with {} features", features.len());
-
     let threshold = confident_peptide_threshold.unwrap_or(1.0).clamp(0.0, 1.0);
 
-    let peps = features
+    let peptides: FnvHashSet<PeptideIx> = features
         .par_iter()
-        .filter(|f| (f.label != -1) && (f.peptide_q < threshold))
-        .map(|feature| feature.peptide_idx)
-        .collect::<FnvHashSet<_>>();
+        .filter(|f| f.label != -1 && f.peptide_q < threshold)
+        .map(|f| f.peptide_idx)
+        .collect();
 
     info!(
-        "-  found {} unique peptides in {:?}ms",
-        peps.len(),
+        "Protein grouping: {} unique peptides (threshold={}) in {:?}ms",
+        peptides.len(),
+        threshold,
         time.elapsed().as_millis()
     );
-    let mut mapping = ProteinGrouping::new(db, peps);
-    let time = Instant::now();
-    mapping.protein_cover = PROTEIN_INFERENCE.infer(
-        mapping.connections.drain(..).collect(),
-        mapping.peptide_count,
-        mapping.protein_groups.len(),
-    );
-    info!(
-        "-  found cover of {} metaproteins in {:?}ms",
-        mapping.protein_cover.len(),
-        time.elapsed().as_millis()
-    );
-    let time = Instant::now();
-    let protein_map = ProteinGroupMap::new(mapping);
 
-    let counter: u32 = features
+    let grouper = ProteinGrouper::build(db, peptides);
+    let lookup = grouper.into_group_map();
+
+    let annotated: u32 = features
         .par_iter_mut()
-        .filter(|feat| feat.protein_groups.is_none())
+        .filter(|f| f.protein_groups.is_none())
         .map(|feat| {
             let pep = &db[feat.peptide_idx];
-            let protein_groups = protein_map.get_protein_group_string(pep, db);
-            if !protein_groups.is_empty() {
-                feat.protein_groups = Some(protein_groups.iter().sorted().join(";"));
-                feat.num_protein_groups = protein_groups.len() as u32;
-                1u32
-            } else {
-                0
+            match lookup.group_string(pep, db) {
+                Some(groups) => {
+                    feat.num_protein_groups = groups.matches(';').count() as u32 + 1;
+                    feat.protein_groups = Some(groups);
+                    1u32
+                }
+                None => 0,
             }
         })
         .sum();
 
     info!(
         "-  annotated {} features in {:?}ms",
-        counter,
+        annotated,
         time.elapsed().as_millis()
     );
 }
@@ -462,7 +375,9 @@ mod test {
     use super::*;
     use std::sync::Arc;
 
-    fn get_data() -> (Vec<Vec<impl AsRef<str>>>, Vec<bool>, Vec<f32>) {
+    use crate::peptide::Peptide;
+
+    fn get_data() -> (Vec<Vec<&'static str>>, Vec<bool>, Vec<f32>) {
         let proteins = vec![
             vec!["protein_7"],
             vec!["protein_4", "protein_6", "protein_9"],
@@ -481,7 +396,7 @@ mod test {
     }
 
     fn build_db_and_features(
-        proteins: &[Vec<impl AsRef<str>>],
+        proteins: &[Vec<&str>],
         decoys: &[bool],
         q_vals: &[f32],
     ) -> (IndexedDatabase, Vec<Feature>) {
@@ -489,7 +404,7 @@ mod test {
     }
 
     fn build_db_and_features_with_scores(
-        proteins: &[Vec<impl AsRef<str>>],
+        proteins: &[Vec<&str>],
         decoys: &[bool],
         q_vals: &[f32],
         scores: Option<&[f32]>,
@@ -505,11 +420,11 @@ mod test {
             .collect();
         let db = IndexedDatabase {
             peptides: proteins
-                .into_iter()
+                .iter()
                 .zip(decoys)
-                .map(|(prots, decoy)| Peptide {
-                    proteins: prots.into_iter().map(|s| Arc::from(s.as_ref())).collect(),
-                    decoy: *decoy,
+                .map(|(prots, &decoy)| Peptide {
+                    proteins: prots.iter().map(|&s| Arc::from(s)).collect(),
+                    decoy,
                     ..Default::default()
                 })
                 .collect(),
@@ -545,58 +460,47 @@ mod test {
     }
 
     #[test]
-    fn test_inference_all_returns_all_true() {
-        let connections = vec![(0, 0), (1, 1), (2, 0)];
-        let cover = ProteinInference::All.infer(connections, 2, 3);
+    fn test_bipartite_cover_unique_peptides() {
+        // Three proteins each with a single unique peptide — all in cover
+        let edges = vec![(0, 0), (1, 1), (2, 2)];
+        let cover = BipartiteGraph::new(edges, 3, 3).into_cover();
         assert_eq!(cover, vec![true, true, true]);
     }
 
     #[test]
-    fn test_inference_slim_unique_peptides() {
-        // Three proteins each with a single unique peptide
-        let connections = vec![(0, 0), (1, 1), (2, 2)];
-        let cover = ProteinInference::Slim.infer(connections, 3, 3);
-        assert_eq!(cover, vec![true, true, true]);
-    }
-
-    #[test]
-    fn test_inference_slim_subset_protein() {
+    fn test_bipartite_cover_subset_protein() {
         // protein 0 -> peptides {0, 1, 2}  (superset)
         // protein 1 -> peptides {0, 1}     (subset)
-        let connections = vec![(0, 0), (0, 1), (0, 2), (1, 0), (1, 1)];
-        let cover = ProteinInference::Slim.infer(connections, 3, 2);
-        assert_eq!(cover[0], true, "superset protein should be covered");
-        assert_eq!(cover[1], false, "subset protein should not be covered");
+        let edges = vec![(0, 0), (0, 1), (0, 2), (1, 0), (1, 1)];
+        let cover = BipartiteGraph::new(edges, 2, 3).into_cover();
+        assert!(cover[0], "superset protein should be covered");
+        assert!(!cover[1], "subset protein should not be covered");
     }
 
     #[test]
-    fn test_inference_slim_shared_peptide() {
+    fn test_bipartite_cover_shared_peptide() {
         // protein 0 -> peptides {0, 1}
         // protein 1 -> peptides {1, 2}
-        // Both proteins should be in the cover because each has a unique peptide
-        let connections = vec![(0, 0), (0, 1), (1, 1), (1, 2)];
-        let cover = ProteinInference::Slim.infer(connections, 3, 2);
+        // Both should be in cover because each has a unique peptide
+        let edges = vec![(0, 0), (0, 1), (1, 1), (1, 2)];
+        let cover = BipartiteGraph::new(edges, 2, 3).into_cover();
         assert_eq!(cover, vec![true, true]);
     }
 
     #[test]
-    fn test_inference_slim_empty() {
-        let connections = vec![];
-        let cover = ProteinInference::Slim.infer(connections, 0, 0);
+    fn test_bipartite_cover_empty() {
+        let cover = BipartiteGraph::new(vec![], 0, 0).into_cover();
         assert!(cover.is_empty());
     }
 
     #[test]
-    fn test_inference_slim_single_protein_single_peptide() {
-        let connections = vec![(0, 0)];
-        let cover = ProteinInference::Slim.infer(connections, 1, 1);
+    fn test_bipartite_cover_single() {
+        let cover = BipartiteGraph::new(vec![(0, 0)], 1, 1).into_cover();
         assert_eq!(cover, vec![true]);
     }
 
     #[test]
     fn test_decoy_features_excluded_from_grouping() {
-        // Decoy features (label == -1) should not contribute to protein grouping
-        // but should still get protein_groups annotation in the fallback path
         let proteins = vec![vec!["protA"], vec!["protA"], vec!["protB"]];
         let decoys = vec![false, true, false];
         let q_vals = vec![0.0, 0.0, 0.0];
@@ -604,10 +508,7 @@ mod test {
         generate_protein_groups(&db, &mut features, true, Some(0.01));
 
         for feat in &features {
-            assert!(
-                feat.protein_groups.is_some(),
-                "every feature should be annotated"
-            );
+            assert!(feat.protein_groups.is_some(), "every feature should be annotated");
         }
         assert_eq!(features[1].protein_groups.as_deref(), Some("protA"));
     }
@@ -617,33 +518,15 @@ mod test {
         let proteins = vec![vec!["protA"], vec!["protA"]];
         let decoys = vec![false, true];
         let q_vals = vec![0.0, 0.0];
+        let (db, mut features) = build_db_and_features(&proteins, &decoys, &q_vals);
 
-        let features: Vec<Feature> = (0..proteins.len())
-            .map(|ix| Feature {
-                peptide_idx: PeptideIx(ix as u32),
-                label: if decoys[ix] { -1 } else { 1 },
-                peptide_q: q_vals[ix],
-                ..Default::default()
-            })
-            .collect();
+        // Override generate_decoys for this test
         let db = IndexedDatabase {
-            peptides: proteins
-                .iter()
-                .zip(decoys.iter())
-                .map(|(prots, decoy)| Peptide {
-                    proteins: prots.iter().map(|s| Arc::from(*s)).collect(),
-                    decoy: *decoy,
-                    ..Default::default()
-                })
-                .collect(),
-            decoy_tag: "rev_".to_string(),
             generate_decoys: true,
-            ..IndexedDatabase::default()
+            ..db
         };
 
-        let mut features = features;
         generate_protein_groups(&db, &mut features, false, None);
-
         assert_eq!(features[0].protein_groups.as_deref(), Some("protA"));
         assert_eq!(features[1].protein_groups.as_deref(), Some("rev_protA"));
     }
@@ -704,7 +587,6 @@ mod test {
         let (db, mut features) = build_db_and_features(&proteins, &decoys, &q_vals);
         generate_protein_groups(&db, &mut features, true, Some(0.01));
 
-        // Both should be annotated (second pass catches the high-q peptide)
         assert!(features[0].protein_groups.is_some());
         assert!(features[1].protein_groups.is_some());
     }
