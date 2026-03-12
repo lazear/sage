@@ -4,16 +4,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [v0.15.0-alpha]
+## [v0.15.0]
 ### Added
 - Initial support for LFQ on data with ion mobility.
 - Speedup on the generation of databases when large number of peptides are redundant.
 - Initial support for searching diaPASEF data
 - `override_precursor_charge` setting that forces multiple charge states to be searched
+- Cross-cloud storage support: Replaced AWS SDK with the `object_store` crate. Sage now natively supports reading/writing from Amazon S3, Google Cloud Storage, and Azure Blob Storage using `s3://`, `gs://`, and `az://` URL schemes.
+- HTML QC report generation (`--write-report`)
+- `lfq_settings.peptide_q_value` parameter for controlling which peptides are quantified
+- Stack size configuration for Rayon threads
+- Allow zero or multiple amino-acids as cleavage restrictions
+- CITATION.cff file
+
+### Fixed
+- Handle negative mass errors for .pin files
+- Extract precursor m/z from 'isolation window target m/z' if missing
+- Selected ion m/z of 0.0 was overwriting precursor.mz
+- C/N-term mixup in modification handling
+- Bruker `.tdf` filename handling (use parent directory name)
+- Performance optimizations on prefiltering
+
 ### Breaking Changes
 - `precursor_ppm` field reports the non-absoluted average mass error, rather than the absoluted average mass error.
 - Don't deisotope reporter ion regions if MS2-based TMT/iTRAQ is used
 - Removed `fragment_min_mz` and `fragment_max_mz` parameters. These were decreasing the accuracy of preliminary scoring estimation when attempting to annotate multiply-charged, high-m/z ions.
+- `sage-cloudpath` no longer exposes the `CloudPath` type. All paths are represented as URLs (`url::Url`). Local paths are converted to `file://` URLs internally.
 
 ## [v0.14.7]
 ### Added
