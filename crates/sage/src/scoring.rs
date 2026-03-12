@@ -182,14 +182,14 @@ impl ScoreType {
             // Calculate the X!Tandem hyperscore
             Self::SageHyperScore => {
                 let i = (summed_b + 1.0) as f64 * (summed_y + 1.0) as f64;
-                let score = i.ln() + lnfact(matched_b) + lnfact(matched_y);
-                score
+                
+                i.ln() + lnfact(matched_b) + lnfact(matched_y)
             }
             // Calculate the OpenMS flavour hyperscore
             Self::OpenMSHyperScore => {
                 let summed_intensity = summed_b + summed_y;
-                let score = summed_intensity.ln_1p() as f64 + lnfact(matched_b) + lnfact(matched_y);
-                score
+                
+                summed_intensity.ln_1p() as f64 + lnfact(matched_b) + lnfact(matched_y)
             }
         };
         if score.is_finite() {
@@ -265,7 +265,7 @@ impl<'db> Scorer<'db> {
         let precursor = query.precursors.first().unwrap_or_else(|| {
             panic!("missing MS1 precursor for {}", query.id);
         });
-        let hits = self.initial_hits(&query, precursor);
+        let hits = self.initial_hits(query, precursor);
 
         if prefilter_low_memory {
             let mut score_vector = hits
@@ -434,7 +434,7 @@ impl<'db> Scorer<'db> {
                     hits
                 },
             )
-        } else if precursor.charge.is_some() && self.override_precursor_charge == false {
+        } else if precursor.charge.is_some() && !self.override_precursor_charge {
             let charge = precursor.charge.unwrap();
             // Charge state is already annotated for this precusor, only search once
             let precursor_mass = mz * charge as f32;

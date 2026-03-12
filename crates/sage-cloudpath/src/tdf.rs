@@ -41,7 +41,7 @@ impl TdfReader {
     ) -> Result<Vec<RawSpectrum>, timsrust::TimsRustError> {
         let spectrum_reader = timsrust::readers::SpectrumReader::build()
             .with_path(path_name.as_ref())
-            .with_config(config.ms2.clone())
+            .with_config(config.ms2)
             .finalize()?;
         let mut spectra = self.read_msn_spectra(file_id, &spectrum_reader)?;
         if requires_ms1 {
@@ -284,8 +284,7 @@ impl PeakBuffer {
                 let im = ims_converter.convert(i as f64) as f32;
                 Some((im, lo, hi))
             })
-            .map(|(im, lo, hi)| (lo..hi).map(move |_| im))
-            .flatten();
+            .flat_map(|(im, lo, hi)| (lo..hi).map(move |_| im));
         ims_iter
     }
 
@@ -389,7 +388,6 @@ impl PeakBuffer {
 
         self.agg_buff
             .drain(..)
-            .into_iter()
             .map(|x| (x.mz, (x.intensity, x.im)))
             .unzip()
     }

@@ -340,7 +340,7 @@ impl Input {
                     Err(_) => {
                         // Try to interpret as a local path
                         let path = std::path::Path::new(&path);
-                        std::fs::create_dir_all(&path)?;
+                        std::fs::create_dir_all(path)?;
                         Url::from_directory_path(path.canonicalize()?).expect("valid path")
                     }
                 }

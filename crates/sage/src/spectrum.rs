@@ -138,28 +138,22 @@ impl RawSpectrum {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Default)]
 pub enum Representation {
+    #[default]
     Profile,
     Centroid,
 }
 
-impl Default for Representation {
-    fn default() -> Self {
-        Self::Profile
-    }
-}
 
+#[derive(Default)]
 pub enum MS1Spectra {
     NoMobility(Vec<ProcessedSpectrum<Peak>>),
     WithMobility(Vec<ProcessedSpectrum<IMPeak>>),
+    #[default]
     Empty,
 }
 
-impl Default for MS1Spectra {
-    fn default() -> Self {
-        Self::Empty
-    }
-}
 
 /// Binary search followed by linear search to select the most intense peak within `tolerance` window
 /// * `offset` - this parameter allows for a static adjustment to the lower and upper bounds of the search window.

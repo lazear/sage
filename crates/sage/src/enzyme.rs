@@ -62,18 +62,15 @@ pub fn group_digests(mut digests: Vec<Digest>) -> Vec<DigestGroup> {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
+#[derive(Default)]
 pub enum Position {
     Nterm,
     Cterm,
     Full,
+    #[default]
     Internal,
 }
 
-impl Default for Position {
-    fn default() -> Self {
-        Self::Internal
-    }
-}
 
 impl Digest {
     /// Generate an internal decoy sequence by reversing the sequence

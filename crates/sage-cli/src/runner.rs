@@ -198,7 +198,7 @@ impl Runner {
 
                 match &spectra {
                     Some(spectra) => {
-                        self.peptide_filter_processed_spectra(&scorer, &spectra, &keep)
+                        self.peptide_filter_processed_spectra(&scorer, spectra, &keep)
                     }
                     None => self
                         .parameters
@@ -426,7 +426,7 @@ impl Runner {
                 path,
                 file_id,
                 sn,
-                self.parameters.bruker_config.clone(),
+                self.parameters.bruker_config,
                 self.requires_ms1(),
             );
 
@@ -566,7 +566,7 @@ impl Runner {
             .mzml_paths
             .iter()
             .map(|url| {
-                sage_cloudpath::filename(&url)
+                sage_cloudpath::filename(url)
                     .unwrap_or_else(|| url.as_str())
                     .to_string()
             })
@@ -1288,7 +1288,7 @@ impl Runner {
                         .filter(|f| {
                             f.label == 1
                                 && f.spectrum_q <= global_q_value_filter
-                                && filenames[f.file_id] == filename.to_string()
+                                && filenames[f.file_id] == *filename
                         })
                         .count()
                 })
@@ -1301,7 +1301,7 @@ impl Runner {
                 for feature in features.iter().filter(|f| {
                     f.label == 1
                         && f.peptide_q <= global_q_value_filter
-                        && filenames[f.file_id] == filename.to_string()
+                        && filenames[f.file_id] == *filename
                 }) {
                     peptides.insert(self.database[feature.peptide_idx].to_string());
                 }
@@ -1315,7 +1315,7 @@ impl Runner {
                 for feature in features.iter().filter(|f| {
                     f.label == 1
                         && f.protein_q <= global_q_value_filter
-                        && filenames[f.file_id] == filename.to_string()
+                        && filenames[f.file_id] == *filename
                 }) {
                     proteins.insert(
                         self.database[feature.peptide_idx]
@@ -1336,7 +1336,7 @@ impl Runner {
                                 && f.spectrum_q <= global_q_value_filter
                                 && f.peptide_q <= global_q_value_filter
                                 && f.protein_q <= global_q_value_filter
-                                && filenames[f.file_id] == filename.to_string()
+                                && filenames[f.file_id] == *filename
                         })
                         .map(|f| f.ms2_intensity)
                         .sum()
@@ -1366,7 +1366,7 @@ impl Runner {
                 .map(|filename| {
                     let mut accuracies = Vec::new();
                     for feature in features.iter().filter(|f| {
-                        filenames[f.file_id] == filename.to_string()
+                        filenames[f.file_id] == *filename
                             && f.label == 1
                             && f.spectrum_q <= global_q_value_filter
                     }) {
@@ -1397,7 +1397,7 @@ impl Runner {
                 .map(|filename| {
                     let mut accuracies = Vec::new();
                     for feature in features.iter().filter(|f| {
-                        filenames[f.file_id] == filename.to_string()
+                        filenames[f.file_id] == *filename
                             && f.label == 1
                             && f.spectrum_q <= global_q_value_filter
                     }) {
@@ -1428,7 +1428,7 @@ impl Runner {
                 .map(|filename| {
                     let mut deviations = Vec::new();
                     for feature in features.iter().filter(|f| {
-                        filenames[f.file_id] == filename.to_string()
+                        filenames[f.file_id] == *filename
                             && f.label == 1
                             && f.spectrum_q <= global_q_value_filter
                     }) {
@@ -1459,7 +1459,7 @@ impl Runner {
                 .map(|filename| {
                     let mut deviations = Vec::new();
                     for feature in features.iter().filter(|f| {
-                        filenames[f.file_id] == filename.to_string()
+                        filenames[f.file_id] == *filename
                             && f.label == 1
                             && f.spectrum_q <= global_q_value_filter
                     }) {
@@ -1490,7 +1490,7 @@ impl Runner {
                 .map(|filename| {
                     let mut lengths = Vec::new();
                     for feature in features.iter().filter(|f| {
-                        filenames[f.file_id] == filename.to_string()
+                        filenames[f.file_id] == *filename
                             && f.label == 1
                             && f.spectrum_q <= global_q_value_filter
                     }) {
@@ -1506,7 +1506,7 @@ impl Runner {
                 .map(|filename| {
                     let mut charges = Vec::new();
                     for feature in features.iter().filter(|f| {
-                        filenames[f.file_id] == filename.to_string()
+                        filenames[f.file_id] == *filename
                             && f.label == 1
                             && f.spectrum_q <= global_q_value_filter
                     }) {
@@ -1522,7 +1522,7 @@ impl Runner {
                 .map(|filename| {
                     let mut peaks = Vec::new();
                     for feature in features.iter().filter(|f| {
-                        filenames[f.file_id] == filename.to_string()
+                        filenames[f.file_id] == *filename
                             && f.label == 1
                             && f.spectrum_q <= global_q_value_filter
                     }) {
@@ -1805,7 +1805,7 @@ impl Runner {
         }
 
         // Save the report to HTML file
-        report.save_to_file(&path.to_string())?;
+        report.save_to_file(path.as_ref())?;
 
         Ok(path)
     }

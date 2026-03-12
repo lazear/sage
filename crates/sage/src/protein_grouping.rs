@@ -295,7 +295,7 @@ impl ProteinGrouping {
             .for_each(|(prot_id, meta_peptides)| {
                 let entry = mapping
                     .entry(meta_peptides)
-                    .or_insert_with(ProteinGroup::default);
+                    .or_default();
                 entry.0.push(prot_id);
             });
         let mut protein_groups = vec![];
@@ -339,7 +339,7 @@ impl ProteinGroupMap {
                     let (name, decoy) = &proteins[prot_id.0 as usize];
                     let entry = protein_group_map
                         .entry((name.clone(), *decoy))
-                        .or_insert_with(|| vec![]);
+                        .or_insert_with(std::vec::Vec::new);
                     entry.push(i as u32);
                 });
             });
@@ -421,7 +421,7 @@ fn update_features_with_protein_groups(
     } else {
         features
             .par_iter()
-            .filter(|f| (f.label != -1))
+            .filter(|f| f.label != -1)
             .map(|feature| feature.peptide_idx)
             .collect::<FnvHashSet<_>>()
     };
