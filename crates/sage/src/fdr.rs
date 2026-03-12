@@ -188,7 +188,10 @@ pub fn picked_protein_group(db: &IndexedDatabase, features: &mut [Feature]) -> u
     // else the assumptions of picked group FDR are invalid. Shared peptides are
     // still reported, albeit with protein group FDR = 1.0
     let mut map: FnvHashMap<_, Competition<String>> = FnvHashMap::default();
-    for feat in features.iter().filter(|x| x.num_protein_groups == 1) {
+    for feat in features
+        .iter()
+        .filter(|x| x.num_protein_groups == 1 && x.protein_groups.is_some())
+    {
         let decoy = db[feat.peptide_idx].decoy;
         let entry = map.entry(feat.protein_groups.clone()).or_default();
         match decoy {
@@ -207,9 +210,9 @@ pub fn picked_protein_group(db: &IndexedDatabase, features: &mut [Feature]) -> u
 
     features
         .par_iter_mut()
-        .filter(|x| x.num_protein_groups == 1)
+        .filter(|x| x.num_protein_groups == 1 && x.protein_groups.is_some())
         .for_each(|feat| {
-            let protein_groups = feat.protein_groups.as_ref().unwrap().as_str().to_string();
+            let protein_groups = feat.protein_groups.as_deref().unwrap().to_string();
             feat.protein_group_q = scores[&protein_groups];
         });
 

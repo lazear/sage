@@ -2670,7 +2670,6 @@ dependencies = [
  "quickcheck_macros",
  "rayon",
  "regex",
- "rustc-hash",
  "serde",
 ]
 

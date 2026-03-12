@@ -58,12 +58,12 @@ struct ProteinIx(u32);
 impl ProteinIx {
     fn to_string(
         &self,
-        protein_map: &Vec<(Arc<str>, bool)>,
+        protein_map: &[(Arc<str>, bool)],
         decoy_tag: &str,
         generate_decoys: bool,
     ) -> String {
         let (prot, decoy) = &protein_map[self.0 as usize];
-        if *decoy & generate_decoys {
+        if *decoy && generate_decoys {
             format!("{}{}", decoy_tag, prot)
         } else {
             prot.to_string()
@@ -77,7 +77,7 @@ struct ProteinGroup(Vec<ProteinIx>);
 impl ProteinGroup {
     fn to_string(
         &self,
-        protein_map: &Vec<(Arc<str>, bool)>,
+        protein_map: &[(Arc<str>, bool)],
         decoy_tag: &str,
         generate_decoys: bool,
     ) -> String {
@@ -158,7 +158,7 @@ impl BipartiteGraph {
     }
 
     fn trim_connections(&mut self) {
-        let mut connections = self.connections.to_owned();
+        let mut connections = std::mem::take(&mut self.connections);
         let mut connection_count = 0;
         while connection_count != connections.len() {
             connection_count = connections.len();
@@ -194,16 +194,18 @@ impl BipartiteGraph {
         self.connections = connections;
     }
 
+    /// Add the protein with the most remaining connections to the cover.
+    /// Ties are broken by original connection count (prefer proteins with
+    /// more total peptide evidence).
     fn add_biggest_left_to_cover(&mut self) {
-        match self
+        if let Some((index, _)) = self
             .remaining_left
             .iter()
             .zip(&self.original_left)
             .enumerate()
-            .max_by_key(|(_, i)| *i)
+            .max_by_key(|(_, (remaining, original))| (*remaining, *original))
         {
-            Some((index, _)) => self.left_cover[index] = true,
-            _ => {}
+            self.left_cover[index] = true;
         }
     }
 }
@@ -222,7 +224,7 @@ impl ProteinGrouping {
         let mut mapping = Self::default();
         mapping.peptide_count = peps.len();
         let time = Instant::now();
-        let meta_peptides = mapping.set_proteins_and_get_metapeptides(peps, &db);
+        let meta_peptides = mapping.set_proteins_and_get_metapeptides(peps, db);
         info!(
             "-  found {} meta peptides in {:?}ms",
             meta_peptides.len(),
@@ -241,7 +243,7 @@ impl ProteinGrouping {
     fn set_proteins_and_get_metapeptides(
         &mut self,
         peps: FnvHashSet<PeptideIx>,
-        db: &&IndexedDatabase,
+        db: &IndexedDatabase,
     ) -> FnvHashSet<Vec<ProteinIx>> {
         peps.into_iter()
             .sorted() //Needed to ensure the same order for prot_name_map
@@ -283,17 +285,17 @@ impl ProteinGrouping {
             .enumerate()
             .for_each(|(i, prot_ids)| {
                 prot_ids.into_iter().for_each(|prot_id| {
-                    let entry = protein_map.entry(prot_id).or_insert_with(|| vec![]);
+                    let entry = protein_map.entry(prot_id).or_insert_with(Vec::new);
                     entry.push(i);
                 });
             });
-        let mut mapping = FnvHashMap::default();
+        let mut mapping: FnvHashMap<Vec<usize>, ProteinGroup> = FnvHashMap::default();
         protein_map
             .into_iter()
             .for_each(|(prot_id, meta_peptides)| {
                 let entry = mapping
                     .entry(meta_peptides)
-                    .or_insert_with(|| ProteinGroup::default());
+                    .or_insert_with(ProteinGroup::default);
                 entry.0.push(prot_id);
             });
         let mut protein_groups = vec![];
@@ -471,7 +473,7 @@ pub fn annotate_proteins<'a>(
     proteins
         .iter()
         .map(move |s| {
-            if decoy & generate_decoys {
+            if decoy && generate_decoys {
                 format!("{}{}", decoy_tag, s)
             } else {
                 s.to_string()
@@ -482,8 +484,6 @@ pub fn annotate_proteins<'a>(
 
 #[cfg(test)]
 mod test {
-    use crate::peptide;
-
     use super::*;
     use std::sync::Arc;
 
@@ -510,11 +510,21 @@ mod test {
         decoys: &[bool],
         q_vals: &[f32],
     ) -> (IndexedDatabase, Vec<Feature>) {
+        build_db_and_features_with_scores(proteins, decoys, q_vals, None)
+    }
+
+    fn build_db_and_features_with_scores(
+        proteins: &[Vec<impl AsRef<str>>],
+        decoys: &[bool],
+        q_vals: &[f32],
+        scores: Option<&[f32]>,
+    ) -> (IndexedDatabase, Vec<Feature>) {
         let features: Vec<Feature> = (0..proteins.len())
             .map(|ix| Feature {
                 peptide_idx: PeptideIx(ix as u32),
                 label: if decoys[ix] { -1 } else { 1 },
                 peptide_q: q_vals[ix],
+                discriminant_score: scores.map(|s| s[ix]).unwrap_or(0.0),
                 ..Default::default()
             })
             .collect();
@@ -528,7 +538,7 @@ mod test {
                     ..Default::default()
                 })
                 .collect(),
-            decoy_tag: "DECOY_".to_string(),
+            decoy_tag: "rev_".to_string(),
             generate_decoys: false,
             ..IndexedDatabase::default()
         };
@@ -538,7 +548,6 @@ mod test {
     #[test]
     fn test_protein_grouping_expected_groups() {
         let (proteins, decoys, q_vals) = get_data();
-        // let protein_slices = proteins.iter().map(|v| v.as_slice()).collect::<Vec<_>>();
         let (db, mut features) = build_db_and_features(&proteins, &decoys, &q_vals);
         generate_protein_groups(&db, &mut features, true, Some(0.01));
         let expected = vec![
@@ -552,19 +561,221 @@ mod test {
             "protein_1",
             "protein_1",
             "protein_4/protein_9",
-        ]
-        .iter()
-        .enumerate()
-        .map(|(i, v)| (i + 1, v.to_string()))
-        .collect::<Vec<_>>();
-        let actual = features
-            .into_iter()
-            .enumerate()
-            .map(|(i, v)| (i + 1, v.protein_groups.unwrap()))
-            .collect::<Vec<_>>();
-        // Compare actual and expected
-        for (a, e) in actual.iter().zip(expected.iter()) {
-            assert_eq!(a, e);
+        ];
+        let actual: Vec<_> = features
+            .iter()
+            .map(|v| v.protein_groups.as_ref().unwrap().as_str())
+            .collect();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_inference_all_returns_all_true() {
+        let connections = vec![(0, 0), (1, 1), (2, 0)];
+        let cover = ProteinInference::All.infer(connections, 2, 3);
+        assert_eq!(cover, vec![true, true, true]);
+    }
+
+    #[test]
+    fn test_inference_slim_unique_peptides() {
+        // Three proteins each with a single unique peptide
+        let connections = vec![(0, 0), (1, 1), (2, 2)];
+        let cover = ProteinInference::Slim.infer(connections, 3, 3);
+        assert_eq!(cover, vec![true, true, true]);
+    }
+
+    #[test]
+    fn test_inference_slim_subset_protein() {
+        // protein 0 -> peptides {0, 1, 2}  (superset)
+        // protein 1 -> peptides {0, 1}     (subset)
+        let connections = vec![(0, 0), (0, 1), (0, 2), (1, 0), (1, 1)];
+        let cover = ProteinInference::Slim.infer(connections, 3, 2);
+        assert_eq!(cover[0], true, "superset protein should be covered");
+        assert_eq!(cover[1], false, "subset protein should not be covered");
+    }
+
+    #[test]
+    fn test_inference_slim_shared_peptide() {
+        // protein 0 -> peptides {0, 1}
+        // protein 1 -> peptides {1, 2}
+        // Both proteins should be in the cover because each has a unique peptide
+        let connections = vec![(0, 0), (0, 1), (1, 1), (1, 2)];
+        let cover = ProteinInference::Slim.infer(connections, 3, 2);
+        assert_eq!(cover, vec![true, true]);
+    }
+
+    #[test]
+    fn test_inference_slim_empty() {
+        let connections = vec![];
+        let cover = ProteinInference::Slim.infer(connections, 0, 0);
+        assert!(cover.is_empty());
+    }
+
+    #[test]
+    fn test_inference_slim_single_protein_single_peptide() {
+        let connections = vec![(0, 0)];
+        let cover = ProteinInference::Slim.infer(connections, 1, 1);
+        assert_eq!(cover, vec![true]);
+    }
+
+    #[test]
+    fn test_decoy_features_excluded_from_grouping() {
+        // Decoy features (label == -1) should not contribute to protein grouping
+        // but should still get protein_groups annotation in the fallback path
+        let proteins = vec![vec!["protA"], vec!["protA"], vec!["protB"]];
+        let decoys = vec![false, true, false];
+        let q_vals = vec![0.0, 0.0, 0.0];
+        let (db, mut features) = build_db_and_features(&proteins, &decoys, &q_vals);
+        generate_protein_groups(&db, &mut features, true, Some(0.01));
+
+        for feat in &features {
+            assert!(
+                feat.protein_groups.is_some(),
+                "every feature should be annotated"
+            );
         }
+        assert_eq!(features[1].protein_groups.as_deref(), Some("protA"));
+    }
+
+    #[test]
+    fn test_decoy_features_with_generate_decoys() {
+        let proteins = vec![vec!["protA"], vec!["protA"]];
+        let decoys = vec![false, true];
+        let q_vals = vec![0.0, 0.0];
+
+        let features: Vec<Feature> = (0..proteins.len())
+            .map(|ix| Feature {
+                peptide_idx: PeptideIx(ix as u32),
+                label: if decoys[ix] { -1 } else { 1 },
+                peptide_q: q_vals[ix],
+                ..Default::default()
+            })
+            .collect();
+        let db = IndexedDatabase {
+            peptides: proteins
+                .iter()
+                .zip(decoys.iter())
+                .map(|(prots, decoy)| Peptide {
+                    proteins: prots.iter().map(|s| Arc::from(*s)).collect(),
+                    decoy: *decoy,
+                    ..Default::default()
+                })
+                .collect(),
+            decoy_tag: "rev_".to_string(),
+            generate_decoys: true,
+            ..IndexedDatabase::default()
+        };
+
+        let mut features = features;
+        generate_protein_groups(&db, &mut features, false, None);
+
+        assert_eq!(features[0].protein_groups.as_deref(), Some("protA"));
+        assert_eq!(features[1].protein_groups.as_deref(), Some("rev_protA"));
+    }
+
+    #[test]
+    fn test_grouping_disabled_falls_back_to_annotate() {
+        let proteins = vec![vec!["protA", "protB"], vec!["protC"]];
+        let decoys = vec![false, false];
+        let q_vals = vec![0.0, 0.0];
+        let (db, mut features) = build_db_and_features(&proteins, &decoys, &q_vals);
+        generate_protein_groups(&db, &mut features, false, None);
+
+        assert_eq!(features[0].protein_groups.as_deref(), Some("protA;protB"));
+        assert_eq!(features[0].num_protein_groups, 2);
+        assert_eq!(features[1].protein_groups.as_deref(), Some("protC"));
+        assert_eq!(features[1].num_protein_groups, 1);
+    }
+
+    #[test]
+    fn test_single_protein_single_peptide() {
+        let proteins = vec![vec!["protA"]];
+        let decoys = vec![false];
+        let q_vals = vec![0.0];
+        let (db, mut features) = build_db_and_features(&proteins, &decoys, &q_vals);
+        generate_protein_groups(&db, &mut features, true, Some(0.01));
+
+        assert_eq!(features[0].protein_groups.as_deref(), Some("protA"));
+        assert_eq!(features[0].num_protein_groups, 1);
+    }
+
+    #[test]
+    fn test_all_shared_peptides() {
+        // Every peptide maps to the same two proteins — they should form a single group
+        let proteins = vec![
+            vec!["protA", "protB"],
+            vec!["protA", "protB"],
+            vec!["protA", "protB"],
+        ];
+        let decoys = vec![false, false, false];
+        let q_vals = vec![0.0, 0.0, 0.0];
+        let (db, mut features) = build_db_and_features(&proteins, &decoys, &q_vals);
+        generate_protein_groups(&db, &mut features, true, Some(0.01));
+
+        let group = features[0].protein_groups.as_deref().unwrap();
+        assert!(group.contains("protA"));
+        assert!(group.contains("protB"));
+        for feat in &features {
+            assert_eq!(feat.protein_groups.as_deref(), Some(group));
+            assert_eq!(feat.num_protein_groups, 1);
+        }
+    }
+
+    #[test]
+    fn test_peptide_fdr_threshold_filtering() {
+        let proteins = vec![vec!["protA"], vec!["protB"]];
+        let decoys = vec![false, false];
+        let q_vals = vec![0.001, 0.5];
+        let (db, mut features) = build_db_and_features(&proteins, &decoys, &q_vals);
+        generate_protein_groups(&db, &mut features, true, Some(0.01));
+
+        // Both should be annotated (second pass catches the high-q peptide)
+        assert!(features[0].protein_groups.is_some());
+        assert!(features[1].protein_groups.is_some());
+    }
+
+    #[test]
+    fn test_all_decoy_features() {
+        let proteins = vec![vec!["protA"], vec!["protB"]];
+        let decoys = vec![true, true];
+        let q_vals = vec![0.0, 0.0];
+        let (db, mut features) = build_db_and_features(&proteins, &decoys, &q_vals);
+        generate_protein_groups(&db, &mut features, true, Some(0.01));
+
+        for feat in &features {
+            assert!(feat.protein_groups.is_some());
+        }
+    }
+
+    #[test]
+    fn test_proteins_with_identical_evidence_are_grouped() {
+        let proteins = vec![
+            vec!["protA", "protB"],
+            vec!["protA", "protB"],
+            vec!["protC"],
+        ];
+        let decoys = vec![false, false, false];
+        let q_vals = vec![0.0, 0.0, 0.0];
+        let (db, mut features) = build_db_and_features(&proteins, &decoys, &q_vals);
+        generate_protein_groups(&db, &mut features, true, Some(0.01));
+
+        let group_01 = features[0].protein_groups.as_deref().unwrap();
+        assert!(group_01.contains("protA") && group_01.contains("protB"));
+        assert_eq!(features[0].protein_groups, features[1].protein_groups);
+        assert_eq!(features[2].protein_groups.as_deref(), Some("protC"));
+    }
+
+    #[test]
+    fn test_num_protein_groups_counts_distinct_groups() {
+        // protA and protB each have unique evidence; peptide 2 is shared across groups
+        let proteins = vec![vec!["protA"], vec!["protB"], vec!["protA", "protB"]];
+        let decoys = vec![false, false, false];
+        let q_vals = vec![0.0, 0.0, 0.0];
+        let (db, mut features) = build_db_and_features(&proteins, &decoys, &q_vals);
+        generate_protein_groups(&db, &mut features, true, Some(0.01));
+
+        assert_eq!(features[0].num_protein_groups, 1);
+        assert_eq!(features[1].num_protein_groups, 1);
+        assert_eq!(features[2].num_protein_groups, 2);
     }
 }

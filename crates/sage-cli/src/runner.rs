@@ -709,7 +709,7 @@ impl Runner {
                 .proteins(&self.database.decoy_tag, self.database.generate_decoys)
                 .as_bytes(),
         );
-        record.push_field(feature.protein_groups.as_ref().unwrap().as_bytes());
+        record.push_field(feature.protein_groups.as_deref().unwrap_or("").as_bytes());
         record.push_field(
             itoa::Buffer::new()
                 .format(peptide.proteins.len())

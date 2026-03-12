@@ -192,7 +192,7 @@ pub fn serialize_features(
             ByteArrayType
         );
         write_col!(
-            |f: &Feature| f.protein_groups.as_ref().unwrap().as_str().into(),
+            |f: &Feature| f.protein_groups.as_deref().unwrap_or("").into(),
             ByteArrayType
         );
         write_col!(
