@@ -197,9 +197,7 @@ impl Runner {
                     .collect::<Vec<_>>();
 
                 match &spectra {
-                    Some(spectra) => {
-                        self.peptide_filter_processed_spectra(&scorer, spectra, &keep)
-                    }
+                    Some(spectra) => self.peptide_filter_processed_spectra(&scorer, spectra, &keep),
                     None => self
                         .parameters
                         .mzml_paths
@@ -783,7 +781,11 @@ impl Runner {
         record.push_field(ryu::Buffer::new().format(feature.spectrum_q).as_bytes());
         record.push_field(ryu::Buffer::new().format(feature.peptide_q).as_bytes());
         record.push_field(ryu::Buffer::new().format(feature.protein_q).as_bytes());
-        record.push_field(ryu::Buffer::new().format(feature.protein_group_q).as_bytes());
+        record.push_field(
+            ryu::Buffer::new()
+                .format(feature.protein_group_q)
+                .as_bytes(),
+        );
         record.push_field(ryu::Buffer::new().format(feature.ms2_intensity).as_bytes());
         record
     }
@@ -1376,7 +1378,7 @@ impl Runner {
                     let mid = accuracies.len() / 2;
 
                     if accuracies.is_empty() {
-                        return std::f32::NAN;
+                        return f32::NAN;
                     }
 
                     if accuracies.len() % 2 == 0 {
@@ -1407,7 +1409,7 @@ impl Runner {
                     let mid = accuracies.len() / 2;
 
                     if accuracies.is_empty() {
-                        return std::f32::NAN;
+                        return f32::NAN;
                     }
 
                     if accuracies.len() % 2 == 0 {
@@ -1438,7 +1440,7 @@ impl Runner {
                     let mid = deviations.len() / 2;
 
                     if deviations.is_empty() {
-                        return std::f32::NAN;
+                        return f32::NAN;
                     }
 
                     if deviations.len() % 2 == 0 {
@@ -1469,7 +1471,7 @@ impl Runner {
                     let mid = deviations.len() / 2;
 
                     if deviations.is_empty() {
-                        return std::f32::NAN;
+                        return f32::NAN;
                     }
 
                     if deviations.len() % 2 == 0 {

@@ -182,13 +182,13 @@ impl ScoreType {
             // Calculate the X!Tandem hyperscore
             Self::SageHyperScore => {
                 let i = (summed_b + 1.0) as f64 * (summed_y + 1.0) as f64;
-                
+
                 i.ln() + lnfact(matched_b) + lnfact(matched_y)
             }
             // Calculate the OpenMS flavour hyperscore
             Self::OpenMSHyperScore => {
                 let summed_intensity = summed_b + summed_y;
-                
+
                 summed_intensity.ln_1p() as f64 + lnfact(matched_b) + lnfact(matched_y)
             }
         };
@@ -251,7 +251,7 @@ impl<'db> Scorer<'db> {
     /// if it meets the following criterion:
     ///  * prefilter_low_memory = true: in the top `report_psms` hits for a spectrum
     ///  * prefilter_low_memory = false: has at least `min_matched_peaks` fragment ion matches
-    /// A vector of atomic bools is used to maintain an identification list across scans
+    /// * `keep`: A vector of atomic bools is used to maintain an identification list across scans
     pub fn quick_score(
         &self,
         query: &ProcessedSpectrum<Peak>,

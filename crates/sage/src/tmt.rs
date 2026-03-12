@@ -221,8 +221,7 @@ const TMT18PLEX: [f32; 18] = [
 /// Search MS/MS and quantify isobaric tag intensities from an SPS-MS3 spectrum
 ///
 /// * `scorer`: used for searching/scoring precursor MS2 spectrum
-/// * `spectra`: a slice (generally entire mzML) of spectra, that can be searched
-///     for precursor spectra
+/// * `spectra`: a slice (generally entire mzML) of spectra, that can be searched for precursor spectra
 /// * `ms3`: The MS3 spectrum to search and quantify
 /// * `isobaric_labels`: specify label m/zs to be used
 /// * `isobaric_tolerance`: specify label tolerance
@@ -300,7 +299,7 @@ pub struct TmtQuant {
 /// Quantify isobaric tags from an MS2 or MS3 spectrum
 ///
 /// * `spectra`: a slice (generally entire mzML) of spectra, that can be searched
-///     for precursor spectra
+///   for precursor spectra
 /// * `isobaric_labels`: specify label m/zs to be used
 /// * `isobaric_tolerance`: specify label tolerance
 /// * `level`: MSn level to extract isobaric peaks from

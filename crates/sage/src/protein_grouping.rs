@@ -46,7 +46,6 @@ use itertools::Itertools;
 use log::info;
 use rayon::prelude::*;
 use std::hash::Hash;
-use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -57,7 +56,7 @@ struct ProteinIx(u32);
 
 impl ProteinIx {
     fn to_string(
-        &self,
+        self,
         protein_map: &[(Arc<str>, bool)],
         decoy_tag: &str,
         generate_decoys: bool,
@@ -293,9 +292,7 @@ impl ProteinGrouping {
         protein_map
             .into_iter()
             .for_each(|(prot_id, meta_peptides)| {
-                let entry = mapping
-                    .entry(meta_peptides)
-                    .or_default();
+                let entry = mapping.entry(meta_peptides).or_default();
                 entry.0.push(prot_id);
             });
         let mut protein_groups = vec![];
@@ -392,11 +389,8 @@ pub fn generate_protein_groups(
         .filter(|f| f.protein_groups.is_none())
         .for_each(|feat| {
             let pep = &db[feat.peptide_idx];
-            let protein_groups =
-                annotate_proteins(&pep.proteins, &db.decoy_tag, db.generate_decoys, pep.decoy)
-                    .collect::<Vec<_>>();
-            feat.protein_groups = Some(protein_groups.iter().sorted().join(";"));
-            feat.num_protein_groups = protein_groups.len() as u32;
+            feat.protein_groups = Some(pep.proteins(&db.decoy_tag, db.generate_decoys));
+            feat.num_protein_groups = pep.proteins.len() as u32;
         });
     info!(
         "Grouped and inferred proteins in {:?}ms",
@@ -411,20 +405,15 @@ fn update_features_with_protein_groups(
 ) {
     let time = Instant::now();
     info!("Protein grouping with {} features", features.len());
-    let peps = if let Some(threshold) = confident_peptide_threshold {
-        let t = threshold.max(0.0).min(1.0);
-        features
-            .par_iter()
-            .filter(|f| (f.label != -1) && (f.peptide_q < t))
-            .map(|feature| feature.peptide_idx)
-            .collect::<FnvHashSet<_>>()
-    } else {
-        features
-            .par_iter()
-            .filter(|f| f.label != -1)
-            .map(|feature| feature.peptide_idx)
-            .collect::<FnvHashSet<_>>()
-    };
+
+    let threshold = confident_peptide_threshold.unwrap_or(1.0).clamp(0.0, 1.0);
+
+    let peps = features
+        .par_iter()
+        .filter(|f| (f.label != -1) && (f.peptide_q < threshold))
+        .map(|feature| feature.peptide_idx)
+        .collect::<FnvHashSet<_>>();
+
     info!(
         "-  found {} unique peptides in {:?}ms",
         peps.len(),
@@ -444,42 +433,28 @@ fn update_features_with_protein_groups(
     );
     let time = Instant::now();
     let protein_map = ProteinGroupMap::new(mapping);
-    let counter = AtomicUsize::new(0);
-    features
+
+    let counter: u32 = features
         .par_iter_mut()
         .filter(|feat| feat.protein_groups.is_none())
-        .for_each(|feat| {
+        .map(|feat| {
             let pep = &db[feat.peptide_idx];
             let protein_groups = protein_map.get_protein_group_string(pep, db);
             if !protein_groups.is_empty() {
                 feat.protein_groups = Some(protein_groups.iter().sorted().join(";"));
                 feat.num_protein_groups = protein_groups.len() as u32;
-                counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            }
-        });
-    info!(
-        "-  annotated {} features in {:?}ms",
-        counter.load(std::sync::atomic::Ordering::Relaxed),
-        time.elapsed().as_millis()
-    );
-}
-
-pub fn annotate_proteins<'a>(
-    proteins: &'a [Arc<str>],
-    decoy_tag: &'a str,
-    generate_decoys: bool,
-    decoy: bool,
-) -> impl Iterator<Item = String> + 'a {
-    proteins
-        .iter()
-        .map(move |s| {
-            if decoy && generate_decoys {
-                format!("{}{}", decoy_tag, s)
+                1u32
             } else {
-                s.to_string()
+                0
             }
         })
-        .sorted()
+        .sum();
+
+    info!(
+        "-  annotated {} features in {:?}ms",
+        counter,
+        time.elapsed().as_millis()
+    );
 }
 
 #[cfg(test)]
