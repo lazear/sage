@@ -5,7 +5,7 @@ use anyhow::Context;
 use csv::ByteRecord;
 use log::info;
 use rayon::prelude::*;
-use sage_cloudpath::{CloudPath, FileFormat};
+use sage_cloudpath::{FileFormat, Url};
 use sage_core::database::{IndexedDatabase, Parameters};
 use sage_core::fasta::Fasta;
 use sage_core::ion_series::Kind;
@@ -293,10 +293,11 @@ impl Runner {
 
     // Create a path for `file_name` in the specified output directory, if it exists,
     // otherwise, write to current directory
-    fn make_path<S: AsRef<str>>(&self, file_name: S) -> CloudPath {
-        let mut path = self.parameters.output_directory.clone();
-        path.push(file_name);
-        path
+    fn make_path<S: AsRef<str>>(&self, file_name: S) -> Url {
+        self.parameters
+            .output_directory
+            .join(file_name.as_ref())
+            .expect("valid path segment")
     }
 
     fn search_processed_spectra(
@@ -365,7 +366,7 @@ impl Runner {
     fn process_chunk(
         &self,
         scorer: &Scorer,
-        chunk: &[String],
+        chunk: &[Url],
         chunk_idx: usize,
         batch_size: usize,
     ) -> SageResults {
@@ -376,7 +377,7 @@ impl Runner {
 
     fn read_processed_spectra(
         &self,
-        chunk: &[String],
+        chunk: &[Url],
         chunk_idx: usize,
         batch_size: usize,
     ) -> (
@@ -550,11 +551,10 @@ impl Runner {
             .parameters
             .mzml_paths
             .iter()
-            .map(|s| {
-                s.parse::<CloudPath>()
-                    .ok()
-                    .and_then(|c| c.filename().map(|s| s.to_string()))
-                    .unwrap_or_else(|| s.clone())
+            .map(|url| {
+                sage_cloudpath::filename(&url)
+                    .unwrap_or_else(|| url.as_str())
+                    .to_string()
             })
             .collect::<Vec<_>>();
 
@@ -597,15 +597,15 @@ impl Runner {
             )?;
 
             let path = self.make_path("results.sage.parquet");
-            path.write_bytes_sync(bytes)?;
-            self.parameters.output_paths.push(path.to_string());
+            sage_cloudpath::write_bytes_sync(&path, bytes)?;
+            self.parameters.output_paths.push(path);
 
             if self.parameters.annotate_matches {
                 let bytes =
                     sage_cloudpath::parquet::serialize_matched_fragments(&outputs.features)?;
                 let path = self.make_path("matched_fragments.sage.parquet");
-                path.write_bytes_sync(bytes)?;
-                self.parameters.output_paths.push(path.to_string());
+                sage_cloudpath::write_bytes_sync(&path, bytes)?;
+                self.parameters.output_paths.push(path);
             }
 
             if let Some(areas) = &areas {
@@ -613,8 +613,8 @@ impl Runner {
                     sage_cloudpath::parquet::serialize_lfq(areas, &filenames, &self.database)?;
 
                 let path = self.make_path("lfq.parquet");
-                path.write_bytes_sync(bytes)?;
-                self.parameters.output_paths.push(path.to_string());
+                sage_cloudpath::write_bytes_sync(&path, bytes)?;
+                self.parameters.output_paths.push(path);
             }
         } else {
             self.parameters
@@ -656,11 +656,11 @@ impl Runner {
         }
 
         let path = self.make_path("results.json");
-        self.parameters.output_paths.push(path.to_string());
         println!("{}", serde_json::to_string_pretty(&self.parameters)?);
 
         let bytes = serde_json::to_vec_pretty(&self.parameters)?;
-        path.write_bytes_sync(bytes)?;
+        sage_cloudpath::write_bytes_sync(&path, bytes)?;
+        self.parameters.output_paths.push(path);
 
         let run_time = (Instant::now() - self.start).as_secs();
         info!("finished in {}s", run_time);
@@ -812,7 +812,7 @@ impl Runner {
         &self,
         features: &[Feature],
         filenames: &[String],
-    ) -> anyhow::Result<String> {
+    ) -> anyhow::Result<Url> {
         let path = self.make_path("results.sage.tsv");
 
         let mut wtr = csv::WriterBuilder::new()
@@ -875,11 +875,11 @@ impl Runner {
 
         wtr.flush()?;
         let bytes = wtr.into_inner()?;
-        path.write_bytes_sync(bytes)?;
-        Ok(path.to_string())
+        sage_cloudpath::write_bytes_sync(&path, bytes)?;
+        Ok(path)
     }
 
-    pub fn write_fragments(&self, features: &[Feature]) -> anyhow::Result<String> {
+    pub fn write_fragments(&self, features: &[Feature]) -> anyhow::Result<Url> {
         let path = self.make_path("matched_fragments.sage.tsv");
 
         let mut wtr = csv::WriterBuilder::new()
@@ -909,8 +909,8 @@ impl Runner {
 
         wtr.flush()?;
         let bytes = wtr.into_inner()?;
-        path.write_bytes_sync(bytes)?;
-        Ok(path.to_string())
+        sage_cloudpath::write_bytes_sync(&path, bytes)?;
+        Ok(path)
     }
 
     fn serialize_pin(
@@ -1049,7 +1049,7 @@ impl Runner {
         record
     }
 
-    pub fn write_pin(&self, features: &[Feature], filenames: &[String]) -> anyhow::Result<String> {
+    pub fn write_pin(&self, features: &[Feature], filenames: &[String]) -> anyhow::Result<Url> {
         let path = self.make_path("results.sage.pin");
 
         let mut wtr = csv::WriterBuilder::new()
@@ -1111,11 +1111,11 @@ impl Runner {
 
         wtr.flush()?;
         let bytes = wtr.into_inner()?;
-        path.write_bytes_sync(bytes)?;
-        Ok(path.to_string())
+        sage_cloudpath::write_bytes_sync(&path, bytes)?;
+        Ok(path)
     }
 
-    pub fn write_tmt(&self, quant: &[TmtQuant], filenames: &[String]) -> anyhow::Result<String> {
+    pub fn write_tmt(&self, quant: &[TmtQuant], filenames: &[String]) -> anyhow::Result<Url> {
         let path = self.make_path("tmt.tsv");
 
         let mut wtr = csv::WriterBuilder::new()
@@ -1153,15 +1153,15 @@ impl Runner {
         wtr.flush()?;
 
         let bytes = wtr.into_inner()?;
-        path.write_bytes_sync(bytes)?;
-        Ok(path.to_string())
+        sage_cloudpath::write_bytes_sync(&path, bytes)?;
+        Ok(path)
     }
 
     pub fn write_lfq(
         &self,
         areas: HashMap<(PrecursorId, bool), (Peak, Vec<f64>), fnv::FnvBuildHasher>,
         filenames: &[String],
-    ) -> anyhow::Result<String> {
+    ) -> anyhow::Result<Url> {
         let path = self.make_path("lfq.tsv");
 
         let mut wtr = csv::WriterBuilder::new()
@@ -1213,8 +1213,8 @@ impl Runner {
         wtr.flush()?;
 
         let bytes = wtr.into_inner()?;
-        path.write_bytes_sync(bytes)?;
-        Ok(path.to_string())
+        sage_cloudpath::write_bytes_sync(&path, bytes)?;
+        Ok(path)
     }
 
     fn write_report(
@@ -1222,7 +1222,7 @@ impl Runner {
         features: &[Feature],
         areas: Option<HashMap<(PrecursorId, bool), (Peak, Vec<f64>), fnv::FnvBuildHasher>>,
         filenames: &[String],
-    ) -> anyhow::Result<String> {
+    ) -> anyhow::Result<Url> {
         let path = self.make_path("results.sage.report.html");
 
         let global_q_value_filter = 0.01;
@@ -1776,6 +1776,6 @@ impl Runner {
         // Save the report to HTML file
         report.save_to_file(&path.to_string())?;
 
-        Ok(path.to_string())
+        Ok(path)
     }
 }
