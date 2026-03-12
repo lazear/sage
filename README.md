@@ -48,7 +48,7 @@ If you use Sage in a scientific publication, please cite the following paper:
 - Percolator/Mokapot [compatible output](https://sage-docs.vercel.app/docs/configuration#env)
 - Configuration by [JSON file](https://sage-docs.vercel.app/docs/configuration#file)
 - Built-in support for reading gzipped-mzML files
-- Support for reading/writing directly from [AWS S3](https://sage-docs.vercel.app/docs/configuration/aws)
+- Support for reading/writing directly from [AWS S3](https://sage-docs.vercel.app/docs/configuration/aws), Google Cloud, or Azure.
 
 ## Interoperability
 
