@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.15.0]
 ### Added
+- IDPicker-based protein grouping with picked group FDR control (`protein_grouping` setting, enabled by default). Proteins are grouped using a bipartite graph greedy set cover approach, and protein group-level q-values are reported via target-decoy competition. New output columns: `protein_groups`, `num_protein_groups`, `protein_group_q`.
+- `protein_grouping_peptide_fdr` parameter to control the peptide FDR threshold used for confident peptides during protein grouping (default: 0.01)
 - Initial support for LFQ on data with ion mobility.
 - Speedup on the generation of databases when large number of peptides are redundant.
 - Initial support for searching diaPASEF data
@@ -24,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - C/N-term mixup in modification handling
 - Bruker `.tdf` filename handling (use parent directory name)
 - Performance optimizations on prefiltering
+- Picked protein FDR now correctly uses only proteotypic peptides for competition
 
 ### Breaking Changes
 - `precursor_ppm` field reports the non-absoluted average mass error, rather than the absoluted average mass error.
