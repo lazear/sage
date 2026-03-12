@@ -142,14 +142,17 @@ impl Runner {
     pub fn prefilter_peptides(self, parallel: usize, fasta: Fasta) -> Vec<Peptide> {
         let spectra: Option<Vec<ProcessedSpectrum<_>>> =
             match parallel >= self.parameters.mzml_paths.len() {
-                true => Some(self.read_processed_spectra(&self.parameters.mzml_paths, 0, 0).1),
+                true => Some(
+                    self.read_processed_spectra(&self.parameters.mzml_paths, 0, 0)
+                        .1,
+                ),
                 false => None,
             };
-        
+
         let mut db_params = self.parameters.database.clone();
         // TODO: Don't generate decoys for fast searching
         // * if `generate_decoys` is used, we should re-generate at the end
-        //  to ensure that picked-peptide conditions are used, otherwise, 
+        //  to ensure that picked-peptide conditions are used, otherwise,
         //  if the user supplied decoys in the fasta file, then we should retain them
         //
         // db_params.generate_decoys = false;
@@ -187,12 +190,16 @@ impl Runner {
                     score_type: self.parameters.score_type,
                 };
 
-                // Allocate an array of booleans indicating whether a peptide was identified in a 
+                // Allocate an array of booleans indicating whether a peptide was identified in a
                 // preliminary pass of the data
-                let keep = (0..db.peptides.len()).map(|_| std::sync::atomic::AtomicBool::new(false)).collect::<Vec<_>>();
+                let keep = (0..db.peptides.len())
+                    .map(|_| std::sync::atomic::AtomicBool::new(false))
+                    .collect::<Vec<_>>();
 
                 match &spectra {
-                    Some(spectra) => self.peptide_filter_processed_spectra(&scorer, &spectra, &keep),
+                    Some(spectra) => {
+                        self.peptide_filter_processed_spectra(&scorer, &spectra, &keep)
+                    }
                     None => self
                         .parameters
                         .mzml_paths
@@ -206,14 +213,19 @@ impl Runner {
                 };
 
                 // Retain only peptides where `keep[ix] = true`
-                let peptides = db.peptides.drain(..).enumerate().filter_map(|(ix, peptide)| {
-                    let val = keep[ix].load(std::sync::atomic::Ordering::Relaxed);
-                    if val {
-                        Some(peptide)
-                    } else {
-                        None
-                    }
-                }).collect::<Vec<_>>();
+                let peptides = db
+                    .peptides
+                    .drain(..)
+                    .enumerate()
+                    .filter_map(|(ix, peptide)| {
+                        let val = keep[ix].load(std::sync::atomic::Ordering::Relaxed);
+                        if val {
+                            Some(peptide)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>();
 
                 info!(
                     "found {} pre-filtered peptides for fasta chunk {}",
@@ -249,13 +261,21 @@ impl Runner {
                     let rate = prev * 1000 / (duration + 1);
                     log::trace!("- searched {} spectra ({} spectra/s)", prev, rate);
                 }
-                scorer.quick_score(spectrum, self.parameters.database.prefilter_low_memory, keep)
+                scorer.quick_score(
+                    spectrum,
+                    self.parameters.database.prefilter_low_memory,
+                    keep,
+                )
             });
 
         let duration = Instant::now().duration_since(start).as_millis() as usize;
         let prev = counter.load(Ordering::Relaxed);
         let rate = prev * 1000 / (duration + 1);
-        log::info!("- prefilter search:  {:8} ms ({} spectra/s)", duration, rate);
+        log::info!(
+            "- prefilter search:  {:8} ms ({} spectra/s)",
+            duration,
+            rate
+        );
     }
 
     fn spectrum_fdr(&self, features: &mut [Feature]) -> usize {
@@ -524,7 +544,21 @@ impl Runner {
 
         let q_spectrum = self.spectrum_fdr(&mut outputs.features);
         let q_peptide = sage_core::fdr::picked_peptide(&self.database, &mut outputs.features);
+        // Protein FDR is based exclusively on proteotypic (unique, non-shared) peptides. Shared peptides
+        // are reported with protein FDR = 1.0
         let q_protein = sage_core::fdr::picked_protein(&self.database, &mut outputs.features);
+        // Conducts "IDPicker-based protein grouping at 1% peptide FDR"
+        sage_core::protein_grouping::generate_proteingroups(
+            &self.database,
+            &mut outputs.features,
+            self.parameters.protein_grouping,
+            Some(self.parameters.protein_grouping_peptide_fdr),
+        );
+        // Uses the "Picked Group FDR" approach to compute proteingroup FDR for the IDPicker groups,
+        // including rescued subset grouping (rsG). Shared peptides (between different groups)
+        // are reported with proteingroup FDR = 1.0
+        let q_proteingroup =
+            sage_core::fdr::picked_proteingroup(&self.database, &mut outputs.features);
 
         let filenames = self
             .parameters
@@ -562,7 +596,14 @@ impl Runner {
             q_spectrum
         );
         log::info!("discovered {} target peptides at 1% FDR", q_peptide);
-        log::info!("discovered {} target proteins at 1% FDR", q_protein);
+        log::info!(
+            "discovered {} target proteins (supported by proteotypic peptides only) at 1% FDR",
+            q_protein
+        );
+        log::info!(
+            "discovered {} target proteingroups (supported by proteotypic peptides only) at 1% FDR",
+            q_proteingroup
+        );
         log::trace!("writing outputs");
 
         // Write either a single parquet file, or multiple tsv files
@@ -668,9 +709,15 @@ impl Runner {
                 .proteins(&self.database.decoy_tag, self.database.generate_decoys)
                 .as_bytes(),
         );
+        record.push_field(feature.proteingroups.as_ref().unwrap().as_bytes());
         record.push_field(
             itoa::Buffer::new()
                 .format(peptide.proteins.len())
+                .as_bytes(),
+        );
+        record.push_field(
+            itoa::Buffer::new()
+                .format(feature.num_proteingroups)
                 .as_bytes(),
         );
         record.push_field(filenames[feature.file_id].as_bytes());
@@ -736,6 +783,7 @@ impl Runner {
         record.push_field(ryu::Buffer::new().format(feature.spectrum_q).as_bytes());
         record.push_field(ryu::Buffer::new().format(feature.peptide_q).as_bytes());
         record.push_field(ryu::Buffer::new().format(feature.protein_q).as_bytes());
+        record.push_field(ryu::Buffer::new().format(feature.proteingroup_q).as_bytes());
         record.push_field(ryu::Buffer::new().format(feature.ms2_intensity).as_bytes());
         record
     }
@@ -803,7 +851,9 @@ impl Runner {
             "psm_id",
             "peptide",
             "proteins",
+            "proteingroups",
             "num_proteins",
+            "num_proteingroups",
             "filename",
             "scannr",
             "rank",
@@ -839,6 +889,7 @@ impl Runner {
             "spectrum_q",
             "peptide_q",
             "protein_q",
+            "proteingroup_q",
             "ms2_intensity",
         ];
 
