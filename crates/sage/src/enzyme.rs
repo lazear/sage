@@ -199,7 +199,11 @@ impl Enzyme {
                 true => mat.end(),
                 false => mat.start(),
             };
-            if sequence.as_bytes().get(right).map_or(false, |b| self.skip_suffix[(b - b'A') as usize]) {
+            if sequence
+                .as_bytes()
+                .get(right)
+                .map_or(false, |b| self.skip_suffix[(b - b'A') as usize])
+            {
                 continue;
             }
             sites.push(DigestSite {

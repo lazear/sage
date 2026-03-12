@@ -17,7 +17,7 @@ base64 = "0.13"
 bytes = "1.0"
 futures = "0.3"
 log = "0.4.0"
-object_store = { version = "0.11", features = ["aws", "gcp", "azure"] }
+object_store = { version = "0.13", features = ["aws", "gcp", "azure"] }
 tokio = { version = "1.0", features = ["fs", "io-util", "rt", "macros"] }
 tokio-util = { version = "0.7", features = ["io"] }
 quick-xml = { version = "0.31.0", features = ["async-tokio"] }
@@ -25,7 +25,7 @@ timsrust = { version = "0.4.2"}
 rayon = "1.5"
 reqwest = { version = "0.11", features = ["json", "rustls-tls"], default-features = false }
 regex = "1.6"
-url = "2"
+url = { version = "2", features = ["serde"]}
 
 serde = { version="1.0", features = ["derive"] }
 serde_json = "1.0"

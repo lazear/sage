@@ -1,6 +1,7 @@
 use async_compression::tokio::bufread::GzipDecoder;
 use async_compression::tokio::write::GzipEncoder;
 use futures::TryStreamExt;
+use object_store::{ObjectStore, ObjectStoreExt};
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWriteExt, BufReader};
 
 pub use url::Url;
@@ -45,9 +46,18 @@ pub fn filename(url: &Url) -> Option<&str> {
     }
 }
 
+fn parse_url(url: &Url) -> Result<(Box<dyn ObjectStore>, object_store::path::Path), Error> {
+    // AWS and Azure require lowercased config keys. By default, these aren't pulled from the env
+    object_store::parse_url_opts(
+        url,
+        std::env::vars().map(|(k, v)| (k.to_ascii_lowercase(), v)),
+    )
+    .map_err(Error::ObjectStore)
+}
+
 /// Open a streaming reader for the given URL.
 async fn read_url(url: &Url) -> Result<Box<dyn AsyncBufRead + Unpin + Send>, Error> {
-    let (store, obj_path) = object_store::parse_url(url).map_err(Error::ObjectStore)?;
+    let (store, obj_path) = parse_url(url)?;
     let result = store.get(&obj_path).await.map_err(Error::ObjectStore)?;
     let stream = result
         .into_stream()
@@ -81,7 +91,7 @@ pub async fn write_bytes_async(url: &Url, bytes: Vec<u8>) -> Result<(), Error> {
         }
     }
 
-    let (store, obj_path) = object_store::parse_url(url).map_err(Error::ObjectStore)?;
+    let (store, obj_path) = parse_url(url)?;
     store
         .put(&obj_path, bytes::Bytes::from(bytes).into())
         .await
