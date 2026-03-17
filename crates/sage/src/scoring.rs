@@ -519,14 +519,12 @@ impl<'db> Scorer<'db> {
                 .map(|score| score.0.hyperscore)
                 .expect("we know that index 0 is valid");
 
-            // Poisson distribution probability mass function
+            // Poisson distribution log10 probability mass function
+            // Computed directly in log space to avoid overflow from lambda.powi(k)
+            // log10(PMF) = (k*ln(lambda) - lambda - lnfact(k)) / ln(10)
             let k = score.matched_b + score.matched_y;
-            let mut poisson = lambda.powi(k as i32) * f64::exp(-lambda) / lnfact(k).exp();
-
-            if poisson.is_infinite() {
-                // Approximately the smallest positive non-zero value representable by f64
-                poisson = 1E-325;
-            }
+            let log10_poisson =
+                (k as f64 * lambda.ln() - lambda - lnfact(k)) / std::f64::consts::LN_10;
 
             let isotope_error = score.isotope_error as f32 * NEUTRON;
             let delta_mass = (precursor_mass - peptide.monoisotopic - isotope_error) * 2E6
@@ -562,7 +560,11 @@ impl<'db> Scorer<'db> {
                 matched_peaks: k as u32,
                 matched_intensity_pct: 100.0 * (score.summed_b + score.summed_y)
                     / query.total_ion_current,
-                poisson: poisson.log10(),
+                poisson: if log10_poisson.is_finite() {
+                    log10_poisson
+                } else {
+                    f64::NEG_INFINITY
+                },
                 longest_b: score.longest_b as u32,
                 longest_y: score.longest_y as u32,
                 longest_y_pct: score.longest_y as f32 / (peptide.sequence.len() as f32),
