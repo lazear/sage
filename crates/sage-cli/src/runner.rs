@@ -1806,8 +1806,8 @@ impl Runner {
             report.add_section(config_section);
         }
 
-        // Save the report to HTML file
-        report.save_to_file(path.as_ref())?;
+        let bytes = report.to_string().into_bytes();
+        sage_cloudpath::write_bytes_sync(&path, bytes)?;
 
         Ok(path)
     }

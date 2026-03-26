@@ -2338,9 +2338,9 @@ checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 
 [[package]]
 name = "report-builder"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee4ba2a63ddbda7fb3f89b92c4262d297b47e505b481a65ba8f197ca4eafcd60"
+checksum = "8d1810a05dbbeb3f92cc72cccbe76857f010125ab80c226c4f31f7a7ca15385b"
 dependencies = [
  "chrono",
  "itertools-num",
