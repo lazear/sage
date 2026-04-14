@@ -236,6 +236,7 @@ impl Parameters {
                 && remove.cterm == keep.cterm
             {
                 keep.proteins.extend(remove.proteins.iter().cloned());
+                keep.sites.extend(remove.sites.iter().cloned());
                 // When merging peptides from different Fastas,
                 // decoys in one fasta might be targets in another
                 keep.decoy &= remove.decoy;
@@ -247,7 +248,7 @@ impl Parameters {
 
         target_decoys
             .par_iter_mut()
-            .for_each(|peptide| peptide.proteins.sort_unstable());
+            .for_each(|peptide| peptide.normalize_metadata());
 
         let num_dropped = init_size - target_decoys.len();
         log::trace!(

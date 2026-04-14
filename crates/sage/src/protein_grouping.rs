@@ -22,7 +22,12 @@ use std::time::Instant;
 struct ProteinIx(u32);
 
 impl ProteinIx {
-    fn format(&self, proteins: &[(Arc<str>, bool)], decoy_tag: &str, generate_decoys: bool) -> String {
+    fn format(
+        &self,
+        proteins: &[(Arc<str>, bool)],
+        decoy_tag: &str,
+        generate_decoys: bool,
+    ) -> String {
         let (name, decoy) = &proteins[self.0 as usize];
         if *decoy && generate_decoys {
             format!("{}{}", decoy_tag, name)
@@ -37,7 +42,12 @@ impl ProteinIx {
 struct ProteinGroup(Vec<ProteinIx>);
 
 impl ProteinGroup {
-    fn format(&self, proteins: &[(Arc<str>, bool)], decoy_tag: &str, generate_decoys: bool) -> String {
+    fn format(
+        &self,
+        proteins: &[(Arc<str>, bool)],
+        decoy_tag: &str,
+        generate_decoys: bool,
+    ) -> String {
         self.0
             .iter()
             .map(|ix| ix.format(proteins, decoy_tag, generate_decoys))
@@ -181,10 +191,7 @@ impl ProteinGrouper {
             })
             .collect();
 
-        info!(
-            "-  found {} meta peptides",
-            meta_peptides.len(),
-        );
+        info!("-  found {} meta peptides", meta_peptides.len(),);
 
         // Invert: group proteins that share identical meta-peptide sets
         let mut prot_to_metapeps: FnvHashMap<ProteinIx, Vec<usize>> = FnvHashMap::default();
@@ -197,7 +204,11 @@ impl ProteinGrouper {
         // Proteins with identical meta-peptide vectors form a group
         let mut evidence_to_group: FnvHashMap<Vec<usize>, ProteinGroup> = FnvHashMap::default();
         for (prot_ix, meta_peps) in prot_to_metapeps {
-            evidence_to_group.entry(meta_peps).or_default().0.push(prot_ix);
+            evidence_to_group
+                .entry(meta_peps)
+                .or_default()
+                .0
+                .push(prot_ix);
         }
 
         let mut groups = Vec::new();
@@ -264,7 +275,11 @@ struct ProteinGroupLookup {
 
 impl ProteinGroupLookup {
     /// Get the sorted, semicolon-delimited protein group string for a peptide
-    fn group_string(&self, peptide: &crate::peptide::Peptide, db: &IndexedDatabase) -> Option<String> {
+    fn group_string(
+        &self,
+        peptide: &crate::peptide::Peptide,
+        db: &IndexedDatabase,
+    ) -> Option<String> {
         let group_set: FnvHashSet<&ProteinGroup> = peptide
             .proteins
             .iter()
@@ -508,7 +523,10 @@ mod test {
         generate_protein_groups(&db, &mut features, true, Some(0.01));
 
         for feat in &features {
-            assert!(feat.protein_groups.is_some(), "every feature should be annotated");
+            assert!(
+                feat.protein_groups.is_some(),
+                "every feature should be annotated"
+            );
         }
         assert_eq!(features[1].protein_groups.as_deref(), Some("protA"));
     }

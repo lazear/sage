@@ -4,12 +4,21 @@ use std::sync::Arc;
 
 use crate::mass::VALID_AA;
 
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
+pub struct PeptideSite {
+    pub protein: Arc<str>,
+    pub start: usize,
+    pub end: usize,
+    pub prev_aa: Option<u8>,
+    pub next_aa: Option<u8>,
+}
+
 #[derive(Clone, PartialOrd, Ord, Debug, Default)]
 /// An enzymatic digest
 ///
 /// # Important invariant about [`Digest`]:
-/// * two digests are equal if and only if their sequences and position are equal
-///   i.e., decoy status is ignored for equality and hashing
+/// * two digests are equal if and only if their sequences and coarse position are equal
+///   i.e., decoy status and site metadata are ignored for equality and hashing
 pub struct Digest {
     /// Is this a decoy peptide?
     pub decoy: bool,
@@ -19,6 +28,14 @@ pub struct Digest {
     pub sequence: String,
     /// Protein accession
     pub protein: Arc<str>,
+    /// 0-based start position in the source protein
+    pub start: usize,
+    /// 0-based exclusive end position in the source protein
+    pub end: usize,
+    /// Amino acid immediately before the peptide in the source protein
+    pub prev_aa: Option<u8>,
+    /// Amino acid immediately after the peptide in the source protein
+    pub next_aa: Option<u8>,
     /// Missed cleavages
     pub missed_cleavages: u8,
     /// Is this an N-terminal peptide of the protein?
@@ -28,9 +45,17 @@ pub struct Digest {
 pub struct DigestGroup {
     pub reference: Digest,
     pub proteins: Vec<Arc<str>>,
+    pub sites: Vec<PeptideSite>,
 }
 
 pub fn group_digests(mut digests: Vec<Digest>) -> Vec<DigestGroup> {
+    fn normalize_group(group: &mut DigestGroup) {
+        group.proteins.sort_unstable();
+        group.proteins.dedup();
+        group.sites.sort_unstable();
+        group.sites.dedup();
+    }
+
     let mut groups = Vec::new();
     digests.sort_unstable_by(|a, b| {
         a.position
@@ -41,28 +66,31 @@ pub fn group_digests(mut digests: Vec<Digest>) -> Vec<DigestGroup> {
     let mut curr_group = DigestGroup {
         reference: digests[0].clone(),
         proteins: Vec::new(),
+        sites: Vec::new(),
     };
     for digest in digests {
         if digest.decoy == curr_group.reference.decoy
             && digest.position == curr_group.reference.position
             && digest.sequence == curr_group.reference.sequence
         {
-            curr_group.proteins.push(digest.protein);
+            curr_group.proteins.push(digest.protein.clone());
+            curr_group.sites.push(digest.peptide_site());
         } else {
-            curr_group.proteins.sort_unstable();
+            normalize_group(&mut curr_group);
             groups.push(curr_group);
             curr_group = DigestGroup {
                 reference: digest.clone(),
-                proteins: vec![digest.protein],
+                proteins: vec![digest.protein.clone()],
+                sites: vec![digest.peptide_site()],
             };
         }
     }
+    normalize_group(&mut curr_group);
     groups.push(curr_group);
     groups
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
-#[derive(Default)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash, Default)]
 pub enum Position {
     Nterm,
     Cterm,
@@ -71,8 +99,17 @@ pub enum Position {
     Internal,
 }
 
-
 impl Digest {
+    pub fn peptide_site(&self) -> PeptideSite {
+        PeptideSite {
+            protein: self.protein.clone(),
+            start: self.start,
+            end: self.end,
+            prev_aa: self.prev_aa,
+            next_aa: self.next_aa,
+        }
+    }
+
     /// Generate an internal decoy sequence by reversing the sequence
     /// inside the first and last amino acids
     pub fn reverse(&self) -> Self {
@@ -89,6 +126,10 @@ impl Digest {
             semi_enzymatic: self.semi_enzymatic,
             protein: self.protein.clone(),
             sequence: sequence.into_iter().collect(),
+            start: self.start,
+            end: self.end,
+            prev_aa: self.prev_aa,
+            next_aa: self.next_aa,
             missed_cleavages: self.missed_cleavages,
             position: self.position,
         }
@@ -240,11 +281,7 @@ impl EnzymeParameters {
         }
     }
 
-    fn missed_cleavage_sites(
-        &self,
-        sites: &mut Vec<DigestSite>,
-        missed_cleavages: u8,
-    ) {
+    fn missed_cleavage_sites(&self, sites: &mut Vec<DigestSite>, missed_cleavages: u8) {
         let mut missed_cleavage_sites = Vec::new();
         for cleavage in 1..=(1 + missed_cleavages) {
             // Generate missed cleavages
@@ -294,6 +331,7 @@ impl EnzymeParameters {
 
     pub fn digest(&self, sequence: &str, protein: Arc<str>) -> Vec<Digest> {
         let n = sequence.len();
+        let sequence_bytes = sequence.as_bytes();
         let mut digests = Vec::new();
         let mut sites = self.cleavage_sites(sequence);
         // Allowing missed_cleavages with non-specific digest causes OOB panics
@@ -311,20 +349,20 @@ impl EnzymeParameters {
             self.semi_enzymatic_sites(&mut sites);
         }
 
-        // Keep a set of peptides that have been digested from this sequence
-        // - handles cases where the same peptide occurs multiple times in a protein
+        // Keep a set of peptide slices generated from this sequence to avoid
+        // duplicates introduced by overlapping digestion paths.
         let mut seen = FnvHashSet::default();
 
         for site in sites.iter_mut() {
             let start = site.site.start;
             let end = site.site.end;
 
-            let sequence = match sequence.get(start..end) {
+            let peptide_sequence = match sequence.get(start..end) {
                 Some(sequence) => sequence,
                 None => continue,
             };
 
-            let len = sequence.len();
+            let len = peptide_sequence.len();
 
             let position = match (start == 0, end == n) {
                 (true, true) => Position::Full,
@@ -333,14 +371,18 @@ impl EnzymeParameters {
                 (false, false) => Position::Internal,
             };
 
-            if len >= self.min_len && len <= self.max_len && len > 0 && seen.insert(sequence) {
+            if len >= self.min_len && len <= self.max_len && len > 0 && seen.insert((start, end)) {
                 digests.push(Digest {
-                    sequence: sequence.into(),
+                    sequence: peptide_sequence.into(),
                     missed_cleavages: site.missed_cleavages,
                     decoy: false,
                     semi_enzymatic: site.semi_enzymatic,
                     position,
                     protein: protein.clone(),
+                    start,
+                    end,
+                    prev_aa: start.checked_sub(1).map(|ix| sequence_bytes[ix]),
+                    next_aa: sequence_bytes.get(end).copied(),
                 });
             }
         }
@@ -365,6 +407,7 @@ mod test {
                 missed_cleavages: 0,
                 position: Position::Nterm,
                 protein: Arc::from(String::default()),
+                ..Default::default()
             },
             Digest {
                 decoy: false,
@@ -373,6 +416,7 @@ mod test {
                 missed_cleavages: 0,
                 position: Position::Nterm,
                 protein: Arc::from(String::default()),
+                ..Default::default()
             },
         ];
 
@@ -388,6 +432,7 @@ mod test {
                 missed_cleavages: 0,
                 position: Position::Nterm,
                 protein: Arc::from(String::default()),
+                ..Default::default()
             },
             Digest {
                 decoy: false,
@@ -396,6 +441,7 @@ mod test {
                 missed_cleavages: 0,
                 position: Position::Internal,
                 protein: Arc::from(String::default()),
+                ..Default::default()
             },
         ];
 
@@ -656,9 +702,12 @@ mod test {
     }
 
     #[test]
-    fn ensure_unique() {
+    fn retain_repeated_sites() {
         let sequence = "KVEGAQNQGKKVEGAQNQGK";
-        let expected = vec!["VEGAQNQGK"];
+        let expected = vec![
+            ("VEGAQNQGK".to_string(), 1, 10, Some(b'K'), Some(b'K')),
+            ("VEGAQNQGK".to_string(), 11, 20, Some(b'K'), None),
+        ];
 
         let tryp = EnzymeParameters {
             min_len: 2,
@@ -671,7 +720,7 @@ mod test {
             expected,
             tryp.digest(sequence, Arc::default())
                 .into_iter()
-                .map(|d| d.sequence)
+                .map(|d| (d.sequence, d.start, d.end, d.prev_aa, d.next_aa))
                 .collect::<Vec<_>>()
         );
     }
