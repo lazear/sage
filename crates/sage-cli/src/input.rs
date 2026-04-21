@@ -324,8 +324,8 @@ impl Input {
 
         let output_directory = match self.output_directory {
             Some(path) => {
-                match Url::parse(&path) {
-                    Ok(mut url) => {
+                match sage_cloudpath::try_parse_url(&path) {
+                    Some(mut url) => {
                         // Valid URL, might still be a local directory that doesn't exist
                         if url.scheme() == "file" {
                             let path = url.to_file_path().expect("url scheme is file");
@@ -337,8 +337,9 @@ impl Input {
                         }
                         url
                     }
-                    Err(_) => {
-                        // Try to interpret as a local path
+                    None => {
+                        // Treat as a local path (covers Windows `C:\...` which
+                        // otherwise parses as a URL with scheme `c`).
                         let path = std::path::Path::new(&path);
                         std::fs::create_dir_all(path)?;
                         Url::from_directory_path(path.canonicalize()?).expect("valid path")

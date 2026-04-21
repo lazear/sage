@@ -15,9 +15,25 @@ pub use util::FileFormat;
 #[cfg(feature = "parquet")]
 pub mod parquet;
 
+/// Schemes recognized by `object_store::parse_url_opts`. Anything outside
+/// this set — most importantly Windows drive letters like `C:` which parse
+/// as single-letter URL schemes — is treated as a local path.
+const OBJECT_STORE_SCHEMES: &[&str] = &[
+    "file", "memory", "s3", "s3a", "gs", "az", "adl", "azure", "abfs", "abfss", "http", "https",
+];
+
+/// Parse `s` as a URL, but only accept schemes that `object_store` knows how
+/// to handle. Returns `None` for local paths (including Windows paths like
+/// `C:\foo` that would otherwise parse as a URL with scheme `c`).
+pub fn try_parse_url(s: &str) -> Option<Url> {
+    Url::parse(s)
+        .ok()
+        .filter(|u| OBJECT_STORE_SCHEMES.contains(&u.scheme()))
+}
+
 /// Convert a path string (local path or cloud URL) into a [`Url`].
 pub fn to_url(s: &str) -> Result<Url, Error> {
-    if let Ok(url) = Url::parse(s) {
+    if let Some(url) = try_parse_url(s) {
         return Ok(url);
     }
     let path = std::path::Path::new(s);
@@ -172,6 +188,36 @@ mod test {
     #[test]
     fn invalid_remote_read() {
         assert!(read_and_execute("s3://my-bucket", |_| async move { Ok(()) }).is_err())
+    }
+
+    #[test]
+    fn windows_drive_letter_is_not_a_url() {
+        // `Url::parse("C:\\...")` succeeds with `c` as a single-letter
+        // scheme, which object_store later rejects with "Unable to recognise
+        // URL". `to_url` must treat such inputs as local paths — here the
+        // path doesn't exist on this machine, so we expect an IO error
+        // rather than a bogus `Ok(Url { scheme: "c", ... })`.
+        let backslash = to_url(r"C:\Users\nonexistent\bar.json");
+        assert!(
+            matches!(backslash, Err(Error::IO(_))),
+            "expected IO error for Windows path with backslashes, got {:?}",
+            backslash
+        );
+
+        let forwardslash = to_url("C:/Users/nonexistent/bar.json");
+        assert!(
+            matches!(forwardslash, Err(Error::IO(_))),
+            "expected IO error for Windows path with forward slashes, got {:?}",
+            forwardslash
+        );
+    }
+
+    #[test]
+    fn cloud_urls_still_parse() {
+        assert_eq!(to_url("s3://bucket/key").unwrap().scheme(), "s3");
+        assert_eq!(to_url("gs://bucket/key").unwrap().scheme(), "gs");
+        assert_eq!(to_url("az://container/key").unwrap().scheme(), "az");
+        assert_eq!(to_url("https://example.com/key").unwrap().scheme(), "https");
     }
 
     #[test]
