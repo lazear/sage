@@ -31,6 +31,104 @@ pub struct Runner {
     start: Instant,
 }
 
+fn feature_headers() -> Vec<&'static str> {
+    vec![
+        "psm_id",
+        "peptide",
+        "first_aa",
+        "last_aa",
+        "prev_aa",
+        "next_aa",
+        "starts",
+        "ends",
+        "proteins",
+        "protein_groups",
+        "num_proteins",
+        "num_protein_groups",
+        "filename",
+        "scannr",
+        "rank",
+        "label",
+        "expmass",
+        "calcmass",
+        "charge",
+        "peptide_len",
+        "missed_cleavages",
+        "semi_enzymatic",
+        "isotope_error",
+        "precursor_ppm",
+        "fragment_ppm",
+        "hyperscore",
+        "delta_next",
+        "delta_best",
+        "rt",
+        "aligned_rt",
+        "predicted_rt",
+        "delta_rt_model",
+        "ion_mobility",
+        "predicted_mobility",
+        "delta_mobility",
+        "matched_peaks",
+        "longest_b",
+        "longest_y",
+        "longest_y_pct",
+        "matched_intensity_pct",
+        "scored_candidates",
+        "poisson",
+        "sage_discriminant_score",
+        "posterior_error",
+        "spectrum_q",
+        "peptide_q",
+        "protein_q",
+        "protein_group_q",
+        "ms2_intensity",
+    ]
+}
+
+fn pin_headers() -> Vec<&'static str> {
+    vec![
+        "SpecId",
+        "Label",
+        "ScanNr",
+        "ExpMass",
+        "CalcMass",
+        "FileName",
+        "retentiontime",
+        "ion_mobility",
+        "rank",
+        "z=2",
+        "z=3",
+        "z=4",
+        "z=5",
+        "z=6",
+        "z=other",
+        "peptide_len",
+        "missed_cleavages",
+        "semi_enzymatic",
+        "isotope_error",
+        "ln(precursor_ppm)",
+        "fragment_ppm",
+        "ln(hyperscore)",
+        "ln(delta_next)",
+        "ln(delta_best)",
+        "aligned_rt",
+        "predicted_rt",
+        "sqrt(delta_rt_model)",
+        "predicted_mobility",
+        "sqrt(delta_mobility)",
+        "matched_peaks",
+        "longest_b",
+        "longest_y",
+        "longest_y_pct",
+        "ln(matched_intensity_pct)",
+        "scored_candidates",
+        "ln(-poisson)",
+        "posterior_error",
+        "Peptide",
+        "Proteins",
+    ]
+}
+
 #[derive(Default)]
 struct RawSpectrumAccumulator {
     pub ms1: Vec<RawSpectrum>,
@@ -702,6 +800,12 @@ impl Runner {
 
         let peptide = &self.database[feature.peptide_idx];
         record.push_field(peptide.to_string().as_bytes());
+        record.push_field(peptide.first_aa().as_bytes());
+        record.push_field(peptide.last_aa().as_bytes());
+        record.push_field(peptide.prev_aas().as_bytes());
+        record.push_field(peptide.next_aas().as_bytes());
+        record.push_field(peptide.starts().as_bytes());
+        record.push_field(peptide.ends().as_bytes());
         record.push_field(
             peptide
                 .proteins(&self.database.decoy_tag, self.database.generate_decoys)
@@ -849,53 +953,7 @@ impl Runner {
             .delimiter(b'\t')
             .from_writer(vec![]);
 
-        let csv_headers = vec![
-            "psm_id",
-            "peptide",
-            "proteins",
-            "protein_groups",
-            "num_proteins",
-            "num_protein_groups",
-            "filename",
-            "scannr",
-            "rank",
-            "label",
-            "expmass",
-            "calcmass",
-            "charge",
-            "peptide_len",
-            "missed_cleavages",
-            "semi_enzymatic",
-            "isotope_error",
-            "precursor_ppm",
-            "fragment_ppm",
-            "hyperscore",
-            "delta_next",
-            "delta_best",
-            "rt",
-            "aligned_rt",
-            "predicted_rt",
-            "delta_rt_model",
-            "ion_mobility",
-            "predicted_mobility",
-            "delta_mobility",
-            "matched_peaks",
-            "longest_b",
-            "longest_y",
-            "longest_y_pct",
-            "matched_intensity_pct",
-            "scored_candidates",
-            "poisson",
-            "sage_discriminant_score",
-            "posterior_error",
-            "spectrum_q",
-            "peptide_q",
-            "protein_q",
-            "protein_group_q",
-            "ms2_intensity",
-        ];
-
-        let headers = csv::ByteRecord::from(csv_headers);
+        let headers = csv::ByteRecord::from(feature_headers());
 
         wtr.write_byte_record(&headers)?;
         for record in features
@@ -1089,47 +1147,7 @@ impl Runner {
             .delimiter(b'\t')
             .from_writer(vec![]);
 
-        let headers = csv::ByteRecord::from(vec![
-            "SpecId",
-            "Label",
-            "ScanNr",
-            "ExpMass",
-            "CalcMass",
-            "FileName",
-            "retentiontime",
-            "ion_mobility",
-            "rank",
-            "z=2",
-            "z=3",
-            "z=4",
-            "z=5",
-            "z=6",
-            "z=other",
-            "peptide_len",
-            "missed_cleavages",
-            "semi_enzymatic",
-            "isotope_error",
-            "ln(precursor_ppm)",
-            "fragment_ppm",
-            "ln(hyperscore)",
-            "ln(delta_next)",
-            "ln(delta_best)",
-            "aligned_rt",
-            "predicted_rt",
-            "sqrt(delta_rt_model)",
-            "predicted_mobility",
-            "sqrt(delta_mobility)",
-            "matched_peaks",
-            "longest_b",
-            "longest_y",
-            "longest_y_pct",
-            "ln(matched_intensity_pct)",
-            "scored_candidates",
-            "ln(-poisson)",
-            "posterior_error",
-            "Peptide",
-            "Proteins",
-        ]);
+        let headers = csv::ByteRecord::from(pin_headers());
 
         let re = regex::Regex::new(r"scan=(\d+)").expect("This is valid regex");
 
@@ -1810,5 +1828,75 @@ impl Runner {
         sage_cloudpath::write_bytes_sync(&path, bytes)?;
 
         Ok(path)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::{feature_headers, pin_headers};
+
+    #[test]
+    fn feature_headers_include_site_columns() {
+        let headers = feature_headers();
+        let peptide_ix = headers
+            .iter()
+            .position(|header| *header == "peptide")
+            .unwrap();
+
+        assert_eq!(
+            &headers[peptide_ix..peptide_ix + 8],
+            &[
+                "peptide", "first_aa", "last_aa", "prev_aa", "next_aa", "starts", "ends",
+                "proteins",
+            ]
+        );
+    }
+
+    #[test]
+    fn pin_headers_remain_unchanged() {
+        assert_eq!(
+            pin_headers(),
+            vec![
+                "SpecId",
+                "Label",
+                "ScanNr",
+                "ExpMass",
+                "CalcMass",
+                "FileName",
+                "retentiontime",
+                "ion_mobility",
+                "rank",
+                "z=2",
+                "z=3",
+                "z=4",
+                "z=5",
+                "z=6",
+                "z=other",
+                "peptide_len",
+                "missed_cleavages",
+                "semi_enzymatic",
+                "isotope_error",
+                "ln(precursor_ppm)",
+                "fragment_ppm",
+                "ln(hyperscore)",
+                "ln(delta_next)",
+                "ln(delta_best)",
+                "aligned_rt",
+                "predicted_rt",
+                "sqrt(delta_rt_model)",
+                "predicted_mobility",
+                "sqrt(delta_mobility)",
+                "matched_peaks",
+                "longest_b",
+                "longest_y",
+                "longest_y_pct",
+                "ln(matched_intensity_pct)",
+                "scored_candidates",
+                "ln(-poisson)",
+                "posterior_error",
+                "Peptide",
+                "Proteins",
+            ]
+        );
     }
 }

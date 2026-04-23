@@ -3,7 +3,7 @@ use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
 use crate::modification::ModificationSpecificity;
 use crate::{
-    enzyme::{Digest, DigestGroup, Position},
+    enzyme::{Digest, DigestGroup, PeptideSite, Position},
     mass::{monoisotopic, H2O},
 };
 use fnv::FnvHashSet;
@@ -28,6 +28,7 @@ pub struct Peptide {
     pub position: Position,
 
     pub proteins: Vec<Arc<str>>,
+    pub sites: Vec<PeptideSite>,
 }
 
 impl Peptide {
@@ -66,11 +67,19 @@ impl Debug for Peptide {
             .field("monoisotopic", &self.monoisotopic)
             .field("missed_cleavages", &self.missed_cleavages)
             .field("position", &self.position)
+            .field("sites", &self.sites)
             .finish()
     }
 }
 
 impl Peptide {
+    pub(crate) fn normalize_metadata(&mut self) {
+        self.proteins.sort_unstable();
+        self.proteins.dedup();
+        self.sites.sort_unstable();
+        self.sites.dedup();
+    }
+
     pub fn label(&self) -> i32 {
         match self.decoy {
             true => -1,
@@ -93,6 +102,45 @@ impl Peptide {
         } else {
             self.proteins.iter().join(";")
         }
+    }
+
+    pub fn first_aa(&self) -> String {
+        self.sequence
+            .first()
+            .map(|aa| char::from(*aa).to_string())
+            .unwrap_or_default()
+    }
+
+    pub fn last_aa(&self) -> String {
+        self.sequence
+            .last()
+            .map(|aa| char::from(*aa).to_string())
+            .unwrap_or_default()
+    }
+
+    pub fn prev_aas(&self) -> String {
+        self.sites
+            .iter()
+            .map(|site| residue_string(site.prev_aa))
+            .join(";")
+    }
+
+    pub fn next_aas(&self) -> String {
+        self.sites
+            .iter()
+            .map(|site| residue_string(site.next_aa))
+            .join(";")
+    }
+
+    pub fn starts(&self) -> String {
+        self.sites
+            .iter()
+            .map(|site| (site.start + 1).to_string())
+            .join(";")
+    }
+
+    pub fn ends(&self) -> String {
+        self.sites.iter().map(|site| site.end.to_string()).join(";")
     }
 
     pub fn modification_count(&self, target: ModificationSpecificity, mass: f32) -> usize {
@@ -348,8 +396,15 @@ impl TryFrom<DigestGroup> for Peptide {
     type Error = PeptideError;
 
     fn try_from(value: DigestGroup) -> Result<Self, Self::Error> {
-        let mut pep = Peptide::try_from(value.reference)?;
-        pep.proteins = value.proteins;
+        let DigestGroup {
+            reference,
+            proteins,
+            sites,
+        } = value;
+        let mut pep = Peptide::try_from(reference)?;
+        pep.proteins = proteins;
+        pep.sites = sites;
+        pep.normalize_metadata();
         Ok(pep)
     }
 }
@@ -359,6 +414,8 @@ impl TryFrom<Digest> for Peptide {
 
     fn try_from(value: Digest) -> Result<Self, Self::Error> {
         let mut mass = H2O;
+        let protein = value.protein.clone();
+        let site = value.peptide_site();
         // This is an important invariant to enforce, that ensures safety
         // while reversing peptide sequences
         if !value.sequence.is_ascii() {
@@ -382,9 +439,16 @@ impl TryFrom<Digest> for Peptide {
             cterm: None,
             missed_cleavages: value.missed_cleavages,
             semi_enzymatic: value.semi_enzymatic,
-            proteins: vec![value.protein],
+            proteins: vec![protein],
+            sites: vec![site],
         })
     }
+}
+
+fn residue_string(residue: Option<u8>) -> String {
+    residue
+        .map(|aa| char::from(aa).to_string())
+        .unwrap_or_default()
 }
 
 impl std::fmt::Display for Peptide {
@@ -408,7 +472,7 @@ impl std::fmt::Display for Peptide {
 
 #[cfg(test)]
 mod test {
-    use crate::enzyme::{Enzyme, EnzymeParameters};
+    use crate::enzyme::{group_digests, Enzyme, EnzymeParameters};
 
     use super::*;
 
@@ -717,5 +781,70 @@ mod test {
                 (Sequence(7), 43.0),
             ]
         );
+    }
+
+    #[test]
+    fn grouped_sites_keep_unique_proteins() {
+        let digests = vec![
+            Digest {
+                sequence: "PEPTIDE".into(),
+                protein: Arc::from("prot_b"),
+                start: 10,
+                end: 17,
+                prev_aa: Some(b'R'),
+                next_aa: None,
+                position: Position::Internal,
+                ..Default::default()
+            },
+            Digest {
+                sequence: "PEPTIDE".into(),
+                protein: Arc::from("prot_a"),
+                start: 20,
+                end: 27,
+                prev_aa: Some(b'K'),
+                next_aa: Some(b'R'),
+                position: Position::Internal,
+                ..Default::default()
+            },
+            Digest {
+                sequence: "PEPTIDE".into(),
+                protein: Arc::from("prot_a"),
+                start: 0,
+                end: 7,
+                prev_aa: None,
+                next_aa: Some(b'K'),
+                position: Position::Internal,
+                ..Default::default()
+            },
+        ];
+
+        let mut groups = group_digests(digests);
+        let peptide = Peptide::try_from(groups.pop().unwrap()).unwrap();
+
+        assert_eq!(
+            peptide.proteins,
+            vec![Arc::from("prot_a"), Arc::from("prot_b")]
+        );
+        assert_eq!(peptide.first_aa(), "P");
+        assert_eq!(peptide.last_aa(), "E");
+        assert_eq!(peptide.prev_aas(), ";K;R");
+        assert_eq!(peptide.next_aas(), "K;R;");
+        assert_eq!(peptide.starts(), "1;21;11");
+        assert_eq!(peptide.ends(), "7;27;17");
+    }
+
+    #[test]
+    fn display_stays_sequence_only() {
+        let peptide = Peptide::try_from(Digest {
+            sequence: "PEPTIDE".into(),
+            protein: Arc::from("prot_a"),
+            start: 0,
+            end: 7,
+            next_aa: Some(b'K'),
+            ..Default::default()
+        })
+        .unwrap();
+
+        assert_eq!(peptide.to_string(), "PEPTIDE");
     }
 }
