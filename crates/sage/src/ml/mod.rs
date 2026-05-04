@@ -6,6 +6,7 @@ pub mod linear_discriminant;
 pub mod matrix;
 pub mod mobility_model;
 pub mod qvalue;
+pub mod regression;
 pub mod retention_alignment;
 pub mod retention_model;
 

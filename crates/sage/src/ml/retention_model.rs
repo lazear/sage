@@ -3,7 +3,7 @@
 //! See Klammer et al., Anal. Chem. 2007, 79, 16, 6111–6118
 //! https://doi.org/10.1021/ac070262k
 
-use super::{gauss::Gauss, matrix::Matrix};
+use super::regression::LinearRegression;
 use crate::database::IndexedDatabase;
 use crate::mass::VALID_AA;
 use crate::peptide::Peptide;
@@ -66,45 +66,18 @@ impl RetentionModel {
             map[(aa - b'A') as usize] = idx;
         }
 
-        let rt = training_set
-            .par_iter()
-            .filter(|feat| feat.label == 1 && feat.spectrum_q <= 0.01)
-            .map(|psm| psm.aligned_rt as f64)
-            .collect::<Vec<f64>>();
+        let lr = LinearRegression::fit::<_, FEATURES>(
+            training_set,
+            |feat| feat.label == 1 && feat.spectrum_q <= 0.01,
+            |psm| Self::embed(&db[psm.peptide_idx], &map),
+            |psm| psm.aligned_rt as f64,
+        )?;
 
-        let rt_mean = rt.iter().sum::<f64>() / rt.len() as f64;
-        let rt_var = rt.iter().map(|rt| (rt - rt_mean).powi(2)).sum::<f64>();
-
-        let rt = Matrix::col_vector(rt);
-
-        let features = training_set
-            .par_iter()
-            .filter(|feat| feat.label == 1 && feat.spectrum_q <= 0.01)
-            .flat_map_iter(|psm| Self::embed(&db[psm.peptide_idx], &map))
-            .collect::<Vec<_>>();
-
-        let rows = features.len() / FEATURES;
-        let features = Matrix::new(features, rows, FEATURES);
-
-        let f_t = features.transpose();
-        let cov = f_t.dot(&features);
-        let b = f_t.dot(&rt);
-
-        let beta = Gauss::solve(cov, b)?;
-
-        let predicted_rt = features.dot(&beta).take();
-        let sum_squared_error = predicted_rt
-            .iter()
-            .zip(rt.take())
-            .map(|(pred, act)| (pred - act).powi(2))
-            .sum::<f64>();
-
-        let r2 = 1.0 - (sum_squared_error / rt_var);
-        log::info!("- fit retention time model, rsq = {}", r2);
+        log::info!("- fit retention time model, rsq = {}", lr.r2);
         Some(Self {
-            beta: beta.take(),
+            beta: lr.beta,
             map,
-            r2,
+            r2: lr.r2,
         })
     }
 
