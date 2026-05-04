@@ -14,7 +14,7 @@ use sage_core::mass::Tolerance;
 use sage_core::peptide::Peptide;
 use sage_core::scoring::Fragments;
 use sage_core::scoring::{Feature, Scorer};
-use sage_core::spectrum::{MS1Spectra, ProcessedSpectrum, RawSpectrum, SpectrumProcessor};
+use sage_core::spectrum::{ProcessedSpectrum, RawSpectrum, SpectrumProcessor};
 use sage_core::tmt::TmtQuant;
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
@@ -140,7 +140,7 @@ impl Runner {
     }
 
     pub fn prefilter_peptides(self, parallel: usize, fasta: Fasta) -> Vec<Peptide> {
-        let spectra: Option<Vec<ProcessedSpectrum<_>>> =
+        let spectra: Option<Vec<ProcessedSpectrum>> =
             match parallel >= self.parameters.mzml_paths.len() {
                 true => Some(
                     self.read_processed_spectra(&self.parameters.mzml_paths, 0, 0)
@@ -241,7 +241,7 @@ impl Runner {
     fn peptide_filter_processed_spectra(
         &self,
         scorer: &Scorer,
-        spectra: &Vec<ProcessedSpectrum<sage_core::spectrum::Peak>>,
+        spectra: &[ProcessedSpectrum],
         keep: &[std::sync::atomic::AtomicBool],
     ) {
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -250,7 +250,7 @@ impl Runner {
 
         spectra
             .par_iter()
-            .filter(|spec| spec.peaks.len() >= self.parameters.min_peaks && spec.level == 2)
+            .filter(|spec| spec.masses.len() >= self.parameters.min_peaks && spec.level == 2)
             .for_each(|spectrum| {
                 let prev = counter.fetch_add(1, Ordering::Relaxed);
                 if prev > 0 && prev % 10_000 == 0 {
@@ -301,7 +301,7 @@ impl Runner {
     fn search_processed_spectra(
         &self,
         scorer: &Scorer,
-        msn_spectra: &Vec<ProcessedSpectrum<sage_core::spectrum::Peak>>,
+        msn_spectra: &[ProcessedSpectrum],
     ) -> Vec<Feature> {
         use std::sync::atomic::{AtomicUsize, Ordering};
         let counter = AtomicUsize::new(0);
@@ -309,7 +309,7 @@ impl Runner {
 
         let features: Vec<_> = msn_spectra
             .par_iter()
-            .filter(|spec| spec.peaks.len() >= self.parameters.min_peaks && spec.level == 2)
+            .filter(|spec| spec.masses.len() >= self.parameters.min_peaks && spec.level == 2)
             .map(|x| {
                 let prev = counter.fetch_add(1, Ordering::Relaxed);
                 if prev > 0 && prev % 10_000 == 0 {
@@ -332,8 +332,8 @@ impl Runner {
 
     fn complete_features(
         &self,
-        msn_spectra: Vec<ProcessedSpectrum<sage_core::spectrum::Peak>>,
-        ms1_spectra: MS1Spectra,
+        msn_spectra: Vec<ProcessedSpectrum>,
+        ms1_spectra: Vec<ProcessedSpectrum>,
         features: Vec<Feature>,
     ) -> SageResults {
         let quant = self
@@ -378,10 +378,7 @@ impl Runner {
         chunk: &[Url],
         chunk_idx: usize,
         batch_size: usize,
-    ) -> (
-        MS1Spectra,
-        Vec<ProcessedSpectrum<sage_core::spectrum::Peak>>,
-    ) {
+    ) -> (Vec<ProcessedSpectrum>, Vec<ProcessedSpectrum>) {
         // Read all of the spectra at once - this can help prevent memory over-consumption issues
         info!(
             "processing files {} .. {} ",
@@ -462,26 +459,17 @@ impl Runner {
             .map(|s| sp.process(s))
             .collect::<Vec<_>>();
 
-        // If all the MS1 spectra contain IMS, then we can process them
-        // we use the IMS! otherwise we dont.
-        // Note: Empty iterators return true.
-        let all_contain_ims = spectra.ms1.iter().all(|x| x.mobility.is_some());
-        let ms1_empty = spectra.ms1.is_empty();
-        let ms1_spectra = if ms1_empty {
+        let has_ims = spectra.ms1.iter().any(|x| x.mobility.is_some());
+        let ms1_spectra = if spectra.ms1.is_empty() {
             log::trace!("no MS1 spectra found");
-            MS1Spectra::Empty
-        } else if all_contain_ims {
-            log::trace!("Processing MS1 spectra with IMS");
-            let spectra = spectra
-                .ms1
-                .into_iter()
-                .map(|x| sp.process_with_mobility(x))
-                .collect();
-            MS1Spectra::WithMobility(spectra)
+            Vec::new()
         } else {
-            log::trace!("Processing MS1 spectra without IMS");
-            let spectra = spectra.ms1.into_iter().map(|s| sp.process(s)).collect();
-            MS1Spectra::NoMobility(spectra)
+            if has_ims {
+                log::trace!("Processing MS1 spectra with IMS columns");
+            } else {
+                log::trace!("Processing MS1 spectra without IMS");
+            }
+            spectra.ms1.into_par_iter().map(|s| sp.process(s)).collect()
         };
 
         let io_time = Instant::now() - start;

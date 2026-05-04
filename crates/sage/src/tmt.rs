@@ -181,24 +181,32 @@ pub struct Quant<'ms3> {
     /// SPS precursor purity for the chimeric hit
     pub chimera_purity: Option<Purity>,
     /// Quanitified TMT reporter ion intensities
-    pub intensities: Vec<Option<&'ms3 Peak>>,
+    pub intensities: Vec<Option<f32>>,
     /// MS3 spectrum
-    pub spectrum: &'ms3 ProcessedSpectrum<Peak>,
+    pub spectrum: &'ms3 ProcessedSpectrum,
 }
 
 /// Return a vector containing the peaks closest to the m/zs defined in
 /// `labels`, within a given tolerance window.
 /// This function is MS-level agnostic, so it can be used for either MS2 or MS3
 /// quant.
-pub fn find_reporter_ions<'a>(
-    peaks: &'a [Peak],
+pub fn find_reporter_ions(
+    masses: &[f32],
+    intensities: &[f32],
     labels: &[f32],
     label_tolerance: Tolerance,
-) -> Vec<Option<&'a Peak>> {
+) -> Vec<Option<f32>> {
     labels
         .iter()
         .map(|&label| {
-            spectrum::select_most_intense_peak(peaks, label, label_tolerance, Some(-PROTON))
+            spectrum::select_most_intense_peak(
+                masses,
+                intensities,
+                label,
+                label_tolerance,
+                Some(-PROTON),
+            )
+            .map(|idx| intensities[idx])
         })
         .collect()
 }
@@ -304,7 +312,7 @@ pub struct TmtQuant {
 /// * `isobaric_tolerance`: specify label tolerance
 /// * `level`: MSn level to extract isobaric peaks from
 pub fn quantify(
-    spectra: &[ProcessedSpectrum<Peak>],
+    spectra: &[ProcessedSpectrum],
     isobaric_labels: &Isobaric,
     isobaric_tolerance: Tolerance,
     level: u8,
@@ -324,12 +332,13 @@ pub fn quantify(
             };
 
             let peaks = find_reporter_ions(
-                &spectrum.peaks,
+                &spectrum.masses,
+                &spectrum.intensities,
                 isobaric_labels.reporter_masses(),
                 isobaric_tolerance,
             )
             .into_iter()
-            .map(|peak| peak.map(|p| p.intensity).unwrap_or_default())
+            .map(|peak| peak.unwrap_or_default())
             .collect();
 
             Some(TmtQuant {

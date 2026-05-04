@@ -2,7 +2,7 @@ use crate::database::{binary_search_slice, IndexedDatabase, PeptideIx};
 use crate::mass::{composition, Composition, Tolerance, NEUTRON};
 use crate::ml::{matrix::Matrix, retention_alignment::Alignment};
 use crate::scoring::Feature;
-use crate::spectrum::MS1Spectra;
+use crate::spectrum::ProcessedSpectrum;
 use dashmap::DashMap;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -226,80 +226,66 @@ impl FeatureMap {
     pub fn quantify(
         &self,
         db: &IndexedDatabase,
-        spectra: &MS1Spectra,
+        spectra: &[ProcessedSpectrum],
         alignments: &[Alignment],
     ) -> HashMap<(PrecursorId, bool), (Peak, Vec<f64>), fnv::FnvBuildHasher> {
         let scores: DashMap<(PrecursorId, bool), Grid, fnv::FnvBuildHasher> = DashMap::default();
 
         log::info!("tracing MS1 features");
 
-        // TODO: find a good way to abstract this ... I think a macro would be the way to go.
-        match spectra {
-            MS1Spectra::NoMobility(spectra) => spectra.par_iter().for_each(|spectrum| {
+        if spectra.is_empty() {
+            log::warn!("no MS1 spectra found for quantification");
+        } else {
+            spectra.par_iter().for_each(|spectrum| {
                 let a = alignments[spectrum.file_id];
                 let rt = (spectrum.scan_start_time / a.max_rt) * a.slope + a.intercept;
                 let query = self.rt_slice(rt, RT_TOL);
 
-                for peak in &spectrum.peaks {
-                    for entry in query.mass_lookup(peak.mass) {
-                        let id = match self.settings.combine_charge_states {
-                            true => PrecursorId::Combined(entry.peptide),
-                            false => PrecursorId::Charged((entry.peptide, entry.charge)),
-                        };
+                let add_entry = |entry: &PrecursorRange, intensity: f32| {
+                    let id = match self.settings.combine_charge_states {
+                        true => PrecursorId::Combined(entry.peptide),
+                        false => PrecursorId::Charged((entry.peptide, entry.charge)),
+                    };
 
-                        let mut grid = scores.entry((id, entry.decoy)).or_insert_with(|| {
-                            let p = &db[entry.peptide];
-                            let composition = p
-                                .sequence
-                                .iter()
-                                .map(|r| composition(*r))
-                                .sum::<Composition>();
-                            let dist = crate::isotopes::peptide_isotopes(
-                                composition.carbon,
-                                composition.sulfur,
-                            );
-                            Grid::new(entry, RT_TOL, dist, alignments.len(), GRID_SIZE)
-                        });
+                    let mut grid = scores.entry((id, entry.decoy)).or_insert_with(|| {
+                        let p = &db[entry.peptide];
+                        let composition = p
+                            .sequence
+                            .iter()
+                            .map(|r| composition(*r))
+                            .sum::<Composition>();
+                        let dist = crate::isotopes::peptide_isotopes(
+                            composition.carbon,
+                            composition.sulfur,
+                        );
+                        Grid::new(entry, RT_TOL, dist, alignments.len(), GRID_SIZE)
+                    });
 
-                        grid.add_entry(rt, entry.isotope, spectrum.file_id, peak.intensity);
+                    grid.add_entry(rt, entry.isotope, spectrum.file_id, intensity);
+                };
+
+                if spectrum.mobilities.is_empty() {
+                    for (&mass, &intensity) in
+                        spectrum.masses.iter().zip(spectrum.intensities.iter())
+                    {
+                        for entry in query.mass_lookup(mass) {
+                            add_entry(entry, intensity);
+                        }
+                    }
+                } else {
+                    for ((&mass, &intensity), &mobility) in spectrum
+                        .masses
+                        .iter()
+                        .zip(spectrum.intensities.iter())
+                        .zip(spectrum.mobilities.iter())
+                    {
+                        for entry in query.mass_mobility_lookup(mass, mobility) {
+                            add_entry(entry, intensity);
+                        }
                     }
                 }
-            }),
-            MS1Spectra::WithMobility(spectra) => spectra.par_iter().for_each(|spectrum| {
-                let a = alignments[spectrum.file_id];
-                let rt = (spectrum.scan_start_time / a.max_rt) * a.slope + a.intercept;
-                let query = self.rt_slice(rt, RT_TOL);
-
-                for peak in &spectrum.peaks {
-                    for entry in query.mass_mobility_lookup(peak.mass, peak.mobility) {
-                        let id = match self.settings.combine_charge_states {
-                            true => PrecursorId::Combined(entry.peptide),
-                            false => PrecursorId::Charged((entry.peptide, entry.charge)),
-                        };
-
-                        let mut grid = scores.entry((id, entry.decoy)).or_insert_with(|| {
-                            let p = &db[entry.peptide];
-                            let composition = p
-                                .sequence
-                                .iter()
-                                .map(|r| composition(*r))
-                                .sum::<Composition>();
-                            let dist = crate::isotopes::peptide_isotopes(
-                                composition.carbon,
-                                composition.sulfur,
-                            );
-                            Grid::new(entry, RT_TOL, dist, alignments.len(), GRID_SIZE)
-                        });
-
-                        grid.add_entry(rt, entry.isotope, spectrum.file_id, peak.intensity);
-                    }
-                }
-            }),
-            MS1Spectra::Empty => {
-                // Should never be called if no MS1 spectra are present
-                log::warn!("no MS1 spectra found for quantification");
-            }
-        };
+            });
+        }
 
         log::info!("integrating MS1 features");
 

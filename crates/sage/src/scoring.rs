@@ -2,7 +2,7 @@ use crate::database::{IndexedDatabase, PeptideIx};
 use crate::heap::bounded_min_heapify;
 use crate::ion_series::{IonSeries, Kind};
 use crate::mass::{Tolerance, NEUTRON, PROTON};
-use crate::spectrum::{Peak, Precursor, ProcessedSpectrum};
+use crate::spectrum::{Precursor, ProcessedSpectrum};
 use serde::{Deserialize, Serialize};
 use std::ops::AddAssign;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -254,7 +254,7 @@ impl<'db> Scorer<'db> {
     /// * `keep`: A vector of atomic bools is used to maintain an identification list across scans
     pub fn quick_score(
         &self,
-        query: &ProcessedSpectrum<Peak>,
+        query: &ProcessedSpectrum,
         prefilter_low_memory: bool,
         keep: &[AtomicBool],
     ) {
@@ -297,7 +297,7 @@ impl<'db> Scorer<'db> {
         }
     }
 
-    pub fn score(&self, query: &ProcessedSpectrum<crate::spectrum::Peak>) -> Vec<Feature> {
+    pub fn score(&self, query: &ProcessedSpectrum) -> Vec<Feature> {
         assert_eq!(
             query.level, 2,
             "internal bug, trying to score a non-MS2 scan!"
@@ -334,7 +334,7 @@ impl<'db> Scorer<'db> {
     /// in sorted order.
     fn matched_peaks_with_isotope(
         &self,
-        query: &ProcessedSpectrum<crate::spectrum::Peak>,
+        query: &ProcessedSpectrum,
         precursor_mass: f32,
         precursor_charge: u8,
         precursor_tol: Tolerance,
@@ -355,9 +355,9 @@ impl<'db> Scorer<'db> {
             preliminary: vec![PreScore::default(); potential],
         };
 
-        for peak in query.peaks.iter() {
+        for peak_mass in query.masses.iter() {
             for charge in 1..max_fragment_charge {
-                let mass = peak.mass * charge as f32;
+                let mass = peak_mass * charge as f32;
                 for frag in candidates.page_search(mass) {
                     let idx = frag.peptide_index.0 as usize - candidates.pre_idx_lo;
                     let sc = &mut hits.preliminary[idx];
@@ -383,7 +383,7 @@ impl<'db> Scorer<'db> {
 
     fn matched_peaks(
         &self,
-        query: &ProcessedSpectrum<Peak>,
+        query: &ProcessedSpectrum,
         precursor_mass: f32,
         precursor_charge: u8,
         precursor_tol: Tolerance,
@@ -415,7 +415,7 @@ impl<'db> Scorer<'db> {
         }
     }
 
-    fn initial_hits(&self, query: &ProcessedSpectrum<Peak>, precursor: &Precursor) -> InitialHits {
+    fn initial_hits(&self, query: &ProcessedSpectrum, precursor: &Precursor) -> InitialHits {
         // Sage operates on masses without protons; [M] instead of [MH+]
         let mz = precursor.mz - PROTON;
 
@@ -462,7 +462,7 @@ impl<'db> Scorer<'db> {
     }
 
     /// Score a single [`ProcessedSpectrum`] against the database
-    pub fn score_standard(&self, query: &ProcessedSpectrum<Peak>) -> Vec<Feature> {
+    pub fn score_standard(&self, query: &ProcessedSpectrum) -> Vec<Feature> {
         let precursor = query.precursors.first().unwrap_or_else(|| {
             panic!("missing MS1 precursor for {}", query.id);
         });
@@ -477,7 +477,7 @@ impl<'db> Scorer<'db> {
     /// best PSMs ([`Feature`])
     fn build_features(
         &self,
-        query: &ProcessedSpectrum<Peak>,
+        query: &ProcessedSpectrum,
         precursor: &Precursor,
         hits: &InitialHits,
         report_psms: usize,
@@ -595,7 +595,7 @@ impl<'db> Scorer<'db> {
     }
 
     /// Remove peaks matching a PSM from a query spectrum
-    fn remove_matched_peaks(&self, query: &mut ProcessedSpectrum<Peak>, psm: &Feature) {
+    fn remove_matched_peaks(&self, query: &mut ProcessedSpectrum, psm: &Feature) {
         let peptide = &self.db[psm.peptide_idx];
         let fragments = self
             .db
@@ -610,28 +610,42 @@ impl<'db> Scorer<'db> {
         for frag in fragments {
             for charge in 1..max_fragment_charge {
                 // Experimental peaks are multipled by charge, therefore theoretical are divided
-                if let Some(peak) = crate::spectrum::select_most_intense_peak(
-                    &query.peaks,
+                if let Some(peak_idx) = crate::spectrum::select_most_intense_peak(
+                    &query.masses,
+                    &query.intensities,
                     frag.monoisotopic_mass / charge as f32,
                     self.fragment_tol,
                     None,
                 ) {
-                    to_remove.push(*peak);
+                    to_remove.push((query.masses[peak_idx], query.intensities[peak_idx]));
                 }
             }
         }
 
-        query.peaks = query
-            .peaks
-            .drain(..)
-            .filter(|peak| !to_remove.contains(peak))
-            .collect();
-        query.total_ion_current = query.peaks.iter().map(|peak| peak.intensity).sum::<f32>();
+        let mut masses = Vec::with_capacity(query.masses.len());
+        let mut intensities = Vec::with_capacity(query.intensities.len());
+        let mut mobilities = Vec::with_capacity(query.mobilities.len());
+
+        for idx in 0..query.masses.len() {
+            let peak = (query.masses[idx], query.intensities[idx]);
+            if !to_remove.contains(&peak) {
+                masses.push(query.masses[idx]);
+                intensities.push(query.intensities[idx]);
+                if !query.mobilities.is_empty() {
+                    mobilities.push(query.mobilities[idx]);
+                }
+            }
+        }
+
+        query.masses = masses;
+        query.intensities = intensities;
+        query.mobilities = mobilities;
+        query.total_ion_current = query.intensities.iter().sum::<f32>();
     }
 
     /// Return multiple PSMs for each spectra - first is the best match, second PSM is the best match
     /// after all theoretical peaks assigned to the best match are removed, etc
-    pub fn score_chimera_fast(&self, query: &ProcessedSpectrum<Peak>) -> Vec<Feature> {
+    pub fn score_chimera_fast(&self, query: &ProcessedSpectrum) -> Vec<Feature> {
         let precursor = query.precursors.first().unwrap_or_else(|| {
             panic!("missing MS1 precursor for {}", query.id);
         });
@@ -660,7 +674,7 @@ impl<'db> Scorer<'db> {
     /// Calculate full hyperscore for a given PSM
     fn score_candidate(
         &self,
-        query: &ProcessedSpectrum<Peak>,
+        query: &ProcessedSpectrum,
         pre_score: &PreScore,
     ) -> (Score, Option<Fragments>) {
         let mut score = Score {
@@ -692,27 +706,31 @@ impl<'db> Scorer<'db> {
                 // Experimental peaks are multipled by charge, therefore theoretical are divided
                 let mz = frag.monoisotopic_mass / charge as f32;
 
-                if let Some(peak) = crate::spectrum::select_most_intense_peak(
-                    &query.peaks,
+                if let Some(peak_idx) = crate::spectrum::select_most_intense_peak(
+                    &query.masses,
+                    &query.intensities,
                     mz,
                     self.fragment_tol,
                     None,
                 ) {
-                    score.ppm_difference +=
-                        peak.intensity * (mz - peak.mass).abs() * 2E6 / (mz + peak.mass);
+                    let peak_mass = query.masses[peak_idx];
+                    let peak_intensity = query.intensities[peak_idx];
 
-                    let exp_mz = peak.mass + PROTON;
+                    score.ppm_difference +=
+                        peak_intensity * (mz - peak_mass).abs() * 2E6 / (mz + peak_mass);
+
+                    let exp_mz = peak_mass + PROTON;
                     let calc_mz = mz + PROTON;
 
                     match frag.kind {
                         Kind::A | Kind::B | Kind::C => {
                             score.matched_b += 1;
-                            score.summed_b += peak.intensity;
+                            score.summed_b += peak_intensity;
                             b_run.matched(idx);
                         }
                         Kind::X | Kind::Y | Kind::Z => {
                             score.matched_y += 1;
-                            score.summed_y += peak.intensity;
+                            score.summed_y += peak_intensity;
                             y_run.matched(idx);
                         }
                     }
@@ -729,7 +747,7 @@ impl<'db> Scorer<'db> {
                         fragments_details.mz_experimental.push(exp_mz);
                         fragments_details.mz_calculated.push(calc_mz);
                         fragments_details.fragment_ordinals.push(idx);
-                        fragments_details.intensities.push(peak.intensity);
+                        fragments_details.intensities.push(peak_intensity);
                     }
                 }
             }
