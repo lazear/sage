@@ -24,31 +24,6 @@ impl Ord for Peak {
     }
 }
 
-/// A charge-less peak at monoisotopic mass with ion mobility
-#[derive(PartialEq, Copy, Clone, Default, Debug)]
-pub struct IMPeak {
-    pub intensity: f32,
-    pub mass: f32,
-    pub mobility: f32, // I would use f16 but its not stable
-}
-
-impl Eq for IMPeak {}
-
-impl PartialOrd for IMPeak {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for IMPeak {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.intensity
-            .total_cmp(&other.intensity)
-            .then_with(|| self.mass.total_cmp(&other.mass))
-            .then_with(|| self.mobility.total_cmp(&other.mobility))
-    }
-}
-
 /// A de-isotoped peak, that might have some charge state information
 #[derive(PartialEq, PartialOrd, Debug, Copy, Clone)]
 pub struct Deisotoped {
@@ -80,7 +55,7 @@ pub struct Precursor {
 }
 
 #[derive(Clone, Default, Debug)]
-pub struct ProcessedSpectrum<T> {
+pub struct ProcessedSpectrum {
     /// MSn level
     pub level: u8,
     /// Scan ID
@@ -93,8 +68,12 @@ pub struct ProcessedSpectrum<T> {
     pub ion_injection_time: f32,
     /// Selected ions for precursors, if `level > 1`
     pub precursors: Vec<Precursor>,
-    /// MS peaks, sorted by mass in ascending order
-    pub peaks: Vec<T>,
+    /// MS peak masses, sorted in ascending order
+    pub masses: Vec<f32>,
+    /// MS peak intensities, parallel to `masses`
+    pub intensities: Vec<f32>,
+    /// Ion mobility values, parallel to `masses` for IMS spectra and empty otherwise
+    pub mobilities: Vec<f32>,
     /// Total ion current
     pub total_ion_current: f32,
 }
@@ -144,14 +123,6 @@ pub enum Representation {
     Centroid,
 }
 
-#[derive(Default)]
-pub enum MS1Spectra {
-    NoMobility(Vec<ProcessedSpectrum<Peak>>),
-    WithMobility(Vec<ProcessedSpectrum<IMPeak>>),
-    #[default]
-    Empty,
-}
-
 /// Binary search followed by linear search to select the most intense peak within `tolerance` window
 /// * `offset` - this parameter allows for a static adjustment to the lower and upper bounds of the search window.
 ///
@@ -161,28 +132,27 @@ pub enum MS1Spectra {
 /// measurements with ProteomeDiscoverer, FragPipe, etc, we need to account for this minor difference (which has an impact
 /// perhaps 0.01% of the time)
 pub fn select_most_intense_peak(
-    peaks: &[Peak],
+    masses: &[f32],
+    intensities: &[f32],
     center: f32,
     tolerance: Tolerance,
     offset: Option<f32>,
-) -> Option<&Peak> {
+) -> Option<usize> {
+    debug_assert_eq!(masses.len(), intensities.len());
     let (lo, hi) = tolerance.bounds(center);
     let (lo, hi) = (
         lo + offset.unwrap_or_default(),
         hi + offset.unwrap_or_default(),
     );
 
-    let (i, j) = binary_search_slice(peaks, |peak, query| peak.mass.total_cmp(query), lo, hi);
+    let (i, j) = binary_search_slice(masses, |mass, query| mass.total_cmp(query), lo, hi);
 
     let mut best_peak = None;
     let mut max_int = 0.0;
-    for peak in peaks[i..j]
-        .iter()
-        .filter(|peak| peak.mass >= lo && peak.mass <= hi)
-    {
-        if peak.intensity >= max_int {
-            max_int = peak.intensity;
-            best_peak = Some(peak);
+    for idx in (i..j).filter(|&idx| masses[idx] >= lo && masses[idx] <= hi) {
+        if intensities[idx] >= max_int {
+            max_int = intensities[idx];
+            best_peak = Some(idx);
         }
     }
     best_peak
@@ -268,7 +238,15 @@ pub fn path_compression(peaks: &mut [Deisotoped]) {
     }
 }
 
-impl<T> ProcessedSpectrum<T> {
+impl ProcessedSpectrum {
+    pub fn len(&self) -> usize {
+        self.masses.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.masses.is_empty()
+    }
+
     pub fn extract_ms1_precursor(&self) -> Option<(f32, u8)> {
         let precursor = self.precursors.first()?;
         let charge = precursor.charge?;
@@ -357,7 +335,48 @@ impl SpectrumProcessor {
         }
     }
 
-    pub fn process(&self, spectrum: RawSpectrum) -> ProcessedSpectrum<Peak> {
+    pub fn process(&self, spectrum: RawSpectrum) -> ProcessedSpectrum {
+        debug_assert_eq!(spectrum.mz.len(), spectrum.intensity.len());
+        if let Some(mobilities) = spectrum.mobility.as_ref() {
+            debug_assert_eq!(spectrum.mz.len(), mobilities.len());
+        }
+
+        if spectrum.ms_level == 1 && spectrum.mobility.is_some() {
+            let raw_mobilities = spectrum.mobility.as_ref().expect("checked above");
+            let mut peaks = spectrum
+                .mz
+                .iter()
+                .zip(spectrum.intensity.iter().zip(raw_mobilities.iter()))
+                .map(|(&mass, (&intensity, &mobility))| (mass - PROTON, intensity, mobility))
+                .collect::<Vec<_>>();
+
+            peaks.sort_by(|a, b| a.0.total_cmp(&b.0));
+
+            let mut masses = Vec::with_capacity(peaks.len());
+            let mut intensities = Vec::with_capacity(peaks.len());
+            let mut mobilities = Vec::with_capacity(peaks.len());
+            for (mass, intensity, mobility) in peaks {
+                masses.push(mass);
+                intensities.push(intensity);
+                mobilities.push(mobility);
+            }
+
+            let total_ion_current = intensities.iter().sum::<f32>();
+
+            return ProcessedSpectrum {
+                level: spectrum.ms_level,
+                id: spectrum.id,
+                file_id: spectrum.file_id,
+                scan_start_time: spectrum.scan_start_time,
+                ion_injection_time: spectrum.ion_injection_time,
+                precursors: spectrum.precursors,
+                masses,
+                intensities,
+                mobilities,
+                total_ion_current,
+            };
+        }
+
         let mut peaks = match spectrum.ms_level {
             2 => self.process_ms2(self.deisotope, &spectrum),
             _ => spectrum
@@ -372,7 +391,11 @@ impl SpectrumProcessor {
         };
 
         peaks.sort_by(|a, b| a.mass.total_cmp(&b.mass));
-        let total_ion_current = peaks.iter().map(|peak| peak.intensity).sum::<f32>();
+        let (masses, intensities): (Vec<_>, Vec<_>) = peaks
+            .into_iter()
+            .map(|peak| (peak.mass, peak.intensity))
+            .unzip();
+        let total_ion_current = intensities.iter().sum::<f32>();
 
         ProcessedSpectrum {
             level: spectrum.ms_level,
@@ -381,46 +404,9 @@ impl SpectrumProcessor {
             scan_start_time: spectrum.scan_start_time,
             ion_injection_time: spectrum.ion_injection_time,
             precursors: spectrum.precursors,
-            peaks,
-            total_ion_current,
-        }
-    }
-
-    pub fn process_with_mobility(&self, spectrum: RawSpectrum) -> ProcessedSpectrum<IMPeak> {
-        assert!(
-            spectrum.ms_level == 1,
-            "Logic error, mobility processing should only be used for MS1"
-        );
-        let mut peaks = spectrum
-            .mz
-            .iter()
-            .zip(
-                spectrum
-                    .intensity
-                    .iter()
-                    .zip(spectrum.mobility.unwrap().iter()),
-            )
-            .map(|(&mass, (&intensity, &mobility))| {
-                let mass = (mass - PROTON) * 1.0;
-                IMPeak {
-                    mass,
-                    intensity,
-                    mobility,
-                }
-            })
-            .collect::<Vec<_>>();
-
-        peaks.sort_by(|a, b| a.mass.total_cmp(&b.mass));
-        let total_ion_current = peaks.iter().map(|peak| peak.intensity).sum::<f32>();
-
-        ProcessedSpectrum {
-            level: spectrum.ms_level,
-            id: spectrum.id,
-            file_id: spectrum.file_id,
-            scan_start_time: spectrum.scan_start_time,
-            ion_injection_time: spectrum.ion_injection_time,
-            precursors: spectrum.precursors,
-            peaks,
+            masses,
+            intensities,
+            mobilities: Vec::new(),
             total_ion_current,
         }
     }
@@ -579,5 +565,87 @@ mod test {
                 }
             ]
         );
+    }
+
+    #[test]
+    fn select_most_intense_peak_uses_parallel_columns() {
+        let masses = vec![99.0, 100.0, 100.01, 100.02, 101.0];
+        let intensities = vec![10.0, 20.0, 50.0, 30.0, 100.0];
+
+        let idx = select_most_intense_peak(
+            &masses,
+            &intensities,
+            100.01,
+            Tolerance::Da(-0.02, 0.02),
+            None,
+        )
+        .expect("peak in tolerance");
+
+        assert_eq!(idx, 2);
+        assert_eq!(masses[idx], 100.01);
+        assert_eq!(intensities[idx], 50.0);
+    }
+
+    #[test]
+    fn select_most_intense_peak_applies_offset() {
+        let label = 126.127726;
+        let masses = vec![label - PROTON - 0.01, label - PROTON, label - PROTON + 0.01];
+        let intensities = vec![10.0, 100.0, 50.0];
+
+        let idx = select_most_intense_peak(
+            &masses,
+            &intensities,
+            label,
+            Tolerance::Da(-0.005, 0.005),
+            Some(-PROTON),
+        )
+        .expect("offset peak in tolerance");
+
+        assert_eq!(idx, 1);
+    }
+
+    #[test]
+    fn process_ms1_without_mobility_builds_empty_mobility_column() {
+        let processor = SpectrumProcessor::new(10, false, 0.0);
+        let spectrum = RawSpectrum {
+            ms_level: 1,
+            mz: vec![102.0, 100.0, 101.0],
+            intensity: vec![30.0, 10.0, 20.0],
+            ..RawSpectrum::default_with_file_id(7)
+        };
+
+        let processed = processor.process(spectrum);
+
+        assert_eq!(processed.file_id, 7);
+        assert_eq!(
+            processed.masses,
+            vec![100.0 - PROTON, 101.0 - PROTON, 102.0 - PROTON]
+        );
+        assert_eq!(processed.intensities, vec![10.0, 20.0, 30.0]);
+        assert!(processed.mobilities.is_empty());
+        assert_eq!(processed.total_ion_current, 60.0);
+    }
+
+    #[test]
+    fn process_ms1_with_mobility_sorts_all_columns_by_mass() {
+        let processor = SpectrumProcessor::new(10, false, 0.0);
+        let spectrum = RawSpectrum {
+            ms_level: 1,
+            mz: vec![102.0, 100.0, 101.0],
+            intensity: vec![30.0, 10.0, 20.0],
+            mobility: Some(vec![3.0, 1.0, 2.0]),
+            ..RawSpectrum::default_with_file_id(7)
+        };
+
+        let processed = processor.process(spectrum);
+
+        assert_eq!(
+            processed.masses,
+            vec![100.0 - PROTON, 101.0 - PROTON, 102.0 - PROTON]
+        );
+        assert_eq!(processed.intensities, vec![10.0, 20.0, 30.0]);
+        assert_eq!(processed.mobilities, vec![1.0, 2.0, 3.0]);
+        assert_eq!(processed.masses.len(), processed.intensities.len());
+        assert_eq!(processed.masses.len(), processed.mobilities.len());
     }
 }
