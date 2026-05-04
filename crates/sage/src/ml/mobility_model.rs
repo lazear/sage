@@ -3,7 +3,7 @@
 //! See Klammer et al., Anal. Chem. 2007, 79, 16, 6111–6118
 //! https://doi.org/10.1021/ac070262k
 
-use super::{gauss::Gauss, matrix::Matrix};
+use super::regression::LinearRegression;
 use crate::database::IndexedDatabase;
 use crate::mass::VALID_AA;
 use crate::peptide::Peptide;
@@ -156,46 +156,18 @@ impl MobilityModel {
             map[(aa - b'A') as usize] = idx;
         }
 
-        let ims = training_set
-            .par_iter()
-            .filter(|feat| feat.label == 1 && feat.spectrum_q <= 0.01)
-            .map(|psm| psm.ims as f64)
-            .collect::<Vec<f64>>();
+        let lr = LinearRegression::fit::<_, FEATURES>(
+            training_set,
+            |feat| feat.label == 1 && feat.spectrum_q <= 0.01,
+            |psm| Self::embed(&db[psm.peptide_idx], &psm.charge, &map),
+            |psm| psm.ims as f64,
+        )?;
 
-        let ims_mean = ims.iter().sum::<f64>() / ims.len() as f64;
-        let ims_var = ims.iter().map(|rt| (rt - ims_mean).powi(2)).sum::<f64>();
-
-        let rt = Matrix::col_vector(ims);
-
-        let features = training_set
-            .par_iter()
-            .filter(|feat| feat.label == 1 && feat.spectrum_q <= 0.01)
-            .flat_map_iter(|psm| Self::embed(&db[psm.peptide_idx], &psm.charge, &map))
-            .collect::<Vec<_>>();
-
-        let rows = features.len() / FEATURES;
-        let features = Matrix::new(features, rows, FEATURES);
-
-        let f_t = features.transpose();
-        let cov = f_t.dot(&features);
-        let b = f_t.dot(&rt);
-
-        let beta = Gauss::solve(cov, b)?;
-
-        let predicted_im = features.dot(&beta).take();
-        let sum_squared_error = predicted_im
-            .iter()
-            .zip(rt.take())
-            .map(|(pred, act)| (pred - act).powi(2))
-            .sum::<f64>();
-
-        let mse: f64 = sum_squared_error / predicted_im.len() as f64;
-        let r2 = 1.0 - (sum_squared_error / ims_var);
-        log::info!("- fit mobility model, rsq = {}, mse = {}", r2, mse);
+        log::info!("- fit mobility model, rsq = {}", lr.r2);
         Some(Self {
-            beta: beta.take(),
+            beta: lr.beta,
             map,
-            r2,
+            r2: lr.r2,
         })
     }
 
