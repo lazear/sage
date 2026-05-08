@@ -88,8 +88,9 @@ impl Runner {
     pub fn new(parameters: Search, parallel: usize) -> anyhow::Result<Self> {
         let mut parameters = parameters.clone();
         let start = Instant::now();
+        let fasta_url = sage_cloudpath::to_url(&parameters.database.fasta)?;
         let fasta = sage_cloudpath::util::read_fasta(
-            &parameters.database.fasta,
+            &fasta_url,
             &parameters.database.decoy_tag,
             parameters.database.generate_decoys,
         )

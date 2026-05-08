@@ -2,6 +2,7 @@ use crate::{read_and_execute, tdf::BrukerProcessingConfig, Error};
 use sage_core::spectrum::RawSpectrum;
 use serde::Serialize;
 use tokio::io::AsyncReadExt;
+use url::Url;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum FileFormat {
@@ -56,27 +57,27 @@ fn is_bruker(path: &str) -> bool {
     })
 }
 
-pub fn read_spectra<S: AsRef<str>>(
-    path: S,
+pub fn read_spectra(
+    url: &Url,
     file_id: usize,
     sn: Option<u8>,
     bruker_processor: BrukerProcessingConfig,
     requires_ms1: bool,
 ) -> Result<Vec<RawSpectrum>, Error> {
-    match FileFormat::from(path.as_ref()) {
-        FileFormat::MzML => read_mzml(path, file_id, sn),
-        FileFormat::MGF => read_mgf(path, file_id),
-        FileFormat::TDF => read_tdf(path, file_id, bruker_processor, requires_ms1),
-        FileFormat::Unidentified => panic!("Unable to get type for '{}'", path.as_ref()), // read_mzml(path, file_id, sn),
+    match FileFormat::from(url.as_ref()) {
+        FileFormat::MzML => read_mzml(url, file_id, sn),
+        FileFormat::MGF => read_mgf(url, file_id),
+        FileFormat::TDF => read_tdf(url, file_id, bruker_processor, requires_ms1),
+        FileFormat::Unidentified => panic!("Unable to get type for '{}'", url), // read_mzml(path, file_id, sn),
     }
 }
 
-pub fn read_mzml<S: AsRef<str>>(
-    s: S,
+pub fn read_mzml(
+    url: &Url,
     file_id: usize,
     signal_to_noise: Option<u8>,
 ) -> Result<Vec<RawSpectrum>, Error> {
-    read_and_execute(s, |bf| async move {
+    read_and_execute(url, |bf| async move {
         Ok(crate::mzml::MzMLReader::with_file_id(file_id)
             .set_signal_to_noise(signal_to_noise)
             .parse(bf)
@@ -84,21 +85,27 @@ pub fn read_mzml<S: AsRef<str>>(
     })
 }
 
-pub fn read_tdf<S: AsRef<str>>(
-    s: S,
+pub fn read_tdf(
+    url: &Url,
     file_id: usize,
     bruker_spectrum_processor: BrukerProcessingConfig,
     requires_ms1: bool,
 ) -> Result<Vec<RawSpectrum>, Error> {
-    let res = crate::tdf::TdfReader.parse(s, file_id, bruker_spectrum_processor, requires_ms1);
+    if url.scheme() != "file" {
+        log::error!("Bruker files must be local: {}", url);
+        return Err(Error::InvalidUri);
+    }
+
+    let path = url.to_file_path().map_err(|_| Error::InvalidUri)?;
+    let res = crate::tdf::TdfReader.parse(&path, file_id, bruker_spectrum_processor, requires_ms1);
     match res {
         Ok(t) => Ok(t),
         Err(e) => Err(Error::TDF(e)),
     }
 }
 
-pub fn read_mgf<S: AsRef<str>>(path: S, file_id: usize) -> Result<Vec<RawSpectrum>, Error> {
-    read_and_execute(path, |mut bf| async move {
+pub fn read_mgf(url: &Url, file_id: usize) -> Result<Vec<RawSpectrum>, Error> {
+    read_and_execute(url, |mut bf| async move {
         let mut contents = String::new();
         bf.read_to_string(&mut contents)
             .await
@@ -112,14 +119,14 @@ pub fn read_mgf<S: AsRef<str>>(path: S, file_id: usize) -> Result<Vec<RawSpectru
 }
 
 pub fn read_fasta<S>(
-    path: S,
+    url: &Url,
     decoy_tag: S,
     generate_decoys: bool,
 ) -> Result<sage_core::fasta::Fasta, Error>
 where
     S: AsRef<str>,
 {
-    read_and_execute(path, |mut bf| async move {
+    read_and_execute(url, |mut bf| async move {
         let mut contents = String::new();
         bf.read_to_string(&mut contents)
             .await

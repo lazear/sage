@@ -4,7 +4,7 @@ use sage_core::{
     spectrum::{Precursor, RawSpectrum, Representation},
 };
 use serde::{Deserialize, Serialize};
-use std::cmp::Ordering;
+use std::{cmp::Ordering, path::Path};
 use timsrust::converters::{ConvertableDomain, Scan2ImConverter, Tof2MzConverter};
 use timsrust::readers::SpectrumReader;
 use timsrust::readers::SpectrumReaderConfig as TimsrustSpectrumConfig;
@@ -34,7 +34,7 @@ pub struct BrukerProcessingConfig {
 impl TdfReader {
     pub fn parse(
         &self,
-        path_name: impl AsRef<str>,
+        path_name: impl AsRef<Path>,
         file_id: usize,
         config: BrukerProcessingConfig,
         requires_ms1: bool,
@@ -54,7 +54,7 @@ impl TdfReader {
 
     fn read_ms1_spectra(
         &self,
-        path_name: impl AsRef<str>,
+        path_name: impl AsRef<Path>,
         file_id: usize,
         config: BrukerMS1CentoidingConfig,
     ) -> Result<Vec<RawSpectrum>, timsrust::TimsRustError> {

@@ -61,8 +61,7 @@ pub fn group_digests(mut digests: Vec<Digest>) -> Vec<DigestGroup> {
     groups
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
-#[derive(Default)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash, Default)]
 pub enum Position {
     Nterm,
     Cterm,
@@ -70,7 +69,6 @@ pub enum Position {
     #[default]
     Internal,
 }
-
 
 impl Digest {
     /// Generate an internal decoy sequence by reversing the sequence
@@ -240,11 +238,7 @@ impl EnzymeParameters {
         }
     }
 
-    fn missed_cleavage_sites(
-        &self,
-        sites: &mut Vec<DigestSite>,
-        missed_cleavages: u8,
-    ) {
+    fn missed_cleavage_sites(&self, sites: &mut Vec<DigestSite>, missed_cleavages: u8) {
         let mut missed_cleavage_sites = Vec::new();
         for cleavage in 1..=(1 + missed_cleavages) {
             // Generate missed cleavages
