@@ -1,12 +1,8 @@
 //! TMT quantification
 #![allow(clippy::excessive_precision)]
-#![allow(unused_imports)]
-use crate::database::binary_search_slice;
-use crate::ion_series::{IonSeries, Kind};
-use crate::mass::{Tolerance, H2O, NH3, PROTON};
-use crate::peptide::Peptide;
-use crate::scoring::{Feature, Scorer};
-use crate::spectrum::{self, Peak, Precursor, ProcessedSpectrum};
+use crate::mass::{Tolerance, PROTON};
+use crate::scoring::Feature;
+use crate::spectrum::{self, ProcessedSpectrum};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -67,108 +63,6 @@ pub struct Purity {
     pub correct_precursors: usize,
     pub incorrect_precursors: usize,
 }
-
-/// Calculate SPS purity stats - which SPS precursor ions actually correspond
-/// to theoretical b/y ions, and percentage of total SPS precursor MS2 intensity
-/// that is explained by theoretical b/y ions
-// fn purity_of_match(
-//     precursors: &[Precursor],
-//     ms2: &ProcessedSpectrum,
-//     theoretical_peaks: &[Peak],
-//     max_charge: u8,
-//     fragment_tolerance: Tolerance,
-// ) -> Purity {
-//     let mut explained_intensity = 0.0;
-//     let mut interference = 0.0;
-//     let mut correct_precursors = 0;
-//     let mut incorrect_precursors = 0;
-
-//     for precursor in precursors {
-//         // Spurious SPS precursor introduced by MSConvert
-//         // https://github.com/ProteoWizard/pwiz/issues/2202
-//         if precursor.scan.unwrap_or(0) != ms2.scan {
-//             continue;
-//         }
-
-//         // This is really a m/z window, we haven't performed charge state deconvolution!
-//         // Select a window of MS2 peaks that have been sampled for MS3
-//         let isolation_tolerance = precursor
-//             .isolation_window
-//             .unwrap_or_else(|| Tolerance::Da(-0.5, 0.5));
-//         let isolation_window = isolation_tolerance.bounds(precursor.mz - PROTON);
-
-//         let (idx_lo, idx_hi) = binary_search_slice(
-//             &ms2.peaks,
-//             |peak, key| peak.mass.total_cmp(key),
-//             isolation_window.0,
-//             isolation_window.1,
-//         );
-
-//         // Create slice surrounding SPS peaks selected
-//         let window = &ms2.peaks[idx_lo..idx_hi];
-//         interference += window
-//             .iter()
-//             .filter(|peak| peak.mass >= isolation_window.0 && peak.mass <= isolation_window.1)
-//             .map(|peak| peak.intensity)
-//             .sum::<f32>();
-
-//         // Pick the most intense peak within the isolation window, and decide whether it is
-//         // assignable to the best candidate peptide
-//         let assigned_to_candidate = if let Some(best_peak) =
-//             spectrum::select_closest_peak(window, precursor.mz - PROTON, isolation_tolerance)
-//         {
-//             let mut correct = false;
-//             'outer: for charge in 1..max_charge {
-//                 for loss in [0.0, NH3, H2O] {
-//                     let mass = best_peak.mass * charge as f32 + loss;
-//                     if spectrum::select_closest_peak(theoretical_peaks, mass, fragment_tolerance)
-//                         .is_some()
-//                     {
-//                         correct = true;
-//                         interference -= best_peak.intensity;
-//                         explained_intensity += best_peak.intensity;
-
-//                         break 'outer;
-//                     }
-//                 }
-//             }
-//             correct
-//         } else {
-//             false
-//         };
-
-//         if assigned_to_candidate {
-//             correct_precursors += 1;
-//         } else {
-//             incorrect_precursors += 1;
-//         }
-//     }
-
-//     Purity {
-//         ratio: explained_intensity / (explained_intensity + interference),
-//         correct_precursors,
-//         incorrect_precursors,
-//     }
-// }
-
-// fn mk_theoretical(peptide: &Peptide) -> Vec<Peak> {
-//     let mut theoretical_peaks = IonSeries::new(peptide, Kind::B)
-//         .map(|ion| Peak {
-//             mass: ion.monoisotopic_mass,
-//             intensity: 0.0,
-//         })
-//         .collect::<Vec<_>>();
-
-//     if let Some(crate::mass::Residue::Mod('K', _)) = peptide.sequence.last() {
-//         theoretical_peaks.extend(IonSeries::new(peptide, Kind::Y).map(|ion| Peak {
-//             mass: ion.monoisotopic_mass,
-//             intensity: 0.0,
-//         }));
-//     }
-
-//     theoretical_peaks.sort_unstable_by(|a, b| a.mass.total_cmp(&b.mass));
-//     theoretical_peaks
-// }
 
 #[derive(Debug)]
 pub struct Quant<'ms3> {

@@ -151,6 +151,7 @@ pub struct Feature {
 /// Matching Fragment details
 #[derive(Serialize, Default, Clone, Debug)]
 pub struct Fragments {
+    /// Observed fragment charge state.
     #[serde(skip_serializing)]
     pub charges: Vec<i32>,
     pub kinds: Vec<Kind>,
@@ -617,20 +618,30 @@ impl<'db> Scorer<'db> {
                     self.fragment_tol,
                     None,
                 ) {
-                    to_remove.push((query.masses[peak_idx], query.intensities[peak_idx]));
+                    to_remove.push((
+                        query.masses[peak_idx],
+                        query.intensities[peak_idx],
+                        query.charges[peak_idx],
+                    ));
                 }
             }
         }
 
         let mut masses = Vec::with_capacity(query.masses.len());
         let mut intensities = Vec::with_capacity(query.intensities.len());
+        let mut charges = Vec::with_capacity(query.charges.len());
         let mut mobilities = Vec::with_capacity(query.mobilities.len());
 
         for idx in 0..query.masses.len() {
-            let peak = (query.masses[idx], query.intensities[idx]);
+            let peak = (
+                query.masses[idx],
+                query.intensities[idx],
+                query.charges[idx],
+            );
             if !to_remove.contains(&peak) {
                 masses.push(query.masses[idx]);
                 intensities.push(query.intensities[idx]);
+                charges.push(query.charges[idx]);
                 if !query.mobilities.is_empty() {
                     mobilities.push(query.mobilities[idx]);
                 }
@@ -639,6 +650,7 @@ impl<'db> Scorer<'db> {
 
         query.masses = masses;
         query.intensities = intensities;
+        query.charges = charges;
         query.mobilities = mobilities;
         query.total_ion_current = query.intensities.iter().sum::<f32>();
     }
@@ -715,12 +727,13 @@ impl<'db> Scorer<'db> {
                 ) {
                     let peak_mass = query.masses[peak_idx];
                     let peak_intensity = query.intensities[peak_idx];
+                    let fragment_charge = query.charges[peak_idx].max(charge);
 
                     score.ppm_difference +=
                         peak_intensity * (mz - peak_mass).abs() * 2E6 / (mz + peak_mass);
 
-                    let exp_mz = peak_mass + PROTON;
-                    let calc_mz = mz + PROTON;
+                    let exp_mz = query.peak_mz(peak_idx);
+                    let calc_mz = frag.monoisotopic_mass / fragment_charge as f32 + PROTON;
 
                     match frag.kind {
                         Kind::A | Kind::B | Kind::C => {
@@ -743,7 +756,7 @@ impl<'db> Scorer<'db> {
                             }
                         };
                         fragments_details.kinds.push(frag.kind);
-                        fragments_details.charges.push(charge as i32);
+                        fragments_details.charges.push(fragment_charge as i32);
                         fragments_details.mz_experimental.push(exp_mz);
                         fragments_details.mz_calculated.push(calc_mz);
                         fragments_details.fragment_ordinals.push(idx);
