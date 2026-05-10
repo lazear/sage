@@ -459,6 +459,12 @@ Note on the settings below:
 The "results.sage.tsv" file contains the following columns (headers):
 
 - `peptide`: Peptide sequence, including modifications (e.g., NC\[+57.021\]HKGSFK).
+- `first_aa`: First amino acid in the peptide sequence.
+- `last_aa`: Last amino acid in the peptide sequence.
+- `prev_aa`: Amino acids immediately preceding each peptide site in the source protein. Values are semicolon-delimited and aligned with `next_aa`, `starts`, and `ends`.
+- `next_aa`: Amino acids immediately following each peptide site in the source protein. Values are semicolon-delimited and aligned with `prev_aa`, `starts`, and `ends`.
+- `starts`: 1-based inclusive start positions for each peptide site in the source protein. Values are semicolon-delimited and aligned with `prev_aa`, `next_aa`, and `ends`.
+- `ends`: 1-based inclusive end positions for each peptide site in the source protein. Values are semicolon-delimited and aligned with `prev_aa`, `next_aa`, and `starts`.
 - `proteins`: Proteins containing the peptide sequence.
 - `num_proteins`: Number of proteins assigned to the peptide sequence.
 - `filename`: File containing this PSM

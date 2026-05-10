@@ -33,6 +33,12 @@ pub fn build_schema() -> Result<Type, parquet::errors::ParquetError> {
             required byte_array scannr (utf8);
             required byte_array peptide (utf8);
             required byte_array stripped_peptide (utf8);
+            required byte_array first_aa (utf8);
+            required byte_array last_aa (utf8);
+            required byte_array prev_aa (utf8);
+            required byte_array next_aa (utf8);
+            required byte_array starts (utf8);
+            required byte_array ends (utf8);
             required byte_array proteins (utf8);
             required byte_array protein_groups (utf8);
             required int32 num_proteins;
@@ -185,6 +191,30 @@ pub fn serialize_features(
             ByteArrayType
         );
         write_col!(
+            |f: &Feature| database[f.peptide_idx].first_aa().as_bytes().into(),
+            ByteArrayType
+        );
+        write_col!(
+            |f: &Feature| database[f.peptide_idx].last_aa().as_bytes().into(),
+            ByteArrayType
+        );
+        write_col!(
+            |f: &Feature| database[f.peptide_idx].prev_aas().as_bytes().into(),
+            ByteArrayType
+        );
+        write_col!(
+            |f: &Feature| database[f.peptide_idx].next_aas().as_bytes().into(),
+            ByteArrayType
+        );
+        write_col!(
+            |f: &Feature| database[f.peptide_idx].starts().as_bytes().into(),
+            ByteArrayType
+        );
+        write_col!(
+            |f: &Feature| database[f.peptide_idx].ends().as_bytes().into(),
+            ByteArrayType
+        );
+        write_col!(
             |f: &Feature| database[f.peptide_idx]
                 .proteins(&database.decoy_tag, database.generate_decoys)
                 .as_str()
@@ -250,6 +280,37 @@ pub fn serialize_features(
         rg.close()?;
     }
     writer.into_inner()
+}
+
+#[cfg(test)]
+mod test {
+    use super::build_schema;
+
+    #[test]
+    fn feature_schema_includes_site_columns() {
+        let schema = build_schema().unwrap();
+        let fields = schema
+            .get_fields()
+            .iter()
+            .map(|field| field.name())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            &fields[3..13],
+            &[
+                "peptide",
+                "stripped_peptide",
+                "first_aa",
+                "last_aa",
+                "prev_aa",
+                "next_aa",
+                "starts",
+                "ends",
+                "proteins",
+                "protein_groups",
+            ]
+        );
+    }
 }
 
 pub fn build_matched_fragment_schema() -> parquet::errors::Result<Type> {
