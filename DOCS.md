@@ -200,7 +200,8 @@ For additional information about configuration options and output file formats, 
       "ppm_tolerance": 5.0,    // Optional[float] {default = 5.0}, tolerance (in p.p.m.) for DICE window around calculated precursor mass
       // Optional[bool] {default = true}. Combine all charge states for quantification. Setting this to false
       // quantifies each peptide-charge precursor in `precursor_charge` range (see below) separately
-      "combine_charge_states": true
+      "combine_charge_states": true,
+      "peptide_q_value": 0.01 // Optional[float] {default = 0.01}, maximum peptide-level q-value for reporting quantification results
     }
   },
   "precursor_tol": {        // Tolerance can be either "ppm" or "da"
@@ -367,6 +368,8 @@ The quant section is optional and should be specified only if TMT or LFQ is used
   - **integration**: String. The method used for integrating peak intensities, either "Sum" or "Max" (default: "Sum").
   - **spectral_angle**: Float. Threshold for the spectral angle similarity measure, ranging from 0 to 1 (default: 0.7).
   - **ppm_tolerance**: Float. Tolerance for matching MS1 ions in parts per million (default: 5.0).
+  - **combine_charge_states**: Boolean. If true, combine all charge states for quantification. If false, quantify each peptide-charge precursor separately (default: true).
+  - **peptide_q_value**: Float. Maximum peptide-level q-value for reporting quantification results (default: 0.01).
 
 Example: 
 ```json
