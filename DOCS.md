@@ -173,15 +173,17 @@ For additional information about configuration options and output file formats, 
       "K": 304.207,         // Apply static modification to lysine
       "C": 57.0215          // Apply static modification to cysteine
     },
-    "variable_mods": {    // Optional[Dict[char, float]] {default={}}, variable modifications
+    "variable_mods": {    // Variable modification masses or objects with mass and optional max_count
       "M": [15.9949],     // Variable mods are applied *before* static mod
+      "K": [{"mass": 42.0106, "max_count": 1}, 14.0157],
       "^Q": [-17.026549],
       "^E": [-18.010565], // Applied to N-terminal glutamic acid
       "$": [49.2, 22.9],  // Applied to peptide C-terminus
       "[": [42.0],          // Applied to protein N-terminus
       "]": [111.0]          // Applied to protein C-terminus
-    }
-    "max_variable_mods": 2, // Optional[int] {default=2} Limit k-combinations of variable modifications
+    },
+    "max_variable_mods": 2, // Optional[int] {default=2} Limit modifications on each peptide
+    "max_combinations": 8,  // Optional[int] {default=null} Limit total variants per peptide
     "decoy_tag": "rev_",    // Optional[str] {default="rev_"}: See notes above
     "generate_decoys": false, // Optional[bool] {default="true"}: Ignore decoys in FASTA database matching `decoy_tag`
     "fasta": "dual.fasta"   // str: mandatory path to FASTA file
@@ -322,13 +324,15 @@ Example:
 
 #### Variable Modifications
 
-- **max_variable_mods**: Integer. Limit k-combinations of variable modifications (default: 2).
-- **variable_mods**: Dictionary with characters as keys and list of floats (or single floats) as values. Represents variable modifications applied to amino acids or termini (default: {}).
+- **max_variable_mods**: Integer. Limit the total variable modifications on each peptide (default: 2).
+- **max_combinations**: Integer. Optional hard cap on the total variants generated per input peptide, including the unmodified form. Variants with fewer modifications are retained first. Values below 1 are treated as 1 (default: unlimited).
+- **variable_mods**: Dictionary with characters as keys and lists containing bare masses or objects with a `mass` field and optional `max_count`. A bare mass remains unrestricted except by `max_variable_mods`; `max_count` limits occurrences of that specific modification on one peptide.
   - Example: Apply a variable modification of 15.9949 to methionine, 49.2022 to the C-terminus of the peptide, 42.0 to the N-terminus of the protein, and 111.0 to the C-terminus of the protein.
     ```jsonc
     "database": {
       "variable_mods": {
-        "M": [15.9949], 
+        "M": [15.9949],
+        "K": [{"mass": 42.0106, "max_count": 1}, 14.0157],
         "^Q": [-17.026549],
         "^E": [-18.010565], // Applied to N-terminal glutamic acid
         "$": [49.2022],     // Applied to peptide C-terminus

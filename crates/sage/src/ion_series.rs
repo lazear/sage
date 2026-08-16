@@ -257,7 +257,9 @@ mod test {
     #[test]
     fn nterm_mod() {
         let static_mods = [(ModificationSpecificity::PeptideN(None), 229.01)].into();
-        let peptide = peptide("PEPTIDE").apply(&[], &static_mods, 1).remove(0);
+        let peptide = peptide("PEPTIDE")
+            .apply(&[], &static_mods, 1, None)
+            .remove(0);
 
         // Charge state 1, b-ions should be TMT tagged
         let expected_b = [
@@ -279,7 +281,9 @@ mod test {
     #[test]
     fn cterm_mod() {
         let static_mods = [(ModificationSpecificity::PeptideC(None), 229.01)].into();
-        let peptide = peptide("PEPTIDE").apply(&[], &static_mods, 1).remove(0);
+        let peptide = peptide("PEPTIDE")
+            .apply(&[], &static_mods, 1, None)
+            .remove(0);
         assert!((peptide.monoisotopic - 1028.37).abs() < 0.001);
 
         // b-ions should not be tagged
@@ -303,7 +307,7 @@ mod test {
     fn internal_mod() {
         let peptide = peptide("PEPTIDE");
         let static_mods = [(ModificationSpecificity::Residue(b'I'), 29.0)].into();
-        let peptide = peptide.apply(&[], &static_mods, 1).remove(0);
+        let peptide = peptide.apply(&[], &static_mods, 1, None).remove(0);
 
         let expected_b = [
             98.06004,

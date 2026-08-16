@@ -2,7 +2,7 @@ use crate::enzyme::{group_digests, Enzyme, EnzymeParameters};
 use crate::fasta::Fasta;
 use crate::ion_series::{IonSeries, Kind};
 use crate::mass::Tolerance;
-use crate::modification::{validate_mods, validate_var_mods, ModificationSpecificity};
+use crate::modification::{validate_mods, validate_var_mods, ModificationSpecificity, VarModEntry};
 use crate::peptide::Peptide;
 use dashmap::DashSet;
 use fnv::FnvBuildHasher;
@@ -74,10 +74,16 @@ pub struct Builder {
     pub min_ion_index: Option<usize>,
     /// Static modifications to add to matching amino acids
     pub static_mods: Option<HashMap<String, f32>>,
-    /// Variable modifications to add to matching amino acids
-    pub variable_mods: Option<HashMap<String, Vec<f32>>>,
+    /// Variable modifications to add to matching amino acids.
+    /// Each entry is either a bare mass (`15.9949`) or an object with `mass` and
+    /// optional `max_count` fields (`{"mass": 15.9949, "max_count": 1}`).
+    pub variable_mods: Option<HashMap<String, Vec<VarModEntry>>>,
     /// Limit number of variable modifications on a peptide
     pub max_variable_mods: Option<usize>,
+    /// Hard cap on the total peptide variants generated per input peptide,
+    /// including its unmodified form. Values below 1 are normalized to 1.
+    /// Variants with fewer PTMs are preferred (generated first).
+    pub max_combinations: Option<usize>,
     /// Use this prefix for decoy proteins
     pub decoy_tag: Option<String>,
 
@@ -106,6 +112,7 @@ impl Builder {
             static_mods: validate_mods(self.static_mods),
             variable_mods: validate_var_mods(self.variable_mods),
             max_variable_mods: self.max_variable_mods.map(|x| x.max(1)).unwrap_or(2),
+            max_combinations: self.max_combinations.map(|x| x.max(1)),
             generate_decoys: self.generate_decoys.unwrap_or(true),
             fasta: self.fasta.expect("A fasta file must be provided!"),
             prefilter_chunk_size: self.prefilter_chunk_size.unwrap_or(0),
@@ -128,8 +135,9 @@ pub struct Parameters {
     pub ion_kinds: Vec<Kind>,
     pub min_ion_index: usize,
     pub static_mods: HashMap<ModificationSpecificity, f32>,
-    pub variable_mods: HashMap<ModificationSpecificity, Vec<f32>>,
+    pub variable_mods: HashMap<ModificationSpecificity, Vec<VarModEntry>>,
     pub max_variable_mods: usize,
+    pub max_combinations: Option<usize>,
     pub decoy_tag: String,
     pub generate_decoys: bool,
     pub fasta: String,
@@ -139,21 +147,48 @@ pub struct Parameters {
 }
 
 impl Parameters {
+    /// Flatten variable modifications into a stable order. This matters when
+    /// `max_combinations` truncates variants: equivalent configurations must
+    /// retain the same variants regardless of randomized `HashMap` iteration.
+    fn variable_modifications(&self) -> Vec<(ModificationSpecificity, f32, Option<usize>)> {
+        let mut mods = self
+            .variable_mods
+            .iter()
+            .flat_map(|(specificity, entries)| {
+                entries.iter().enumerate().map(|(entry_order, entry)| {
+                    (*specificity, entry_order, entry.mass(), entry.max_count())
+                })
+            })
+            .collect::<Vec<_>>();
+        mods.sort_unstable_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+        mods.into_iter()
+            .map(|(specificity, _, mass, max_count)| (specificity, mass, max_count))
+            .collect()
+    }
+
     pub fn auto_calculate_prefilter_chunk_size(&mut self, fasta: &Fasta) {
         const MAX_PEPS_PER_CHUNK: usize = 2usize.pow(23);
         self.prefilter_chunk_size = match self.prefilter_chunk_size {
             0 => {
                 let enzyme = self.enzyme.clone().into();
                 let total_unmodified_pep_count: usize = fasta.digest(&enzyme).len();
-                let mod_count_estimate =
-                    (self.variable_mods.len() + 1) * (1 << self.max_variable_mods);
-                let chunk_count =
-                    mod_count_estimate * total_unmodified_pep_count / MAX_PEPS_PER_CHUNK;
-                if chunk_count == 0 {
-                    fasta.targets.len()
+                let combination_factor = if self.max_variable_mods >= usize::BITS as usize {
+                    usize::MAX
                 } else {
-                    fasta.targets.len() / chunk_count
+                    1usize << self.max_variable_mods
+                };
+                let mut mod_count_estimate =
+                    (self.variable_mods.len() + 1).saturating_mul(combination_factor);
+                if let Some(max_combinations) = self.max_combinations {
+                    mod_count_estimate = mod_count_estimate.min(max_combinations);
                 }
+                let chunk_count = mod_count_estimate.saturating_mul(total_unmodified_pep_count)
+                    / MAX_PEPS_PER_CHUNK;
+                fasta
+                    .targets
+                    .len()
+                    .checked_div(chunk_count)
+                    .unwrap_or(fasta.targets.len())
             }
             x => x,
         };
@@ -175,11 +210,7 @@ impl Parameters {
             digests.len()
         );
 
-        let mods = self
-            .variable_mods
-            .iter()
-            .flat_map(|(a, b)| b.iter().map(|b| (*a, *b)))
-            .collect::<Vec<_>>();
+        let mods = self.variable_modifications();
 
         let targets: DashSet<_, FnvBuildHasher> = DashSet::default();
         digests
@@ -196,7 +227,12 @@ impl Parameters {
             .filter_map(Result::ok)
             .flat_map_iter(|peptide| {
                 peptide
-                    .apply(&mods, &self.static_mods, self.max_variable_mods)
+                    .apply(
+                        &mods,
+                        &self.static_mods,
+                        self.max_variable_mods,
+                        self.max_combinations,
+                    )
                     .into_iter()
                     .filter(|peptide| {
                         peptide.monoisotopic >= self.peptide_min_mass
@@ -348,7 +384,9 @@ impl Parameters {
         let potential_mods = self
             .variable_mods
             .iter()
-            .flat_map(|(a, b)| b.iter().map(|b| (*a, *b)))
+            .flat_map(|(specificity, entries)| {
+                entries.iter().map(|entry| (*specificity, entry.mass()))
+            })
             .collect::<Vec<(ModificationSpecificity, f32)>>();
 
         IndexedDatabase {
@@ -593,6 +631,47 @@ mod test {
     }
 
     #[test]
+    fn structured_variable_mod_config_round_trips() {
+        let builder: Builder = serde_json::from_value(serde_json::json!({
+            "fasta": "none",
+            "variable_mods": {
+                "M": [15.9949],
+                "K": [
+                    {"mass": 42.0106, "max_count": 1},
+                    {"mass": 14.0157}
+                ]
+            },
+            "max_variable_mods": 2,
+            "max_combinations": 0
+        }))
+        .unwrap();
+
+        let params = builder.make_parameters();
+        assert_eq!(params.max_variable_mods, 2);
+        assert_eq!(params.max_combinations, Some(1));
+
+        let mods = params.variable_modifications();
+        assert_eq!(mods.len(), 3);
+        assert_eq!(mods[0].0, ModificationSpecificity::Residue(b'K'));
+        assert!((mods[0].1 - 42.0106).abs() < 1e-4);
+        assert_eq!(mods[0].2, Some(1));
+        assert_eq!(mods[1].0, ModificationSpecificity::Residue(b'K'));
+        assert!((mods[1].1 - 14.0157).abs() < 1e-4);
+        assert_eq!(mods[1].2, None);
+        assert_eq!(mods[2].0, ModificationSpecificity::Residue(b'M'));
+        assert!((mods[2].1 - 15.9949).abs() < 1e-4);
+        assert_eq!(mods[2].2, None);
+
+        let serialized = serde_json::to_value(params).unwrap();
+        let k_entries = &serialized["variable_mods"]["K"];
+        assert!(k_entries[0].is_object());
+        assert_eq!(k_entries[0]["max_count"], 1);
+        assert!(k_entries[1].is_object());
+        assert!(k_entries[1].get("max_count").is_none());
+        assert!(serialized["variable_mods"]["M"][0].is_number());
+    }
+
+    #[test]
     fn digestion() {
         let fasta = r#"
         >sp|AAAAA
@@ -631,10 +710,14 @@ mod test {
             ion_kinds: vec![Kind::B, Kind::Y],
             min_ion_index: 2,
             static_mods: HashMap::default(),
-            variable_mods: [(ModificationSpecificity::ProteinN(None), vec![42.0])]
-                .into_iter()
-                .collect(),
+            variable_mods: [(
+                ModificationSpecificity::ProteinN(None),
+                vec![VarModEntry::Mass(42.0)],
+            )]
+            .into_iter()
+            .collect(),
             max_variable_mods: 2,
+            max_combinations: None,
             decoy_tag: "rev_".into(),
             generate_decoys: false,
             fasta: "none".into(),
