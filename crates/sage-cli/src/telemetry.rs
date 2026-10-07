@@ -14,6 +14,8 @@ pub struct Telemetry {
     fragments: usize,
     // How many files are being processed?
     files: usize,
+    // How many MS2 spectra were searched?
+    spectra: usize,
     // How long did analysis take?
     runtime_secs: u64,
 
@@ -38,6 +40,7 @@ impl Telemetry {
         settings: crate::input::Search,
         peptides: usize,
         fragments: usize,
+        spectra: usize,
         parquet: bool,
         runtime_secs: u64,
     ) -> Telemetry {
@@ -49,6 +52,7 @@ impl Telemetry {
             peptides,
             fragments,
             files: settings.mzml_paths.len(),
+            spectra,
             runtime_secs,
             lfq: settings.quant.lfq,
             tmt: settings.quant.tmt,
@@ -63,7 +67,7 @@ impl Telemetry {
         log::trace!("sending telemetry...");
         // doesn't matter if it fails
         match sage_cloudpath::util::send_data(
-            "https://pax3h44gubc6o5ci23knddnw2i0qnuaz.lambda-url.us-west-2.on.aws/",
+            "https://telemetry.lazear.org/sage",
             &self,
         ) {
             Ok(_) => {
