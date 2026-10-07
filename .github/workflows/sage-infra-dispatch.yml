@@ -1,0 +1,57 @@
+name: sage-infra dispatch
+
+# Drop this file at .github/workflows/sage-infra-dispatch.yml in the upstream
+# Sage repo. On every push to master it sends a repository_dispatch event
+# to sage-infra, which then builds + benchmarks that commit on AWS.
+#
+# Required secrets in the Sage repo (set via a GitHub App with Contents:R/W
+# installed on sage-infra — see sage-dispatch/README.md):
+#   SAGE_INFRA_APP_ID           numeric App ID
+#   SAGE_INFRA_APP_PRIVATE_KEY  the .pem contents
+#
+# Required repo variable (or hardcode below):
+#   SAGE_INFRA_REPO            "<owner>/sage-infra" — defaults to lazear/sage-infra.
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Mint installation token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.SAGE_INFRA_APP_ID }}
+          private-key: ${{ secrets.SAGE_INFRA_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: sage-infra
+
+      - name: Send repository_dispatch
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          SAGE_INFRA_REPO: ${{ vars.SAGE_INFRA_REPO || 'lazear/sage-infra' }}
+          SHA:    ${{ github.sha }}
+          MSG:    ${{ github.event.head_commit.message }}
+          AUTHOR: ${{ github.event.head_commit.author.name }}
+          TS:     ${{ github.event.head_commit.timestamp }}
+        run: |
+          set -euo pipefail
+          # Trim message to first line to keep client_payload small/legible.
+          MSG_FIRST=$(printf '%s' "$MSG" | head -1)
+          gh api -X POST "/repos/${SAGE_INFRA_REPO}/dispatches" \
+            --input - <<EOF
+          {
+            "event_type": "sage-master-push",
+            "client_payload": {
+              "sha": "${SHA}",
+              "message": $(jq -Rsa . <<<"$MSG_FIRST"),
+              "author": $(jq -Rsa . <<<"$AUTHOR"),
+              "timestamp": "${TS}"
+            }
+          }
+          EOF
+          echo "dispatched ${SHA} -> ${SAGE_INFRA_REPO}"
