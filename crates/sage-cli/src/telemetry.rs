@@ -66,10 +66,7 @@ impl Telemetry {
     pub fn send(self) {
         log::trace!("sending telemetry...");
         // doesn't matter if it fails
-        match sage_cloudpath::util::send_data(
-            "https://telemetry.lazear.org/sage",
-            &self,
-        ) {
+        match sage_cloudpath::util::send_data("https://telemetry.lazear.org/sage", &self) {
             Ok(_) => {
                 log::trace!("telemetry data sent successfully!")
             }

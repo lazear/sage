@@ -684,7 +684,8 @@ impl Runner {
             self.parameters,
             self.database.peptides.len(),
             self.database.fragments.len(),
-            self.spectra_searched.load(std::sync::atomic::Ordering::Relaxed),
+            self.spectra_searched
+                .load(std::sync::atomic::Ordering::Relaxed),
             parquet,
             run_time,
         );
