@@ -571,9 +571,9 @@ impl Grid {
         let ss_dist = self
             .distribution
             .iter()
-            .map(|x| x.powi(2))
-            .sum::<f32>()
-            .sqrt() as f64;
+            .map(|&x| (x as f64).powi(2))
+            .sum::<f64>()
+            .sqrt();
 
         for file in 0..self.files {
             let mut summed_squared_intensities = vec![0.0; self.matrix.cols];
@@ -597,7 +597,8 @@ impl Grid {
                 };
 
                 // Calculate the normalized spectral angle
-                spectral_angle[(file, col)] = 1.0 - 2.0 * similarity.acos() / std::f64::consts::PI;
+                spectral_angle[(file, col)] =
+                    1.0 - 2.0 * similarity.clamp(-1.0, 1.0).acos() / std::f64::consts::PI;
                 dot_product[(file, col)] = dot;
             }
         }
@@ -683,5 +684,47 @@ impl Query<'_> {
             // TODO: replace this magic number with a patameter.
             (precursor.mobility_hi >= mobility) && (precursor.mobility_lo <= mobility)
         })
+    }
+}
+
+#[cfg(test)]
+mod lfq_spectral_angle_nan_tests {
+    #[test]
+    fn lfq_perfect_isotopes_finite() {
+        use crate::{
+            database::PeptideIx,
+            lfq::{Grid, PrecursorRange},
+        };
+        for carbon in 20..100 {
+            let dist = crate::isotopes::peptide_isotopes(carbon, 1);
+            let e = PrecursorRange {
+                rt: 0.5,
+                mass_lo: 0.0,
+                mass_hi: 0.0,
+                mobility_lo: 0.0,
+                mobility_hi: 0.0,
+                charge: 2,
+                isotope: 0,
+                peptide: PeptideIx(0),
+                file_id: 0,
+                decoy: false,
+            };
+            let mut grid = Grid::new(&e, 0.005, dist, 1, 100);
+            for i in 0..3 {
+                grid.add_entry(0.5, i, 0, dist[i] * 1000.0);
+            }
+            let mut trace = grid.summarize_traces();
+            assert!(trace
+                .integrate(&crate::lfq::LfqSettings::default())
+                .is_some());
+            assert!(
+                trace
+                    .spectral_angle
+                    .row_slice(0)
+                    .iter()
+                    .all(|x| x.is_finite()),
+                "NaN spectral angle for carbon={carbon}, distribution={dist:?}"
+            );
+        }
     }
 }
