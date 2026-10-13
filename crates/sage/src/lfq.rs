@@ -365,7 +365,7 @@ impl Traces {
         for (row, offset) in offsets.iter_mut().enumerate() {
             let run = matrix.row_slice(row);
 
-            let mut best_offset = (0, 0.0);
+            let mut best_offset = (0isize, 0.0);
             for offset in -slack..=slack {
                 let mut dot = 0.0;
                 for (i, ref_int) in reference.iter().enumerate() {
@@ -375,7 +375,11 @@ impl Traces {
                     }
                 }
 
-                if dot >= best_offset.1 {
+                // Without evidence for a shift, preserve the trace. For tied
+                // correlations, prefer the smallest displacement.
+                if dot > best_offset.1
+                    || (dot == best_offset.1 && offset.abs() < best_offset.0.abs())
+                {
                     best_offset = (offset, dot);
                 }
             }
@@ -460,23 +464,24 @@ impl Traces {
             return None;
         }
 
-        // Find peak boundaries
-        let mut left = best.rt.saturating_sub(1);
-        let mut right = best.rt.saturating_add(1);
+        // Inclusive boundaries contain only bins that pass both thresholds.
+        let mut left = best.rt;
+        let mut right = best.rt;
 
         let threshold = best.score * 0.50;
 
-        // Don't let peaks extend more than GRID_SIZE/5 bins to either side
-        while left > best.rt.saturating_sub(scores.len() / 5)
-            && scores[left] >= threshold
-            && spectral[left] >= settings.spectral_angle
+        // Don't let peaks extend more than one fifth of the grid to either side.
+        let max_width = scores.len() / 5;
+        while left > best.rt.saturating_sub(max_width)
+            && scores[left - 1] >= threshold
+            && spectral[left - 1] >= settings.spectral_angle
         {
             left -= 1;
         }
 
-        while right < scores.len().saturating_sub(1).min(best.rt + 20)
-            && scores[right] >= threshold
-            && spectral[right] >= settings.spectral_angle
+        while right < (scores.len() - 1).min(best.rt + max_width)
+            && scores[right + 1] >= threshold
+            && spectral[right + 1] >= settings.spectral_angle
         {
             right += 1;
         }
@@ -485,7 +490,7 @@ impl Traces {
         let mut areas = Vec::with_capacity(self.dot_product.rows);
         for file in 0..self.dot_product.rows {
             let area = match settings.integration {
-                IntegrationStrategy::Sum => self.dot_product.row_slice(file)[left..right]
+                IntegrationStrategy::Sum => self.dot_product.row_slice(file)[left..=right]
                     .iter()
                     .sum::<f64>(),
                 IntegrationStrategy::Apex => self.dot_product.row_slice(file)[best.rt],
@@ -725,6 +730,88 @@ mod lfq_spectral_angle_nan_tests {
                     .all(|x| x.is_finite()),
                 "NaN spectral angle for carbon={carbon}, distribution={dist:?}"
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod alignment_integration_tests {
+    use super::*;
+
+    fn traces(rows: Vec<Vec<f64>>) -> Traces {
+        let n = rows.len();
+        let cols = rows[0].len();
+        Traces {
+            dot_product: Matrix::new(rows.into_iter().flatten().collect::<Vec<_>>(), n, cols),
+            spectral_angle: Matrix::new(vec![1.0; n * cols], n, cols),
+            reference_file_id: 0,
+        }
+    }
+
+    fn settings() -> LfqSettings {
+        LfqSettings {
+            peak_scoring: PeakScoringStrategy::Intensity,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn empty_reference_preserves_other_runs() {
+        let mut signal = vec![0.0; 100];
+        signal[50] = 100.0;
+        let mut t = traces(vec![vec![0.0; 100], signal]);
+        assert_eq!(t.find_time_warps(&t.dot_product, 75), vec![0, 0]);
+        let (_, areas) = t
+            .integrate(&settings())
+            .expect("signal in the non-reference run");
+        assert_eq!(areas, vec![0.0, 100.0]);
+    }
+
+    #[test]
+    fn informative_reference_still_aligns_shifted_peaks() {
+        let mut reference = vec![0.0; 100];
+        let mut shifted = reference.clone();
+        reference[50] = 100.0;
+        shifted[60] = 100.0;
+        let mut t = traces(vec![reference, shifted, vec![0.0; 100]]);
+        assert_eq!(t.find_time_warps(&t.dot_product, 75), vec![0, 10, 0]);
+        assert_eq!(t.integrate(&settings()).unwrap().1, vec![100.0, 100.0, 0.0]);
+    }
+
+    #[test]
+    fn tied_correlations_prefer_smallest_shift() {
+        let mut reference = vec![0.0; 100];
+        let mut plateau = reference.clone();
+        reference[50] = 100.0;
+        plateau[48..=52].fill(100.0);
+        let t = traces(vec![reference, plateau]);
+        assert_eq!(t.find_time_warps(&t.dot_product, 75), vec![0, 0]);
+    }
+
+    #[test]
+    fn mirrored_peaks_exclude_failing_boundary_bins() {
+        for tail in [49, 51] {
+            for spectral_failure in [false, true] {
+                let mut row = vec![0.0; 100];
+                row[50] = 100.0;
+                row[tail] = if spectral_failure { 40.0 } else { 10.0 };
+                let mut t = traces(vec![row]);
+                if spectral_failure {
+                    t.spectral_angle[(0, tail)] = 0.0;
+                }
+                assert_eq!(t.integrate(&settings()).unwrap().1, vec![100.0]);
+            }
+        }
+    }
+
+    #[test]
+    fn integration_includes_passing_bins_at_both_grid_edges() {
+        for (apex, neighbor) in [(0, 1), (1, 0), (98, 99), (99, 98)] {
+            let mut row = vec![0.0; 100];
+            row[apex] = 100.0;
+            row[neighbor] = 40.0;
+            let mut t = traces(vec![row]);
+            assert_eq!(t.integrate(&settings()).unwrap().1, vec![140.0]);
         }
     }
 }
