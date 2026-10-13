@@ -14,7 +14,7 @@ pub enum ScoreType {
 }
 
 /// Structure to hold temporary scores
-#[derive(Copy, Clone, Default, Debug, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, Default, Debug, PartialEq)]
 struct Score {
     peptide: PeptideIx,
     matched_b: u16,
@@ -31,11 +31,15 @@ struct Score {
 
 impl Eq for Score {}
 
+impl PartialOrd for Score {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 impl Ord for Score {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.hyperscore
-            .partial_cmp(&other.hyperscore)
-            .unwrap_or(std::cmp::Ordering::Less)
+        self.hyperscore.total_cmp(&other.hyperscore)
     }
 }
 
@@ -840,5 +844,24 @@ mod tests {
         assert_eq!(max_fragment_charge(Some(1), 3), 2);
         assert_eq!(max_fragment_charge(Some(2), 4), 3);
         assert_eq!(max_fragment_charge(Some(4), 1), 2);
+    }
+
+    #[test]
+    fn score_ordering_issue_236() {
+        let mut scores = [(1, 100.0), (2, 50.0), (3, 1.0)]
+            .into_iter()
+            .map(|(index, hyperscore)| Score {
+                peptide: PeptideIx(index),
+                hyperscore,
+                ..Default::default()
+            })
+            .collect::<Vec<_>>();
+        bounded_min_heapify(&mut scores, 2);
+        let mut retained = scores[..2]
+            .iter()
+            .map(|score| score.hyperscore)
+            .collect::<Vec<_>>();
+        retained.sort_by(f64::total_cmp);
+        assert_eq!(retained, vec![50.0, 100.0]);
     }
 }
