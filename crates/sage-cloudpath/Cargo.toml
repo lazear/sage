@@ -21,7 +21,7 @@ object_store = { version = "0.13", features = ["aws", "gcp", "azure"] }
 tokio = { version = "1.0", features = ["fs", "io-util", "rt", "macros"] }
 tokio-util = { version = "0.7", features = ["io"] }
 quick-xml = { version = "0.31.0", features = ["async-tokio"] }
-timsrust = { version = "0.4.2"}
+timsrust = { version = "0.6.7"}
 rayon = "1.5"
 reqwest = { version = "0.11", features = ["json", "rustls-tls"], default-features = false }
 regex = "1.6"
