@@ -1,4 +1,4 @@
-<img src="figures/logo.png" width="300">
+<img src="https://sage.lazear.org/logo.png" width="300">
 
 # Sage: proteomics searching so fast it seems like magic
 
