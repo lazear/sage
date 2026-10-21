@@ -8,11 +8,15 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub enum Isobaric {
+    Tmt0,
     Tmt6,
     Tmt10,
     Tmt11,
     Tmt16,
     Tmt18,
+    Tmt32,
+    Tmt34,
+    Tmt35,
     User(Vec<f32>),
 }
 
@@ -20,11 +24,15 @@ impl Isobaric {
     /// Return the monoisotopic mass of reporter ions
     pub fn reporter_masses(&self) -> &[f32] {
         match self {
+            Isobaric::Tmt0 => &TMT0PLEX,
             Isobaric::Tmt6 => &TMT6PLEX,
             Isobaric::Tmt10 => &TMT11PLEX[0..10],
             Isobaric::Tmt11 => &TMT11PLEX,
             Isobaric::Tmt16 => &TMT18PLEX[0..16],
             Isobaric::Tmt18 => &TMT18PLEX,
+            Isobaric::Tmt32 => &TMT35PLEX[0..32],
+            Isobaric::Tmt34 => &TMT35PLEX[0..34],
+            Isobaric::Tmt35 => &TMT35PLEX,
             Isobaric::User(labels) => labels,
         }
     }
@@ -32,29 +40,40 @@ impl Isobaric {
     /// Return the monoisotopic mass of tag
     pub fn modification_mass(&self) -> Option<f32> {
         match self {
+            Isobaric::Tmt0 => Some(295.1896),
             Isobaric::Tmt6 | Isobaric::Tmt10 | Isobaric::Tmt11 => Some(229.162932),
             Isobaric::Tmt16 => Some(304.2071),
             Isobaric::Tmt18 => Some(304.2135),
+            Isobaric::Tmt32 => Some(304.2101),
+            Isobaric::Tmt34 => Some(304.2164),
+            Isobaric::Tmt35 => Some(304.2227),
             Isobaric::User(_) => None,
         }
     }
 
     /// Return a column name for each tag
     pub fn headers(&self) -> Vec<String> {
-        match self {
-            Isobaric::User(v) => v
+    let headers = match self {
+        Isobaric::Tmt0 => &TMT0PLEX_HEADER[..],
+        Isobaric::Tmt6 => &TMT6PLEX_HEADER[..],
+        Isobaric::Tmt10 => &TMT11PLEX_HEADER[0..10],
+        Isobaric::Tmt11 => &TMT11PLEX_HEADER[..],
+        Isobaric::Tmt16 => &TMT18PLEX_HEADER[0..16],
+        Isobaric::Tmt18 => &TMT18PLEX_HEADER[..],
+        Isobaric::Tmt32 => &TMT35PLEX_HEADER[0..32],
+        Isobaric::Tmt34 => &TMT35PLEX_HEADER[0..34],
+        Isobaric::Tmt35 => &TMT35PLEX_HEADER[..],
+        Isobaric::User(v) => {
+            return v
                 .iter()
                 .enumerate()
                 .map(|(idx, _)| format!("user_{}", idx + 1))
-                .collect(),
-            _ => self
-                .reporter_masses()
-                .iter()
-                .enumerate()
-                .map(|(idx, _)| format!("tmt_{}", idx + 1))
-                .collect(),
+                .collect();
         }
-    }
+    };
+
+    headers.iter().map(|&s| s.to_string()).collect()
+}
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -105,6 +124,8 @@ pub fn find_reporter_ions(
         .collect()
 }
 
+const TMT0PLEX: [f32; 1] = [126.127726];
+
 const TMT6PLEX: [f32; 6] = [
     126.127726, 127.124761, 128.134436, 129.131471, 130.141145, 131.138180,
 ];
@@ -118,6 +139,39 @@ const TMT18PLEX: [f32; 18] = [
     126.127726, 127.124761, 127.131081, 128.128116, 128.134436, 129.131471, 129.137790, 130.134825,
     130.141145, 131.138180, 131.144500, 132.141535, 132.147855, 133.144890, 133.151210, 134.148245,
     134.154565, 135.15160,
+];
+
+const TMT35PLEX: [f32; 35] = [
+    126.127726, 127.124761, 127.131081, 127.134003, 128.128116, 128.131038, 128.134436, 128.137358,
+    129.131471, 129.134393, 129.137790, 129.140713, 130.134825, 130.137748, 130.141145, 130.144068,
+    131.138180, 131.141103, 131.144500, 131.147423, 132.141535, 132.144458, 132.147855, 132.150778,
+    133.144890, 133.147813, 133.151210, 133.154133, 134.148245, 134.151171, 134.154565, 134.157491,
+    135.151600, 135.154526, 135.160846,
+];
+
+const TMT0PLEX_HEADER: [&str; 1] = ["zero"];
+
+const TMT6PLEX_HEADER: [&str; 6] = [
+    "126", "127", "128", "129", "130", "131",
+];
+
+const TMT11PLEX_HEADER: [&str; 11] = [
+    "126", "127N", "127C", "128N", "128C", "129N", "129C", "130N",
+    "130C", "131N", "131C",
+];
+
+const TMT18PLEX_HEADER: [&str; 18] = [
+    "126", "127N", "127C", "128N", "128C", "129N", "129C", "130N",
+    "130C", "131N", "131C", "132N", "132C", "133N", "133C", "134N",
+    "134C", "135N",
+];
+
+const TMT35PLEX_HEADER: [&str; 35] = [
+    "126", "127N", "127C", "127CD", "128N", "128ND", "128C", "128CD",
+    "129N", "129ND", "129C", "129CD", "130N", "130ND", "130C", "130CD",
+    "131N", "131ND", "131C", "131CD", "132N", "132ND", "132C", "132CD",
+    "133N","133ND", "133C", "133CD", "134N", "134ND", "134C", "134CD",
+    "135N", "135ND", "135CD",
 ];
 
 /// Search MS/MS and quantify isobaric tag intensities from an SPS-MS3 spectrum

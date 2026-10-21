@@ -349,11 +349,25 @@ impl Runner {
             .tmt
             .as_ref()
             .map(|isobaric| {
-                let level = self.parameters.quant.tmt_settings.level;
+                let settings = self.parameters.quant.tmt_settings;
+                let level = settings.level;
                 if level != 2 && level != 3 {
                     log::warn!("TMT quant level set at {}, is this correct?", level);
                 }
-                sage_core::tmt::quantify(&msn_spectra, isobaric, Tolerance::Ppm(-20.0, 20.0), level)
+                let tolerance = Tolerance::Ppm(-settings.ppm_tolerance, settings.ppm_tolerance);
+                let quant = sage_core::tmt::quantify(&msn_spectra, isobaric, tolerance, level);
+
+                if settings.sn {
+                    quant
+                        .into_iter()
+                        .filter(|q| {
+                            let mean_sn = q.peaks.iter().sum::<f32>() / q.peaks.iter().filter(|&&p| p > 0.0).count() as f32;
+                            mean_sn >= settings.min_sn
+                        })
+                        .collect()
+                } else {
+                    quant
+                }
             })
             .unwrap_or_default();
 
@@ -403,7 +417,9 @@ impl Runner {
 
         let min_deisotope_mz = match &self.parameters.quant.tmt {
             Some(i) => match self.parameters.quant.tmt_settings.level {
-                2 => i.reporter_masses().last().map(|x| x * (1.0 + 20E-6)),
+                2 => i.reporter_masses().last().map(|x| {
+                    x * (1.0 + self.parameters.quant.tmt_settings.ppm_tolerance * 1E-6)
+                }),
                 _ => None,
             },
             None => None,

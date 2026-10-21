@@ -133,16 +133,22 @@ impl From<LfqOptions> for LfqSettings {
     }
 }
 
+// Still need to add logs for these settings.
+// Might implement isotropic impurity correction if needed.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct TmtOptions {
     pub level: Option<u8>,
     pub sn: Option<bool>,
+    pub min_sn: Option<f32>,
+    pub ppm_tolerance: Option<f32>,
 }
 
 #[derive(Copy, Clone, Serialize, Debug)]
 pub struct TmtSettings {
     pub level: u8,
     pub sn: bool,
+    pub min_sn: f32,
+    pub ppm_tolerance:f32,
 }
 
 impl From<TmtOptions> for TmtSettings {
@@ -151,6 +157,8 @@ impl From<TmtOptions> for TmtSettings {
         Self {
             level: value.level.unwrap_or(default.level),
             sn: value.sn.unwrap_or(default.sn),
+            min_sn: value.min_sn.unwrap_or(default.min_sn),
+            ppm_tolerance: value.ppm_tolerance.unwrap_or(default.ppm_tolerance)
         }
     }
 }
@@ -160,6 +168,8 @@ impl Default for TmtSettings {
         Self {
             level: 3,
             sn: false,
+            min_sn: 10.0,
+            ppm_tolerance: 10.0,
         }
     }
 }
