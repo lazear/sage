@@ -606,7 +606,7 @@ impl<'db> Scorer<'db> {
             .db
             .ion_kinds
             .iter()
-            .flat_map(|kind| IonSeries::new(peptide, *kind));
+            .flat_map(|kind| IonSeries::new(peptide, *kind, &self.db.modifications));
 
         let max_fragment_charge = max_fragment_charge(self.max_fragment_charge, psm.charge);
 
@@ -706,11 +706,10 @@ impl<'db> Scorer<'db> {
         // Regenerate theoretical ions - initial database search might be
         // using only a subset of all possible ions (e.g. no b1/b2/y1/y2)
         // so we need to completely re-score this candidate
-        let fragments = self
-            .db
-            .ion_kinds
-            .iter()
-            .flat_map(|kind| IonSeries::new(peptide, *kind).enumerate());
+        let fragments =
+            self.db.ion_kinds.iter().flat_map(|kind| {
+                IonSeries::new(peptide, *kind, &self.db.modifications).enumerate()
+            });
 
         let mut b_run = Run::default();
         let mut y_run = Run::default();

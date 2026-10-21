@@ -284,7 +284,10 @@ impl Input {
     }
 
     pub fn build(mut self) -> anyhow::Result<Search> {
-        let database = self.database.make_parameters();
+        let database = self
+            .database
+            .make_parameters()
+            .context("invalid modification configuration")?;
 
         Self::check_mass_tolerances(&self.fragment_tol);
         Self::check_mass_tolerances(&self.precursor_tol);

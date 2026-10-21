@@ -177,7 +177,11 @@ pub fn serialize_features(
         );
         write_col!(|f: &Feature| f.spec_id.as_str().into(), ByteArrayType);
         write_col!(
-            |f: &Feature| database[f.peptide_idx].to_string().as_bytes().into(),
+            |f: &Feature| database[f.peptide_idx]
+                .display(&database.modifications)
+                .to_string()
+                .as_bytes()
+                .into(),
             ByteArrayType
         );
         write_col!(
@@ -450,7 +454,11 @@ pub fn serialize_lfq<H: BuildHasher>(
                 let peptide_idx = match id {
                     PrecursorId::Combined(x) | PrecursorId::Charged((x, _)) => x,
                 };
-                let val = database[*peptide_idx].to_string().as_bytes().into();
+                let val = database[*peptide_idx]
+                    .display(&database.modifications)
+                    .to_string()
+                    .as_bytes()
+                    .into();
                 std::iter::repeat(val).take(filenames.len())
             })
             .collect::<Vec<_>>();

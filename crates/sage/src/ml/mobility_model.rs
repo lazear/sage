@@ -60,6 +60,7 @@ const POSITIVE_AA_IDXS: [usize; 3] = [
 
 const NEGATIVE_AA_IDXS: [usize; 2] = [b'D' as usize - b'A' as usize, b'E' as usize - b'A' as usize];
 
+#[allow(clippy::eq_op)]
 const TINY_AA_IDXS: [usize; 3] = [
     b'G' as usize - b'A' as usize,
     b'A' as usize - b'A' as usize,

@@ -698,7 +698,12 @@ impl Runner {
         record.push_field(itoa::Buffer::new().format(feature.psm_id).as_bytes());
 
         let peptide = &self.database[feature.peptide_idx];
-        record.push_field(peptide.to_string().as_bytes());
+        record.push_field(
+            peptide
+                .display(&self.database.modifications)
+                .to_string()
+                .as_bytes(),
+        );
         record.push_field(
             peptide
                 .proteins(&self.database.decoy_tag, self.database.generate_decoys)
@@ -1071,7 +1076,12 @@ impl Runner {
                 .format(feature.posterior_error)
                 .as_bytes(),
         );
-        record.push_field(peptide.to_string().as_bytes());
+        record.push_field(
+            peptide
+                .display(&self.database.modifications)
+                .to_string()
+                .as_bytes(),
+        );
         record.push_field(
             peptide
                 .proteins(&self.database.decoy_tag, self.database.generate_decoys)
@@ -1221,7 +1231,12 @@ impl Runner {
                     PrecursorId::Combined(x) => (x, None),
                     PrecursorId::Charged((x, charge)) => (x, Some(charge as i32)),
                 };
-                record.push_field(self.database[peptide_ix].to_string().as_bytes());
+                record.push_field(
+                    self.database[peptide_ix]
+                        .display(&self.database.modifications)
+                        .to_string()
+                        .as_bytes(),
+                );
                 record.push_field(itoa::Buffer::new().format(charge.unwrap_or(-1)).as_bytes());
                 record.push_field(
                     self.database[peptide_ix]
@@ -1303,7 +1318,11 @@ impl Runner {
                         && f.peptide_q <= global_q_value_filter
                         && filenames[f.file_id] == *filename
                 }) {
-                    peptides.insert(self.database[feature.peptide_idx].to_string());
+                    peptides.insert(
+                        self.database[feature.peptide_idx]
+                            .display(&self.database.modifications)
+                            .to_string(),
+                    );
                 }
                 num_peptide_targets_per_file.push(peptides.len());
             }

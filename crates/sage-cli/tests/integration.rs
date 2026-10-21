@@ -14,7 +14,7 @@ fn integration() -> anyhow::Result<()> {
         "rev_",
         true,
     )?;
-    let database = builder.make_parameters().build(fasta);
+    let database = builder.make_parameters().unwrap().build(fasta);
     let spectra = sage_cloudpath::util::read_mzml(
         &sage_cloudpath::to_url("../../tests/LQSRPAAPPAPGPGQLTLR.mzML").expect("valid url"),
         0,
