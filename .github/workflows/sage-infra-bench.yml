@@ -1,0 +1,85 @@
+name: sage-infra bench
+
+# Drop this file at .github/workflows/sage-infra-bench.yml in the upstream
+# Sage repo. A `/bench` comment on a pull request benchmarks the PR's current
+# head in sage-infra; sage-infra then posts the PSM counts against the PR's
+# merge base on master as a comment on the PR.
+#
+#   /bench                          every dataset
+#   /bench PXD001468, PXD028735     only these datasets
+#
+# Only the first line of the comment is read. Only owners, members and
+# collaborators can trigger it: a PR's code is built and run on AWS.
+#
+# Uses the same secrets and variable as sage-infra-dispatch.yml.
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write          # the 👀 reaction
+  pull-requests: read
+
+jobs:
+  dispatch:
+    if: >-
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/bench') &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Parse comment
+        id: parse
+        env:
+          BODY: ${{ github.event.comment.body }}
+        run: |
+          set -euo pipefail
+          LINE=$(printf '%s\n' "$BODY" | head -1 | tr -d '\r')
+          # `/bench` alone or followed by whitespace; not `/benchmark`.
+          if [[ ! "$LINE" =~ ^/bench([[:space:]]+(.*))?$ ]]; then
+            echo "not a /bench command"; echo "ok=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # sage-infra validates the names against its datasets.
+          ARGS=$(printf '%s' "${BASH_REMATCH[2]}" | tr -cd 'A-Za-z0-9_.,\- ')
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+          echo "args=$ARGS" >> "$GITHUB_OUTPUT"
+
+      - name: Acknowledge
+        if: steps.parse.outputs.ok == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}/reactions" \
+            -f content=eyes > /dev/null
+
+      - name: Mint installation token
+        if: steps.parse.outputs.ok == 'true'
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.SAGE_INFRA_APP_ID }}
+          private-key: ${{ secrets.SAGE_INFRA_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: sage-infra
+
+      - name: Send repository_dispatch
+        if: steps.parse.outputs.ok == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          SAGE_INFRA_REPO: ${{ vars.SAGE_INFRA_REPO || 'lazear/sage-infra' }}
+          PR: ${{ github.event.issue.number }}
+          ARGS: ${{ steps.parse.outputs.args }}
+          ACTOR: ${{ github.event.comment.user.login }}
+        run: |
+          set -euo pipefail
+          # Pin the head as of this comment, so a later push isn't benchmarked by accident.
+          SHA=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}" --jq .head.sha)
+          jq -n --arg sha "$SHA" --argjson pr "$PR" --arg args "$ARGS" --arg actor "$ACTOR" \
+            '{event_type: "sage-pr-bench",
+              client_payload: {sha: $sha, pr: $pr, datasets: $args, requested_by: $actor}}' \
+            | GH_TOKEN="$APP_TOKEN" gh api -X POST "/repos/${SAGE_INFRA_REPO}/dispatches" --input -
+          echo "dispatched PR #${PR} @ ${SHA} -> ${SAGE_INFRA_REPO}"
