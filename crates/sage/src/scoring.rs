@@ -745,7 +745,7 @@ impl<'db> Scorer<'db> {
                             score.summed_b += peak_intensity;
                             b_run.matched(idx);
                         }
-                        Kind::X | Kind::Y | Kind::Z => {
+                        Kind::X | Kind::Y | Kind::Z | Kind::ZRadical => {
                             score.matched_y += 1;
                             score.summed_y += peak_intensity;
                             y_run.matched(idx);
@@ -755,7 +755,7 @@ impl<'db> Scorer<'db> {
                     if self.annotate_matches {
                         let idx = match frag.kind {
                             Kind::A | Kind::B | Kind::C => idx as i32 + 1,
-                            Kind::X | Kind::Y | Kind::Z => {
+                            Kind::X | Kind::Y | Kind::Z | Kind::ZRadical => {
                                 peptide.sequence.len().saturating_sub(1) as i32 - idx as i32
                             }
                         };

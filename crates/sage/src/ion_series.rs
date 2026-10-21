@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::mass::monoisotopic;
+use crate::mass::{monoisotopic, NH3};
 use crate::peptide::Peptide;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Deserialize, Serialize)]
@@ -12,6 +12,9 @@ pub enum Kind {
     X,
     Y,
     Z,
+    /// Radical z ion (y - NH2), as produced by ETD/ECD.
+    #[serde(rename = "z_radical")]
+    ZRadical,
 }
 
 /// Theoretical B/Y ion
@@ -37,9 +40,8 @@ impl<'p> IonSeries<'p> {
         const C: f32 = 12.0;
         const O: f32 = 15.994914;
         const H: f32 = 1.007825;
-        const PRO: f32 = 1.0072764;
         const N: f32 = 14.003074;
-        const NH3: f32 = N + H * 2.0 + PRO;
+        const NH2: f32 = N + H * 2.0;
 
         let cumulative_mass = match kind {
             Kind::A => peptide.nterm.unwrap_or_default() - (C + O),
@@ -50,6 +52,7 @@ impl<'p> IonSeries<'p> {
             }
             Kind::Y => peptide.monoisotopic - peptide.nterm.unwrap_or_default(),
             Kind::Z => peptide.monoisotopic - peptide.nterm.unwrap_or_default() - NH3,
+            Kind::ZRadical => peptide.monoisotopic - peptide.nterm.unwrap_or_default() - NH2,
         };
         Self {
             kind,
@@ -74,7 +77,7 @@ impl<'p> Iterator for IonSeries<'p> {
 
         self.cumulative_mass += match self.kind {
             Kind::A | Kind::B | Kind::C => monoisotopic(r) + m,
-            Kind::X | Kind::Y | Kind::Z => -(monoisotopic(r) + m),
+            Kind::X | Kind::Y | Kind::Z | Kind::ZRadical => -(monoisotopic(r) + m),
         };
         self.idx += 1;
 
@@ -145,6 +148,66 @@ mod test {
     }
 
     #[test]
+    fn electron_dissociation_masses() {
+        let peptide = peptide("AG");
+        // Neutral fragment formulas: c1 = C3H8N2O, x1 = C3H3NO3,
+        // z1 = C2H2O2, radical z1 = C2H3O2.
+        for (kind, carbon, hydrogen, nitrogen, oxygen) in [
+            (Kind::C, 3.0, 8.0, 2.0, 1.0),
+            (Kind::X, 3.0, 3.0, 1.0, 3.0),
+            (Kind::Z, 2.0, 2.0, 0.0, 2.0),
+            (Kind::ZRadical, 2.0, 3.0, 0.0, 2.0),
+        ] {
+            let neutral = carbon * 12.0
+                + hydrogen * 1.00782503223
+                + nitrogen * 14.00307400443
+                + oxygen * 15.99491461957;
+            for charge in [1.0, 2.0, 3.0] {
+                let expected = neutral / charge + 1.007276466621;
+                let observed = ions!(&peptide, kind, charge as f32)
+                    .next()
+                    .unwrap()
+                    .monoisotopic_mass;
+                assert!(
+                    (f64::from(observed) - expected).abs() < 0.00003,
+                    "{kind:?} charge {charge}: {observed} != {expected}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn radical_z_config() {
+        let json = r#"["c","z_radical","z"]"#;
+        let kinds: Vec<Kind> = serde_json::from_str(json).unwrap();
+        assert_eq!(kinds, vec![Kind::C, Kind::ZRadical, Kind::Z]);
+        assert_eq!(serde_json::to_string(&kinds).unwrap(), json);
+    }
+
+    #[test]
+    fn radical_z_modifications() {
+        for static_mods in [
+            [(ModificationSpecificity::PeptideN(None), 42.010565)].into(),
+            [(ModificationSpecificity::PeptideC(None), 17.0)].into(),
+            [(ModificationSpecificity::Residue(b'I'), 29.0)].into(),
+        ] {
+            let peptide = peptide("PEPTIDE")
+                .apply(&[], &static_mods, 1, None)
+                .remove(0);
+            for charge in [1.0, 2.0] {
+                for (y, z) in
+                    ions!(&peptide, Kind::Y, charge).zip(ions!(&peptide, Kind::ZRadical, charge))
+                {
+                    assert!(
+                        (y.monoisotopic_mass - z.monoisotopic_mass - 16.018724 / charge).abs()
+                            < 0.0001
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn iterate_b_ions() {
         let peptide = peptide("PEPTIDE");
 
@@ -199,7 +262,7 @@ mod test {
                 // Don't store b1, b2, y1, y2 ions for preliminary scoring
                 let ion_idx_filter = match ion.kind {
                     Kind::A | Kind::B | Kind::C => (ion_idx + 1) > 2,
-                    Kind::X | Kind::Y | Kind::Z => {
+                    Kind::X | Kind::Y | Kind::Z | Kind::ZRadical => {
                         peptide.sequence.len().saturating_sub(1) - ion_idx > 2
                     }
                 };

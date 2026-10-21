@@ -67,7 +67,7 @@ pub struct Builder {
     pub peptide_min_mass: Option<f32>,
     /// Maximum peptide monoisotopic mass that will be fragmented
     pub peptide_max_mass: Option<f32>,
-    /// Which kind of fragment ions to generate (a, b, c, x, y, z)
+    /// Which kind of fragment ions to generate (a, b, c, x, y, z, z_radical)
     pub ion_kinds: Option<Vec<Kind>>,
     /// Minimum ion index to be generated: 1 will remove b1/y1 ions
     /// 2 will remove b1/b2/y1/y2 ions, etc
@@ -319,7 +319,7 @@ impl Parameters {
 
                         match ion.kind {
                             Kind::A | Kind::B | Kind::C => (ion_idx + 1) > self.min_ion_index,
-                            Kind::X | Kind::Y | Kind::Z => {
+                            Kind::X | Kind::Y | Kind::Z | Kind::ZRadical => {
                                 peptide.sequence.len().saturating_sub(1) - ion_idx
                                     > self.min_ion_index
                             }

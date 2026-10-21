@@ -805,6 +805,7 @@ impl Runner {
                     Kind::X => "x",
                     Kind::Y => "y",
                     Kind::Z => "z",
+                    Kind::ZRadical => "z_radical",
                 };
                 record.push_field(ion_type.as_bytes());
                 record.push_field(
