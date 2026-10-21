@@ -8,8 +8,17 @@ name: sage-infra bench
 #   /bench                          every dataset
 #   /bench PXD001468, PXD028735     only these datasets
 #
-# Only the first line of the comment is read. Only owners, members and
-# collaborators can trigger it: a PR's code is built and run on AWS.
+# The command is the first line of the comment. A ```json block anywhere
+# below it is merged into each dataset's Sage config for the PR's run (the
+# master side keeps its committed config):
+#
+#   /bench PXD011695
+#   ```json
+#   {"database": {"ion_kinds": ["c", "z_radical"]}}
+#   ```
+#
+# Only owners, members and collaborators can trigger it: a PR's code is
+# built and run on AWS.
 #
 # Uses the same secrets and variable as sage-infra-dispatch.yml.
 
@@ -35,6 +44,8 @@ jobs:
         id: parse
         env:
           BODY: ${{ github.event.comment.body }}
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.issue.number }}
         run: |
           set -euo pipefail
           LINE=$(printf '%s\n' "$BODY" | head -1 | tr -d '\r')
@@ -44,8 +55,20 @@ jobs:
           fi
           # sage-infra validates the names against its datasets.
           ARGS=$(printf '%s' "${BASH_REMATCH[2]}" | tr -cd 'A-Za-z0-9_.,\- ')
+          # The first ```json block, if any, holds config overrides.
+          BLOCK=$(printf '%s\n' "$BODY" | tr -d '\r' \
+            | awk '/^```json[[:space:]]*$/ { inside = 1; next } inside && /^```/ { exit } inside')
+          OVERRIDES='{}'
+          if [ -n "$BLOCK" ]; then
+            if ! OVERRIDES=$(jq -ce 'if type == "object" then . else error("not an object") end' <<<"$BLOCK"); then
+              gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" \
+                -f body="/bench: the \`json\` block must be a JSON object of Sage config overrides." > /dev/null
+              exit 1
+            fi
+          fi
           echo "ok=true" >> "$GITHUB_OUTPUT"
           echo "args=$ARGS" >> "$GITHUB_OUTPUT"
+          echo "overrides=$OVERRIDES" >> "$GITHUB_OUTPUT"
 
       - name: Acknowledge
         if: steps.parse.outputs.ok == 'true'
@@ -75,13 +98,16 @@ jobs:
           SAGE_INFRA_REPO: ${{ vars.SAGE_INFRA_REPO || 'lazear/sage-infra' }}
           PR: ${{ github.event.issue.number }}
           ARGS: ${{ steps.parse.outputs.args }}
+          OVERRIDES: ${{ steps.parse.outputs.overrides }}
           ACTOR: ${{ github.event.comment.user.login }}
         run: |
           set -euo pipefail
           # Pin the head as of this comment, so a later push isn't benchmarked by accident.
           SHA=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}" --jq .head.sha)
           jq -n --arg sha "$SHA" --argjson pr "$PR" --arg args "$ARGS" --arg actor "$ACTOR" \
+            --argjson overrides "$OVERRIDES" \
             '{event_type: "sage-pr-bench",
-              client_payload: {sha: $sha, pr: $pr, datasets: $args, requested_by: $actor}}' \
+              client_payload: {sha: $sha, pr: $pr, datasets: $args, overrides: $overrides,
+                               requested_by: $actor}}' \
             | GH_TOKEN="$APP_TOKEN" gh api -X POST "/repos/${SAGE_INFRA_REPO}/dispatches" --input -
           echo "dispatched PR #${PR} @ ${SHA} -> ${SAGE_INFRA_REPO}"
