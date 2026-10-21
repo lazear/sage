@@ -12,7 +12,7 @@ pub enum Kind {
     X,
     Y,
     Z,
-    /// Radical z ion (y - NH2), as produced by ETD/ECD.
+    /// Radical z ion (y - NH2).
     #[serde(rename = "z_radical")]
     ZRadical,
 }
@@ -150,8 +150,7 @@ mod test {
     #[test]
     fn electron_dissociation_masses() {
         let peptide = peptide("AG");
-        // Neutral fragment formulas: c1 = C3H8N2O, x1 = C3H3NO3,
-        // z1 = C2H2O2, radical z1 = C2H3O2.
+        // Neutral fragment formulas for AG.
         for (kind, carbon, hydrogen, nitrogen, oxygen) in [
             (Kind::C, 3.0, 8.0, 2.0, 1.0),
             (Kind::X, 3.0, 3.0, 1.0, 3.0),
