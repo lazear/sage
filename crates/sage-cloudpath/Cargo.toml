@@ -23,7 +23,7 @@ tokio-util = { version = "0.7", features = ["io"] }
 quick-xml = { version = "0.31.0", features = ["async-tokio"] }
 timsrust = { version = "0.6.7"}
 rayon = "1.5"
-reqwest = { version = "0.11", features = ["json", "rustls-tls"], default-features = false }
+reqwest = { version = "0.12", features = ["json", "rustls-tls-native-roots"], default-features = false }
 regex = "1.6"
 url = { version = "2", features = ["serde"]}
 
