@@ -99,9 +99,7 @@ impl PartialEq for Digest {
     }
 }
 
-impl Eq for Digest {
-    fn assert_receiver_is_total_eq(&self) {}
-}
+impl Eq for Digest {}
 
 impl std::hash::Hash for Digest {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {

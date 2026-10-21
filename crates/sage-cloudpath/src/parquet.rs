@@ -489,7 +489,7 @@ pub fn serialize_lfq<H: BuildHasher>(
         let mut values = Vec::with_capacity(areas.len() * filenames.len());
         let mut def_levels = Vec::with_capacity(areas.len() * filenames.len());
 
-        for ((id, _), _) in areas.iter() {
+        for (id, _) in areas.keys() {
             match id {
                 PrecursorId::Combined(_) => {
                     def_levels.extend(std::iter::repeat(0).take(filenames.len()));

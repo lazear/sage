@@ -1,4 +1,3 @@
-use sage_cloudpath::try_parse_url;
 use sage_core::database::Builder;
 use sage_core::mass::Tolerance;
 use sage_core::scoring::{ScoreType, Scorer};
