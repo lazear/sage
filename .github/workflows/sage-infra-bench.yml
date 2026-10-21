@@ -18,8 +18,9 @@ on:
     types: [created]
 
 permissions:
-  issues: write          # the 👀 reaction
-  pull-requests: read
+  # Reacting to a comment on a PR counts as a pull-request write.
+  issues: write
+  pull-requests: write
 
 jobs:
   dispatch:
@@ -48,6 +49,7 @@ jobs:
 
       - name: Acknowledge
         if: steps.parse.outputs.ok == 'true'
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           COMMENT_ID: ${{ github.event.comment.id }}
