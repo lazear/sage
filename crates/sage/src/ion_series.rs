@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::mass::monoisotopic;
+use crate::modification::Modifications;
 use crate::peptide::Peptide;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Deserialize, Serialize)]
@@ -31,12 +32,14 @@ pub struct IonSeries<'p> {
     pub kind: Kind,
     cumulative_mass: f32,
     peptide: &'p Peptide,
+    mods: &'p Modifications,
     idx: usize,
 }
 
 impl<'p> IonSeries<'p> {
-    /// Create a new [`IonSeries`] iterator for a specified peptide
-    pub fn new(peptide: &'p Peptide, kind: Kind) -> Self {
+    /// Create a new [`IonSeries`] iterator for a specified peptide. `mods` must
+    /// be the registry of the database the peptide belongs to.
+    pub fn new(peptide: &'p Peptide, kind: Kind, mods: &'p Modifications) -> Self {
         const C: f32 = 12.0;
         const O: f32 = 15.994914;
         const H: f32 = 1.007825;
@@ -44,21 +47,21 @@ impl<'p> IonSeries<'p> {
         const NH2: f32 = N + H * 2.0;
         const NH3: f32 = N + H * 3.0;
 
+        let nterm = mods.mass(peptide.nterm);
         let cumulative_mass = match kind {
-            Kind::A => peptide.nterm.unwrap_or_default() - (C + O),
-            Kind::B => peptide.nterm.unwrap_or_default(),
-            Kind::C => peptide.nterm.unwrap_or_default() + NH3,
-            Kind::X => {
-                peptide.monoisotopic - peptide.nterm.unwrap_or_default() + (C + O - NH3 + N + H)
-            }
-            Kind::Y => peptide.monoisotopic - peptide.nterm.unwrap_or_default(),
-            Kind::Z => peptide.monoisotopic - peptide.nterm.unwrap_or_default() - NH3,
-            Kind::ZRadical => peptide.monoisotopic - peptide.nterm.unwrap_or_default() - NH2,
+            Kind::A => nterm - (C + O),
+            Kind::B => nterm,
+            Kind::C => nterm + NH3,
+            Kind::X => peptide.monoisotopic - nterm + (C + O - NH3 + N + H),
+            Kind::Y => peptide.monoisotopic - nterm,
+            Kind::Z => peptide.monoisotopic - nterm - NH3,
+            Kind::ZRadical => peptide.monoisotopic - nterm - NH2,
         };
         Self {
             kind,
             cumulative_mass,
             peptide,
+            mods,
             idx: 0,
         }
     }
@@ -74,7 +77,7 @@ impl<'p> Iterator for IonSeries<'p> {
             return None;
         }
         let r = self.peptide.sequence[self.idx];
-        let m = self.peptide.modifications[self.idx];
+        let m = self.mods.mass(self.peptide.modifications[self.idx]);
 
         self.cumulative_mass += match self.kind {
             Kind::A | Kind::B | Kind::C => monoisotopic(r) + m,
@@ -104,6 +107,20 @@ mod test {
         .unwrap()
     }
 
+    /// Apply a single static modification to `peptide`
+    fn with_static_mod(
+        peptide: Peptide,
+        target: ModificationSpecificity,
+        mass: f32,
+    ) -> (Peptide, Modifications) {
+        let mut mods = Modifications::default();
+        let id = mods.insert(mass, None).unwrap();
+        let peptide = peptide
+            .apply(&[], &[(target, id)], &mods, 1, None)
+            .remove(0);
+        (peptide, mods)
+    }
+
     fn check_within<I: Iterator<Item = Ion>>(iter: I, expected_mz: &[f32]) {
         let observed = iter.map(|ion| ion.monoisotopic_mass).collect::<Vec<f32>>();
         assert_eq!(expected_mz.len(), observed.len());
@@ -122,8 +139,11 @@ mod test {
     }
 
     macro_rules! ions {
-        ($peptide:expr, $kind:expr, $charge:expr) => {{
-            IonSeries::new($peptide, $kind).map(|mut ion| {
+        ($peptide:expr, $kind:expr, $charge:expr) => {
+            ions!($peptide, $kind, $charge, &Modifications::default())
+        };
+        ($peptide:expr, $kind:expr, $charge:expr, $mods:expr) => {{
+            IonSeries::new($peptide, $kind, $mods).map(|mut ion| {
                 ion.monoisotopic_mass = (ion.monoisotopic_mass + $charge * PROTON) / $charge;
                 ion
             })
@@ -217,7 +237,7 @@ mod test {
             (2, 263.08737),
             (1, 148.06043),
         ];
-        assert!(IonSeries::new(&peptide, Kind::Y)
+        assert!(IonSeries::new(&peptide, Kind::Y, &Modifications::default())
             .enumerate()
             .map(|(idx, ion)| (peptide.sequence.len().saturating_sub(1) - idx, ion))
             .zip(expected_ion.into_iter())
@@ -229,9 +249,10 @@ mod test {
     #[test]
     fn index_filtering() {
         let peptide = &peptide("PEPTIDE");
-        let ions = IonSeries::new(peptide, Kind::B)
+        let mods = Modifications::default();
+        let ions = IonSeries::new(peptide, Kind::B, &mods)
             .enumerate()
-            .chain(IonSeries::new(peptide, Kind::Y).enumerate())
+            .chain(IonSeries::new(peptide, Kind::Y, &mods).enumerate())
             .filter(|(ion_idx, ion)| {
                 // Don't store b1, b2, y1, y2 ions for preliminary scoring
                 let ion_idx_filter = match ion.kind {
@@ -293,10 +314,11 @@ mod test {
 
     #[test]
     fn nterm_mod() {
-        let static_mods = [(ModificationSpecificity::PeptideN(None), 229.01)].into();
-        let peptide = peptide("PEPTIDE")
-            .apply(&[], &static_mods, 1, None)
-            .remove(0);
+        let (peptide, mods) = with_static_mod(
+            peptide("PEPTIDE"),
+            ModificationSpecificity::PeptideN(None),
+            229.01,
+        );
 
         // Charge state 1, b-ions should be TMT tagged
         let expected_b = [
@@ -316,17 +338,21 @@ mod test {
             .map(|mz| mz - 16.018724)
             .collect::<Vec<_>>();
 
-        check_within(ions!(&peptide, Kind::B, 1.0), &expected_b);
-        check_within(ions!(&peptide, Kind::Y, 1.0), &expected_y);
-        check_within(ions!(&peptide, Kind::ZRadical, 1.0), &expected_z_radical);
+        check_within(ions!(&peptide, Kind::B, 1.0, &mods), &expected_b);
+        check_within(ions!(&peptide, Kind::Y, 1.0, &mods), &expected_y);
+        check_within(
+            ions!(&peptide, Kind::ZRadical, 1.0, &mods),
+            &expected_z_radical,
+        );
     }
 
     #[test]
     fn cterm_mod() {
-        let static_mods = [(ModificationSpecificity::PeptideC(None), 229.01)].into();
-        let peptide = peptide("PEPTIDE")
-            .apply(&[], &static_mods, 1, None)
-            .remove(0);
+        let (peptide, mods) = with_static_mod(
+            peptide("PEPTIDE"),
+            ModificationSpecificity::PeptideC(None),
+            229.01,
+        );
         assert!((peptide.monoisotopic - 1028.37).abs() < 0.001);
 
         // b-ions should not be tagged
@@ -347,16 +373,21 @@ mod test {
             .map(|mz| mz - 16.018724)
             .collect::<Vec<_>>();
 
-        check_within(ions!(&peptide, Kind::B, 1.0), &expected_b);
-        check_within(ions!(&peptide, Kind::Y, 1.0), &expected_y);
-        check_within(ions!(&peptide, Kind::ZRadical, 1.0), &expected_z_radical);
+        check_within(ions!(&peptide, Kind::B, 1.0, &mods), &expected_b);
+        check_within(ions!(&peptide, Kind::Y, 1.0, &mods), &expected_y);
+        check_within(
+            ions!(&peptide, Kind::ZRadical, 1.0, &mods),
+            &expected_z_radical,
+        );
     }
 
     #[test]
     fn internal_mod() {
-        let peptide = peptide("PEPTIDE");
-        let static_mods = [(ModificationSpecificity::Residue(b'I'), 29.0)].into();
-        let peptide = peptide.apply(&[], &static_mods, 1, None).remove(0);
+        let (peptide, mods) = with_static_mod(
+            peptide("PEPTIDE"),
+            ModificationSpecificity::Residue(b'I'),
+            29.0,
+        );
 
         let expected_b = [
             98.06004,
@@ -381,8 +412,11 @@ mod test {
             .map(|mz| mz - 16.018724)
             .collect::<Vec<_>>();
 
-        check_within(ions!(&peptide, Kind::B, 1.0), &expected_b);
-        check_within(ions!(&peptide, Kind::Y, 1.0), &expected_y);
-        check_within(ions!(&peptide, Kind::ZRadical, 1.0), &expected_z_radical);
+        check_within(ions!(&peptide, Kind::B, 1.0, &mods), &expected_b);
+        check_within(ions!(&peptide, Kind::Y, 1.0, &mods), &expected_y);
+        check_within(
+            ions!(&peptide, Kind::ZRadical, 1.0, &mods),
+            &expected_z_radical,
+        );
     }
 }

@@ -7,11 +7,13 @@
 use crate::database::{IndexedDatabase, PeptideIx};
 use crate::lfq::PrecursorId;
 use crate::ml::kde::Estimator;
+use crate::modification::ModId;
 use crate::scoring::Feature;
 use fnv::FnvHashMap;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::hash::BuildHasher;
+use std::sync::Arc;
 
 #[derive(Copy, Clone, Debug)]
 pub struct Competition<Ix> {
@@ -120,14 +122,35 @@ impl<Ix: Default + Send> Competition<Ix> {
     }
 }
 
+/// Sequence and modifications of a peptide, used to pair targets with decoys
+type PeptideKey = (
+    Arc<[u8]>,
+    Box<[Option<ModId>]>,
+    Option<ModId>,
+    Option<ModId>,
+);
+
 pub fn picked_peptide(db: &IndexedDatabase, features: &mut [Feature]) -> usize {
-    let mut map: FnvHashMap<String, Competition<PeptideIx>> = FnvHashMap::default();
+    let mut map: FnvHashMap<PeptideKey, Competition<PeptideIx>> = FnvHashMap::default();
     for feat in features.iter() {
         let peptide = &db[feat.peptide_idx];
         // Only reverse the peptide sequence if we generated decoys ourselves
         let key = match db.generate_decoys && peptide.decoy {
-            true => peptide.reverse().to_string(),
-            false => peptide.to_string(),
+            true => {
+                let reversed = peptide.reverse();
+                (
+                    reversed.sequence,
+                    reversed.modifications,
+                    reversed.nterm,
+                    reversed.cterm,
+                )
+            }
+            false => (
+                peptide.sequence.clone(),
+                peptide.modifications.clone(),
+                peptide.nterm,
+                peptide.cterm,
+            ),
         };
 
         let entry = map.entry(key).or_default();

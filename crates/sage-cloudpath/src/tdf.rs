@@ -225,7 +225,6 @@ impl TdfReader {
         spectrum: &timsrust::core::Spectrum<timsrust::core::Mz>,
     ) -> Option<RawSpectrum> {
         let dda_precursor = spectrum.precursor().as_ref()?;
-        let mut precursor = Self::parse_precursor(dda_precursor);
         let window = spectrum.isolation_window();
         let mz = f64::from(dda_precursor.mz());
         // timsrust 0.6 uses zero when MonoisotopicMz is NULL in the TDF.
@@ -235,11 +234,21 @@ impl TdfReader {
         } else {
             f64::from(window.center())
         };
-        precursor.mz = mz as f32;
-        precursor.isolation_window = Some(Tolerance::Da(
-            (f64::from(window.lower()) - mz) as f32,
-            (f64::from(window.upper()) - mz) as f32,
-        ));
+
+        let precursor = Precursor {
+            mz: mz as f32,
+            charge: dda_precursor
+                .charge()
+                .and_then(|x| u8::try_from(i8::from(x)).ok()),
+            intensity: dda_precursor.intensity().map(|x| x as f32),
+            spectrum_ref: Option::from(dda_precursor.frame_index().to_string()),
+            inverse_ion_mobility: Option::from(f64::from(dda_precursor.im()) as f32),
+            isolation_window: Some(Tolerance::Da(
+                (f64::from(window.lower()) - mz) as f32,
+                (f64::from(window.upper()) - mz) as f32,
+            )),
+        };
+
         Some(RawSpectrum {
             file_id,
             precursors: vec![precursor],
@@ -257,18 +266,6 @@ impl TdfReader {
             intensity: spectrum.intensities().iter().map(|&x| x as f32).collect(),
             mobility: None,
         })
-    }
-
-    fn parse_precursor(dda_precursor: &timsrust::core::Precursor) -> Precursor {
-        let mut precursor: Precursor = Precursor::default();
-        precursor.mz = f64::from(dda_precursor.mz()) as f32;
-        precursor.charge = dda_precursor
-            .charge()
-            .and_then(|x| u8::try_from(i8::from(x)).ok());
-        precursor.intensity = dda_precursor.intensity().map(|x| x as f32);
-        precursor.spectrum_ref = Option::from(dda_precursor.frame_index().to_string());
-        precursor.inverse_ion_mobility = Option::from(f64::from(dda_precursor.im()) as f32);
-        precursor
     }
 }
 
@@ -510,7 +507,7 @@ impl PeakBuffer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use timsrust::core::{Charge, FrameIndex, Im, IsolationWindow, Mz, Rt, Spectrum};
+    use timsrust::core::{FrameIndex, Im, IsolationWindow, Mz, Rt, Spectrum};
 
     #[test]
     fn missing_monoisotopic_mz_uses_isolation_center() {

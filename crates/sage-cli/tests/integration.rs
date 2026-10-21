@@ -1,4 +1,3 @@
-use sage_cloudpath::try_parse_url;
 use sage_core::database::Builder;
 use sage_core::mass::Tolerance;
 use sage_core::scoring::{ScoreType, Scorer};
@@ -14,7 +13,7 @@ fn integration() -> anyhow::Result<()> {
         "rev_",
         true,
     )?;
-    let database = builder.make_parameters().build(fasta);
+    let database = builder.make_parameters().unwrap().build(fasta);
     let spectra = sage_cloudpath::util::read_mzml(
         &sage_cloudpath::to_url("../../tests/LQSRPAAPPAPGPGQLTLR.mzML").expect("valid url"),
         0,
