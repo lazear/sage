@@ -317,6 +317,7 @@ pub fn serialize_matched_fragments(
                     Kind::X => "x".as_bytes().into(),
                     Kind::Y => "y".as_bytes().into(),
                     Kind::Z => "z".as_bytes().into(),
+                    Kind::ZRadical => "z_radical".as_bytes().into(),
                 })
                 .collect::<Vec<ByteArray>>();
 

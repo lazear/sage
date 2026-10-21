@@ -12,6 +12,9 @@ pub enum Kind {
     X,
     Y,
     Z,
+    /// Radical z ion (y - NH2).
+    #[serde(rename = "z_radical")]
+    ZRadical,
 }
 
 /// Theoretical B/Y ion
@@ -37,9 +40,9 @@ impl<'p> IonSeries<'p> {
         const C: f32 = 12.0;
         const O: f32 = 15.994914;
         const H: f32 = 1.007825;
-        const PRO: f32 = 1.0072764;
         const N: f32 = 14.003074;
-        const NH3: f32 = N + H * 2.0 + PRO;
+        const NH2: f32 = N + H * 2.0;
+        const NH3: f32 = N + H * 3.0;
 
         let cumulative_mass = match kind {
             Kind::A => peptide.nterm.unwrap_or_default() - (C + O),
@@ -50,6 +53,7 @@ impl<'p> IonSeries<'p> {
             }
             Kind::Y => peptide.monoisotopic - peptide.nterm.unwrap_or_default(),
             Kind::Z => peptide.monoisotopic - peptide.nterm.unwrap_or_default() - NH3,
+            Kind::ZRadical => peptide.monoisotopic - peptide.nterm.unwrap_or_default() - NH2,
         };
         Self {
             kind,
@@ -74,7 +78,7 @@ impl<'p> Iterator for IonSeries<'p> {
 
         self.cumulative_mass += match self.kind {
             Kind::A | Kind::B | Kind::C => monoisotopic(r) + m,
-            Kind::X | Kind::Y | Kind::Z => -(monoisotopic(r) + m),
+            Kind::X | Kind::Y | Kind::Z | Kind::ZRadical => -(monoisotopic(r) + m),
         };
         self.idx += 1;
 
@@ -145,6 +149,39 @@ mod test {
     }
 
     #[test]
+    fn c_ion_mass() {
+        let peptide = peptide("PEPTIDE");
+        let observed = ions!(&peptide, Kind::C, 1.0)
+            .next()
+            .unwrap()
+            .monoisotopic_mass;
+        // Detect the 0.00055 Da ammonia error.
+        assert!((observed - 115.08659).abs() < 0.00003, "{observed}");
+    }
+
+    #[test]
+    fn radical_z_config() {
+        let json = r#"["c","z_radical","z"]"#;
+        let kinds: Vec<Kind> = serde_json::from_str(json).unwrap();
+        assert_eq!(kinds, vec![Kind::C, Kind::ZRadical, Kind::Z]);
+        assert_eq!(serde_json::to_string(&kinds).unwrap(), json);
+    }
+
+    #[test]
+    fn iterate_z_radical_ions() {
+        let peptide = peptide("PEPTIDE");
+        let expected_mz = vec![
+            687.29575, 558.25316, 461.20040, 360.15272, 247.06865, 132.04171,
+        ];
+        check_within(ions!(&peptide, Kind::ZRadical, 1.0), &expected_mz);
+
+        let expected_mz = vec![
+            344.15152, 279.63022, 231.10384, 180.58000, 124.03797, 66.52449,
+        ];
+        check_within(ions!(&peptide, Kind::ZRadical, 2.0), &expected_mz);
+    }
+
+    #[test]
     fn iterate_b_ions() {
         let peptide = peptide("PEPTIDE");
 
@@ -199,7 +236,7 @@ mod test {
                 // Don't store b1, b2, y1, y2 ions for preliminary scoring
                 let ion_idx_filter = match ion.kind {
                     Kind::A | Kind::B | Kind::C => (ion_idx + 1) > 2,
-                    Kind::X | Kind::Y | Kind::Z => {
+                    Kind::X | Kind::Y | Kind::Z | Kind::ZRadical => {
                         peptide.sequence.len().saturating_sub(1) - ion_idx > 2
                     }
                 };
@@ -274,8 +311,14 @@ mod test {
             703.31447, 574.27188, 477.21912, 376.17144, 263.08737, 148.06043,
         ];
 
+        let expected_z_radical = expected_y
+            .iter()
+            .map(|mz| mz - 16.018724)
+            .collect::<Vec<_>>();
+
         check_within(ions!(&peptide, Kind::B, 1.0), &expected_b);
         check_within(ions!(&peptide, Kind::Y, 1.0), &expected_y);
+        check_within(ions!(&peptide, Kind::ZRadical, 1.0), &expected_z_radical);
     }
 
     #[test]
@@ -299,8 +342,14 @@ mod test {
         .map(|x| x + 229.01)
         .collect::<Vec<_>>();
 
+        let expected_z_radical = expected_y
+            .iter()
+            .map(|mz| mz - 16.018724)
+            .collect::<Vec<_>>();
+
         check_within(ions!(&peptide, Kind::B, 1.0), &expected_b);
         check_within(ions!(&peptide, Kind::Y, 1.0), &expected_y);
+        check_within(ions!(&peptide, Kind::ZRadical, 1.0), &expected_z_radical);
     }
 
     #[test]
@@ -327,7 +376,13 @@ mod test {
             148.06043,
         ];
 
+        let expected_z_radical = expected_y
+            .iter()
+            .map(|mz| mz - 16.018724)
+            .collect::<Vec<_>>();
+
         check_within(ions!(&peptide, Kind::B, 1.0), &expected_b);
         check_within(ions!(&peptide, Kind::Y, 1.0), &expected_y);
+        check_within(ions!(&peptide, Kind::ZRadical, 1.0), &expected_z_radical);
     }
 }

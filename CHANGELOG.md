@@ -6,6 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.15.0]
 ### Added
+- Radical z ions for ETD/ECD: set `database.ion_kinds` to `["c", "z_radical"]`. The existing `"z"` option retains the non-radical ion type.
 - IDPicker-based protein grouping with picked group FDR control (`protein_grouping` setting, enabled by default). Proteins are grouped using a bipartite graph greedy set cover approach, and protein group-level q-values are reported via target-decoy competition. New output columns: `protein_groups`, `num_protein_groups`, `protein_group_q`.
 - `protein_grouping_peptide_fdr` parameter to control the peptide FDR threshold used for confident peptides during protein grouping (default: 0.01)
 - Initial support for LFQ on data with ion mobility.
@@ -23,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CITATION.cff file
 
 ### Fixed
+- Use neutral NH3 mass in c, x, and non-radical z fragment calculations.
 - Handle negative mass errors for .pin files
 - Extract precursor m/z from 'isolation window target m/z' if missing
 - Selected ion m/z of 0.0 was overwriting precursor.mz
