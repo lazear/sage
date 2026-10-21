@@ -22,14 +22,14 @@ fn carbon_isotopes(count: u16) -> [f32; 4] {
 
 fn sulfur_isotopes(count: u16) -> [f32; 4] {
     let lambda33 = count as f32 * 0.0076;
-    let lambda35 = count as f32 * 0.044;
+    let lambda34 = count as f32 * 0.044;
     let mut s33 = [0.0; 4];
-    let s35 = [
-        lambda35.powi(0) * f32::exp(-lambda35),
+    let s34 = [
+        lambda34.powi(0) * f32::exp(-lambda34),
         0.0,
-        lambda35.powi(1) * f32::exp(-lambda35),
+        lambda34.powi(1) * f32::exp(-lambda34),
         0.0,
-        // lambda35.powi(2) * f32::exp(-lambda35) / 2.0,
+        // lambda34.powi(2) * f32::exp(-lambda34) / 2.0,
     ];
 
     let fact = [1, 1, 2, 6];
@@ -37,7 +37,7 @@ fn sulfur_isotopes(count: u16) -> [f32; 4] {
         s33[k] = lambda33.powi(k as i32) * f32::exp(-lambda33) / fact[k] as f32;
     }
 
-    convolve(&s33, &s35)
+    convolve(&s33, &s34)
 }
 
 pub fn peptide_isotopes(carbons: u16, sulfurs: u16) -> [f32; 3] {
