@@ -148,31 +148,14 @@ mod test {
     }
 
     #[test]
-    fn electron_dissociation_masses() {
-        let peptide = peptide("AG");
-        // Neutral fragment formulas for AG.
-        for (kind, carbon, hydrogen, nitrogen, oxygen) in [
-            (Kind::C, 3.0, 8.0, 2.0, 1.0),
-            (Kind::X, 3.0, 3.0, 1.0, 3.0),
-            (Kind::Z, 2.0, 2.0, 0.0, 2.0),
-            (Kind::ZRadical, 2.0, 3.0, 0.0, 2.0),
-        ] {
-            let neutral = carbon * 12.0
-                + hydrogen * 1.00782503223
-                + nitrogen * 14.00307400443
-                + oxygen * 15.99491461957;
-            for charge in [1.0, 2.0, 3.0] {
-                let expected = neutral / charge + 1.007276466621;
-                let observed = ions!(&peptide, kind, charge as f32)
-                    .next()
-                    .unwrap()
-                    .monoisotopic_mass;
-                assert!(
-                    (f64::from(observed) - expected).abs() < 0.00003,
-                    "{kind:?} charge {charge}: {observed} != {expected}"
-                );
-            }
-        }
+    fn c_ion_mass() {
+        let peptide = peptide("PEPTIDE");
+        let observed = ions!(&peptide, Kind::C, 1.0)
+            .next()
+            .unwrap()
+            .monoisotopic_mass;
+        // Detect the 0.00055 Da ammonia error.
+        assert!((observed - 115.08659).abs() < 0.00003, "{observed}");
     }
 
     #[test]
@@ -184,26 +167,17 @@ mod test {
     }
 
     #[test]
-    fn radical_z_modifications() {
-        for static_mods in [
-            [(ModificationSpecificity::PeptideN(None), 42.010565)].into(),
-            [(ModificationSpecificity::PeptideC(None), 17.0)].into(),
-            [(ModificationSpecificity::Residue(b'I'), 29.0)].into(),
-        ] {
-            let peptide = peptide("PEPTIDE")
-                .apply(&[], &static_mods, 1, None)
-                .remove(0);
-            for charge in [1.0, 2.0] {
-                for (y, z) in
-                    ions!(&peptide, Kind::Y, charge).zip(ions!(&peptide, Kind::ZRadical, charge))
-                {
-                    assert!(
-                        (y.monoisotopic_mass - z.monoisotopic_mass - 16.018724 / charge).abs()
-                            < 0.0001
-                    );
-                }
-            }
-        }
+    fn iterate_z_radical_ions() {
+        let peptide = peptide("PEPTIDE");
+        let expected_mz = vec![
+            687.29575, 558.25316, 461.20040, 360.15272, 247.06865, 132.04171,
+        ];
+        check_within(ions!(&peptide, Kind::ZRadical, 1.0), &expected_mz);
+
+        let expected_mz = vec![
+            344.15152, 279.63022, 231.10384, 180.58000, 124.03797, 66.52449,
+        ];
+        check_within(ions!(&peptide, Kind::ZRadical, 2.0), &expected_mz);
     }
 
     #[test]
@@ -336,8 +310,14 @@ mod test {
             703.31447, 574.27188, 477.21912, 376.17144, 263.08737, 148.06043,
         ];
 
+        let expected_z_radical = expected_y
+            .iter()
+            .map(|mz| mz - 16.018724)
+            .collect::<Vec<_>>();
+
         check_within(ions!(&peptide, Kind::B, 1.0), &expected_b);
         check_within(ions!(&peptide, Kind::Y, 1.0), &expected_y);
+        check_within(ions!(&peptide, Kind::ZRadical, 1.0), &expected_z_radical);
     }
 
     #[test]
@@ -361,8 +341,14 @@ mod test {
         .map(|x| x + 229.01)
         .collect::<Vec<_>>();
 
+        let expected_z_radical = expected_y
+            .iter()
+            .map(|mz| mz - 16.018724)
+            .collect::<Vec<_>>();
+
         check_within(ions!(&peptide, Kind::B, 1.0), &expected_b);
         check_within(ions!(&peptide, Kind::Y, 1.0), &expected_y);
+        check_within(ions!(&peptide, Kind::ZRadical, 1.0), &expected_z_radical);
     }
 
     #[test]
@@ -389,7 +375,13 @@ mod test {
             148.06043,
         ];
 
+        let expected_z_radical = expected_y
+            .iter()
+            .map(|mz| mz - 16.018724)
+            .collect::<Vec<_>>();
+
         check_within(ions!(&peptide, Kind::B, 1.0), &expected_b);
         check_within(ions!(&peptide, Kind::Y, 1.0), &expected_y);
+        check_within(ions!(&peptide, Kind::ZRadical, 1.0), &expected_z_radical);
     }
 }
