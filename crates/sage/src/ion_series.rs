@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::mass::{monoisotopic, NH3};
+use crate::mass::monoisotopic;
 use crate::peptide::Peptide;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Deserialize, Serialize)]
@@ -42,6 +42,7 @@ impl<'p> IonSeries<'p> {
         const H: f32 = 1.007825;
         const N: f32 = 14.003074;
         const NH2: f32 = N + H * 2.0;
+        const NH3: f32 = N + H * 3.0;
 
         let cumulative_mass = match kind {
             Kind::A => peptide.nterm.unwrap_or_default() - (C + O),
