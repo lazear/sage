@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Support for named modifications using `{"mass": 15.9949, "name": "UniMod:35"}`
 - Radical z ions for ETD/ECD: set `database.ion_kinds` to `["c", "z_radical"]`. The existing `"z"` option retains the non-radical ion type.
-- Improved support for TMT searches by implementing adjustable `ppm_tolerance` and `min_sn` filtering in the quantification settings.
+- Improved support for TMT searches by implementing adjustable `ppm_tolerance` in the quantification settings.
 - Added TMTpro-zero, -32, -34, -35 with detailed header strings for all plexes.
 - IDPicker-based protein grouping with picked group FDR control (`protein_grouping` setting, enabled by default). Proteins are grouped using a bipartite graph greedy set cover approach, and protein group-level q-values are reported via target-decoy competition. New output columns: `protein_groups`, `num_protein_groups`, `protein_group_q`.
 - `protein_grouping_peptide_fdr` parameter to control the peptide FDR threshold used for confident peptides during protein grouping (default: 0.01)
@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CITATION.cff file
 
 ### Fixed
+- Enabling `sn` for TMT quantification now only modifies spectrum intensities in the reporter ion region
 - Use neutral NH3 mass in c, x, and non-radical z fragment calculations.
 - Fixed deprecation warning for the `Eq` impl on `Digest`
 - Handle negative mass errors for .pin files
@@ -41,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Track charges on deisotoped ions to correctly report fragment charges and m/z in matched fragment annotations
 
 ### Breaking Changes
+- TMT output column names now contain channel labels (e.g. `126`, `127N`, etc.) instead of enumerated strings (e.g. `tmt_1`, ...)
 - Variable modifications must be specified as lists (e.g. `[15.9949]`), rather than single values (e.g. `15.9949`)
 - `precursor_ppm` field reports the non-absoluted average mass error, rather than the absoluted average mass error.
 - Don't deisotope reporter ion regions if MS2-based TMT/iTRAQ is used

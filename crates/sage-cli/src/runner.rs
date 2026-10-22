@@ -351,23 +351,8 @@ impl Runner {
             .map(|isobaric| {
                 let settings = self.parameters.quant.tmt_settings;
                 let level = settings.level;
-                if level != 2 && level != 3 {
-                    log::warn!("TMT quant level set at {}, is this correct?", level);
-                }
                 let tolerance = Tolerance::Ppm(-settings.ppm_tolerance, settings.ppm_tolerance);
-                let quant = sage_core::tmt::quantify(&msn_spectra, isobaric, tolerance, level);
-
-                if settings.sn {
-                    quant
-                        .into_iter()
-                        .filter(|q| {
-                            let mean_sn = q.peaks.iter().sum::<f32>() / q.peaks.iter().filter(|&&p| p > 0.0).count() as f32;
-                            mean_sn >= settings.min_sn
-                        })
-                        .collect()
-                } else {
-                    quant
-                }
+                sage_core::tmt::quantify(&msn_spectra, isobaric, tolerance, level)
             })
             .unwrap_or_default();
 
