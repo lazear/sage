@@ -383,7 +383,7 @@ impl MzMLReader {
                                     spectrum
                                         .intensity[min_reporter_ion_idx..max_reporter_ion_idx]
                                         .iter_mut()
-                                        .zip(noise_array.iter())
+                                        .zip(noise_array[min_reporter_ion_idx..max_reporter_ion_idx].iter())
                                         .for_each(|(int, noise)| *int /= noise);
                                     noise_array.clear();
                                     spectra.push(spectrum);
