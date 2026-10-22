@@ -351,6 +351,9 @@ impl SpectrumProcessor {
         }
     }
 
+    // will have to add a branch to this function
+    // so the MS2 TMT reporter ions do not compete with
+    // fragment ions for `max_peaks` during `take_top_n`
     fn process_ms2(
         &self,
         should_deisotope: bool,
