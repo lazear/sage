@@ -52,6 +52,93 @@ pub struct Search {
     pub score_type: ScoreType,
 }
 
+/// Like [`serde_json::to_value`], but `f32`s are written using their shortest
+/// representation (`0.01`) instead of being widened (`0.009999999776482582`)
+fn to_json<T: Serialize>(value: &T) -> serde_json::Result<serde_json::Value> {
+    serde_json::from_str(&serde_json::to_string(value)?)
+}
+
+#[derive(Default)]
+/// Presets for the configuration template written by `sage config`
+pub struct Template {
+    /// Placeholder paths are used if these are not set
+    pub fasta: Option<String>,
+    pub mzml_paths: Vec<String>,
+    pub tmt: Option<Isobaric>,
+    pub lfq: bool,
+    pub open: bool,
+    pub wide_window: bool,
+}
+
+impl Template {
+    /// Minimal configuration, where everything not specified takes Sage's
+    /// default value
+    pub fn build(&self) -> anyhow::Result<serde_json::Value> {
+        let mut config = serde_json::json!({
+            "database": {
+                "fasta": "path/to/database.fasta",
+                "enzyme": {
+                    "missed_cleavages": 2,
+                    "min_len": 7,
+                    "max_len": 35,
+                },
+                "static_mods": { "C": {"mass": 57.0215, "name": "Unimod:4"} },
+                "variable_mods": { "M": [{"mass": 15.9949, "name": "Unimod:35"}] },
+            },
+            "precursor_tol": { "ppm": [-20.0, 20.0] },
+            "fragment_tol": { "ppm": [-20.0, 20.0] },
+            "isotope_errors": [-1, 3],
+            "mzml_paths": ["path/to/file.mzML"],
+        });
+
+        if let Some(fasta) = &self.fasta {
+            config["database"]["fasta"] = fasta.as_str().into();
+        }
+        if !self.mzml_paths.is_empty() {
+            config["mzml_paths"] = self.mzml_paths.clone().into();
+        }
+
+        if let Some(tmt) = &self.tmt {
+            // Labels on lysine and peptide N-termini: TMTpro for 16/18-plex,
+            // otherwise TMT 6/10/11-plex
+            let label = match tmt {
+                Isobaric::Tmt16 | Isobaric::Tmt18 => {
+                    serde_json::json!({"mass": 304.207146, "name": "Unimod:2016"})
+                }
+                _ => serde_json::json!({"mass": 229.162932, "name": "Unimod:737"}),
+            };
+            config["database"]["static_mods"]["K"] = label.clone();
+            config["database"]["static_mods"]["^"] = label;
+            config["quant"]["tmt"] = to_json(tmt)?;
+            config["quant"]["tmt_settings"] = to_json(&TmtSettings::default())?;
+        }
+        if self.lfq {
+            config["quant"]["lfq"] = true.into();
+            config["quant"]["lfq_settings"] = to_json(&LfqSettings::default())?;
+        }
+        if self.open {
+            config["precursor_tol"] = serde_json::json!({ "da": [-500.0, 100.0] });
+            config["isotope_errors"] = serde_json::json!([0, 0]);
+        }
+        if self.wide_window {
+            config["wide_window"] = true.into();
+            config["chimera"] = true.into();
+            config["report_psms"] = 5.into();
+        }
+        Ok(config)
+    }
+}
+
+impl Search {
+    /// Fully resolved search parameters for the default [`Template`]
+    pub fn defaults() -> anyhow::Result<Self> {
+        let mut input: Input = serde_json::from_value(Template::default().build()?)?;
+        // Placeholder paths can't be resolved
+        input.mzml_paths = Some(Vec::new());
+        input.build()
+    }
+}
+
 #[derive(Deserialize)]
 /// Input search parameters deserialized from JSON file
 pub struct Input {
@@ -249,6 +336,171 @@ impl Input {
         sage_cloudpath::util::read_json(path).map_err(anyhow::Error::from)
     }
 
+    /// Like [`Input::load`], but also returns the paths of any keys that are
+    /// not recognized (and would otherwise be silently ignored). Reads from
+    /// stdin if `path` is `-`
+    pub fn load_checked<S: AsRef<str>>(path: S) -> anyhow::Result<(Self, Vec<String>)> {
+        let value = match path.as_ref() {
+            "-" => serde_json::from_reader(std::io::stdin().lock())?,
+            path => sage_cloudpath::util::read_json(path)?,
+        };
+        Self::from_value_checked(value)
+    }
+
+    fn from_value_checked(value: serde_json::Value) -> anyhow::Result<(Self, Vec<String>)> {
+        let mut unknown = Vec::new();
+        let input = serde_ignored::deserialize(value, |path| {
+            // Options are rendered as `?` path segments
+            let path = path.to_string().replace(".?", "");
+            // Output-only fields, present when re-using a `results.json`
+            if !matches!(path.as_str(), "version" | "output_paths") {
+                unknown.push(path);
+            }
+        })?;
+        Ok((input, unknown))
+    }
+
+    /// Validate a configuration file without running a search, returning the
+    /// number of problems found and the fully resolved configuration. Paths
+    /// that may be supplied on the command line (`database.fasta`,
+    /// `mzml_paths`) are allowed to be missing.
+    pub fn lint<S: AsRef<str>>(path: S) -> anyhow::Result<(usize, serde_json::Value)> {
+        let (mut input, unknown) = Self::load_checked(path)?;
+        let fasta = input.database.fasta.clone();
+        let mzml_paths = input.mzml_paths.clone();
+        let output_directory = input.output_directory.take();
+        let mut problems = unknown.len();
+        for key in &unknown {
+            log::error!("unrecognized parameter `{key}`");
+        }
+
+        let exists = |path: &str| match sage_cloudpath::try_parse_url(path) {
+            Some(url) if url.scheme() != "file" => true,
+            Some(url) => url.to_file_path().map_or(false, |p| p.exists()),
+            None => std::path::Path::new(path).exists(),
+        };
+
+        let mut scan_fasta = false;
+        match &input.database.fasta {
+            Some(fasta) if !exists(fasta) => {
+                log::error!("`database.fasta` does not exist: {fasta}");
+                problems += 1;
+            }
+            Some(_) => scan_fasta = true,
+            None => {
+                log::warn!("`database.fasta` is not set, it must be passed with --fasta");
+                input.database.fasta = Some(String::new());
+            }
+        }
+        match &mut input.mzml_paths {
+            Some(paths) if !paths.is_empty() => {
+                // Drop missing files, since resolving them in `build` would fail
+                paths.retain(|path| {
+                    let ok = exists(path);
+                    if !ok {
+                        log::error!("`mzml_paths` entry does not exist: {path}");
+                        problems += 1;
+                    }
+                    ok
+                });
+            }
+            _ => {
+                log::warn!(
+                    "`mzml_paths` is not set, input files must be passed on the command line"
+                );
+                input.mzml_paths = Some(Vec::new());
+            }
+        }
+
+        // Don't create the output directory as a side effect of linting
+        let search = input.build()?;
+        if scan_fasta {
+            problems += Self::check_decoys(&search.database)?;
+        }
+
+        let mut resolved = to_json(&search)?;
+        let config = resolved
+            .as_object_mut()
+            .expect("struct serializes to object");
+        // Output-only fields
+        config.shift_remove("version");
+        config.shift_remove("output_paths");
+        // Report paths as written, rather than placeholders or resolved URLs
+        match fasta {
+            Some(fasta) => resolved["database"]["fasta"] = fasta.into(),
+            None => {
+                resolved["database"]
+                    .as_object_mut()
+                    .map(|db| db.shift_remove("fasta"));
+            }
+        }
+        match mzml_paths {
+            Some(paths) => resolved["mzml_paths"] = paths.into(),
+            None => {
+                resolved
+                    .as_object_mut()
+                    .map(|c| c.shift_remove("mzml_paths"));
+            }
+        }
+        // Not serialized as part of `Search`
+        if let Some(output_directory) = output_directory {
+            resolved["output_directory"] = output_directory.into();
+        }
+        resolved["write_pin"] = search.write_pin.into();
+        resolved["write_report"] = search.write_report.into();
+        resolved["annotate_matches"] = search.annotate_matches.into();
+
+        Ok((problems, resolved))
+    }
+
+    /// Make sure the FASTA contains target sequences, and that decoys are
+    /// either present in the database or will be generated by Sage
+    fn check_decoys(database: &Parameters) -> anyhow::Result<usize> {
+        let url = sage_cloudpath::to_url(&database.fasta)?;
+        let tag = &database.decoy_tag;
+        // Don't let `read_fasta` filter out decoys, so we can count them
+        let fasta = sage_cloudpath::util::read_fasta(&url, tag, false)
+            .with_context(|| format!("Failed to read `{}`", database.fasta))?;
+        let total = fasta.targets.len();
+        let decoys = fasta
+            .targets
+            .iter()
+            .filter(|(acc, _)| acc.contains(tag.as_str()))
+            .count();
+
+        if total == 0 {
+            log::error!("`database.fasta` contains no protein sequences");
+            return Ok(1);
+        }
+        if decoys == total {
+            log::error!(
+                "all {total} entries in `database.fasta` contain the decoy tag `{tag}`, \
+                 leaving no target sequences - check `database.decoy_tag`"
+            );
+            return Ok(1);
+        }
+        match (database.generate_decoys, decoys) {
+            (true, 0) => log::info!("{total} target proteins, decoys will be generated"),
+            (true, _) => log::info!(
+                "{decoys} entries containing the decoy tag `{tag}` will be ignored, \
+                 and decoys generated from the remaining {} target proteins",
+                total - decoys
+            ),
+            (false, 0) => {
+                log::error!(
+                    "`database.generate_decoys` is false, but no entries in `database.fasta` \
+                     contain the decoy tag `{tag}` - FDR cannot be estimated"
+                );
+                return Ok(1);
+            }
+            (false, _) => log::info!(
+                "{} target and {decoys} decoy proteins (tag `{tag}`) in `database.fasta`",
+                total - decoys
+            ),
+        }
+        Ok(0)
+    }
+
     fn check_mass_tolerances(tolerance: &Tolerance) {
         let (lo, hi) = match tolerance {
             Tolerance::Ppm(lo, hi) => (*lo, *hi),
@@ -262,7 +514,7 @@ impl Input {
         };
         if hi.abs() > lo.abs() {
             log::warn!(
-                "Tolerances are applied to experimental masses, not theoretical: [{}, {}]",
+                "Tolerances are applied to experimental masses, not theoretical: [{}, {}]. Example open search config: [-800, 150]",
                 lo,
                 hi
             );
@@ -420,6 +672,70 @@ mod test {
         }
         assert_eq!(c.enzyme.map(|e| e.skip_suffix), Some([false; 26]));
 
+        Ok(())
+    }
+
+    #[test]
+    fn unknown_keys_are_reported() -> anyhow::Result<()> {
+        use super::{Input, Search};
+
+        let mut config = serde_json::to_value(Search::defaults()?)?;
+        config["deisotop"] = true.into();
+        config["database"]["enzyme"]["misssed_cleavages"] = 2.into();
+        config["quant"]["lfq_setings"] = serde_json::json!({});
+
+        let path = std::env::temp_dir().join("sage-unknown-keys.json");
+        std::fs::write(&path, config.to_string())?;
+        let (_, mut unknown) = Input::load_checked(path.to_str().unwrap())?;
+        std::fs::remove_file(&path)?;
+
+        unknown.sort();
+        assert_eq!(
+            unknown,
+            [
+                "database.enzyme.misssed_cleavages",
+                "deisotop",
+                "quant.lfq_setings"
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn templates_are_valid() -> anyhow::Result<()> {
+        use super::{Input, Template};
+        use sage_core::tmt::Isobaric;
+
+        for tmt in [None, Some(Isobaric::Tmt11), Some(Isobaric::Tmt18)] {
+            for (lfq, open, wide_window) in [
+                (false, false, false),
+                (true, false, false),
+                (false, true, false),
+                (false, false, true),
+            ] {
+                let template = Template {
+                    tmt: tmt.clone(),
+                    lfq,
+                    open,
+                    wide_window,
+                    ..Default::default()
+                };
+                let (mut input, unknown) = Input::from_value_checked(template.build()?)?;
+                assert!(unknown.is_empty(), "{unknown:?}");
+                input.mzml_paths = Some(Vec::new());
+                input.build()?;
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn default_search_round_trips() -> anyhow::Result<()> {
+        use super::{Input, Search};
+
+        let defaults = serde_json::to_value(Search::defaults()?)?;
+        let input: Input = serde_json::from_value(defaults.clone())?;
+        assert_eq!(serde_json::to_value(input.build()?)?, defaults);
         Ok(())
     }
 }
