@@ -105,9 +105,9 @@ jobs:
           # Pin the head as of this comment, so a later push isn't benchmarked by accident.
           SHA=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}" --jq .head.sha)
           jq -n --arg sha "$SHA" --argjson pr "$PR" --arg args "$ARGS" --arg actor "$ACTOR" \
-            --argjson overrides "$OVERRIDES" \
+            --argjson overrides "$OVERRIDES" --arg repo "$GITHUB_REPOSITORY" \
             '{event_type: "sage-pr-bench",
               client_payload: {sha: $sha, pr: $pr, datasets: $args, overrides: $overrides,
-                               requested_by: $actor}}' \
+                               requested_by: $actor, sage_repo: $repo}}' \
             | GH_TOKEN="$APP_TOKEN" gh api -X POST "/repos/${SAGE_INFRA_REPO}/dispatches" --input -
           echo "dispatched PR #${PR} @ ${SHA} -> ${SAGE_INFRA_REPO}"
