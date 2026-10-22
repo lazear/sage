@@ -6,6 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.15.0]
 ### Added
+- `sage config` subcommand to generate a configuration file (`-f`/mzML paths fill in real inputs; `--tmt`, `--lfq`, `--open` and `--wide-window` presets), and `sage config lint` to check one for unrecognized keys, invalid values, missing files and missing decoys without running a search
 - Support for named modifications using `{"mass": 15.9949, "name": "UniMod:35"}`
 - Radical z ions for ETD/ECD: set `database.ion_kinds` to `["c", "z_radical"]`. The existing `"z"` option retains the non-radical ion type.
 - IDPicker-based protein grouping with picked group FDR control (`protein_grouping` setting, enabled by default). Proteins are grouped using a bipartite graph greedy set cover approach, and protein group-level q-values are reported via target-decoy competition. New output columns: `protein_groups`, `num_protein_groups`, `protein_group_q`.
