@@ -376,7 +376,7 @@ impl MzMLReader {
                                     let max_reporter_ion_mz: f32 = 135.16355; // TMTpro-135CD (135.160846) + 20 ppm
                                     let min_reporter_ion_idx: usize = spectrum
                                             .mz
-                                            .partition_point(|&mz| mz >= min_reporter_ion_mz);
+                                            .partition_point(|&mz| mz < min_reporter_ion_mz);
                                     let max_reporter_ion_idx: usize = spectrum
                                             .mz
                                             .partition_point(|&mz| mz <= max_reporter_ion_mz);
