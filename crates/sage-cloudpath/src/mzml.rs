@@ -372,12 +372,16 @@ impl MzMLReader {
                                 (true, Some(level))
                                     if level == spectrum.ms_level && !noise_array.is_empty() =>
                                 {
+                                    let min_reporter_ion_mz: f32 = 126.12520; // TMTpro-zero (126.127726) - 20 ppm
                                     let max_reporter_ion_mz: f32 = 135.16355; // TMTpro-135CD (135.160846) + 20 ppm
+                                    let min_reporter_ion_idx: usize = spectrum
+                                            .mz
+                                            .partition_point(|&mz| mz >= min_reporter_ion_mz);
                                     let max_reporter_ion_idx: usize = spectrum
                                             .mz
                                             .partition_point(|&mz| mz <= max_reporter_ion_mz);
                                     spectrum
-                                        .intensity[..max_reporter_ion_idx]
+                                        .intensity[min_reporter_ion_idx..max_reporter_ion_idx]
                                         .iter_mut()
                                         .zip(noise_array.iter())
                                         .for_each(|(int, noise)| *int /= noise);
