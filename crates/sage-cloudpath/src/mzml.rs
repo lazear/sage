@@ -370,18 +370,18 @@ impl MzMLReader {
                                 .unwrap_or(true);
 
                             match (allow, self.signal_to_noise) {
-                                (true, Some((level, max_reporter_ion_mz)))
+                                (true, Some((level, max_reporter_mass)))
                                     if level == spectrum.ms_level && 
                                     noise_array.len() == spectrum.mz.len() &&
                                     spectrum.intensity.len() == spectrum.mz.len() =>
                                 {
-                                    let max_reporter_ion_idx: usize = spectrum
+                                    let max_reporter_idx: usize = spectrum
                                         .mz
-                                        .partition_point(|&mz| mz <= max_reporter_ion_mz);
+                                        .partition_point(|&mz| mz <= max_reporter_mass);
                                     spectrum
-                                        .intensity[..max_reporter_ion_idx]
+                                        .intensity[..max_reporter_idx]
                                         .iter_mut()
-                                        .zip(noise_array[..max_reporter_ion_idx].iter())
+                                        .zip(noise_array[..max_reporter_idx].iter())
                                         .for_each(|(int, noise)| *int /= noise);
                                     noise_array.clear();
                                     spectra.push(spectrum);
