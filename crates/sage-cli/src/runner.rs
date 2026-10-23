@@ -393,12 +393,15 @@ impl Runner {
         );
         let start = Instant::now();
 
-        let sn = self
+        let tmt_settings = &self.parameters.quant.tmt_settings;
+        let sn: Option<(u8, f32)> = self
             .parameters
             .quant
-            .tmt_settings
-            .sn
-            .then_some(self.parameters.quant.tmt_settings.level);
+            .tmt
+            .as_ref()
+            .filter(|_| tmt_settings.sn)
+            .and_then(|i| i.reporter_masses().last())
+            .map(|x| (tmt_settings.level, x * (1.0 + tmt_settings.ppm_tolerance * 1E-6)));
 
         let min_deisotope_mz = match &self.parameters.quant.tmt {
             Some(i) => match self.parameters.quant.tmt_settings.level {

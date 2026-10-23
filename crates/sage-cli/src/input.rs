@@ -133,7 +133,6 @@ impl From<LfqOptions> for LfqSettings {
     }
 }
 
-// Still need to add logs for these settings.
 // Might implement isotropic impurity correction if needed.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct TmtOptions {

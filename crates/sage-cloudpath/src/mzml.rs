@@ -65,8 +65,9 @@ const INVERSE_ION_MOBILITY: &[u8] = b"MS:1002815";
 pub struct MzMLReader {
     ms_level: Option<u8>,
     // If set to Some(level) and noise intensities are present in the MzML file,
-    // divide intensities at this MS-level by noise to calculate S/N
-    signal_to_noise: Option<u8>,
+    // divide intensities at this MS-level by noise to calculate S/N, up to the
+    // given m/z (the largest reporter ion m/z, including tolerance)
+    signal_to_noise: Option<(u8, f32)>,
 
     file_id: usize,
 }
@@ -98,7 +99,7 @@ impl MzMLReader {
         self
     }
 
-    pub fn set_signal_to_noise(&mut self, sn: Option<u8>) -> &mut Self {
+    pub fn set_signal_to_noise(&mut self, sn: Option<(u8, f32)>) -> &mut Self {
         self.signal_to_noise = sn;
         self
     }
@@ -369,17 +370,18 @@ impl MzMLReader {
                                 .unwrap_or(true);
 
                             match (allow, self.signal_to_noise) {
-                                (true, Some(level))
-                                    if level == spectrum.ms_level && !noise_array.is_empty() =>
+                                (true, Some((level, max_reporter_ion_mz)))
+                                    if level == spectrum.ms_level && 
+                                    noise_array.len() == spectrum.mz.len() &&
+                                    spectrum.intensity.len() == spectrum.mz.len() =>
                                 {
-                                    let max_reporter_ion_mz: f32 = 135.16355; // TMTpro-135CD (135.160846) + 20 ppm
                                     let max_reporter_ion_idx: usize = spectrum
-                                            .mz
-                                            .partition_point(|&mz| mz <= max_reporter_ion_mz);
+                                        .mz
+                                        .partition_point(|&mz| mz <= max_reporter_ion_mz);
                                     spectrum
                                         .intensity[..max_reporter_ion_idx]
                                         .iter_mut()
-                                        .zip(noise_array.iter())
+                                        .zip(noise_array[..max_reporter_ion_idx].iter())
                                         .for_each(|(int, noise)| *int /= noise);
                                     noise_array.clear();
                                     spectra.push(spectrum);
