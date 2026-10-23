@@ -279,9 +279,14 @@ pub fn quantify(
                     .unwrap_or_default(),
             };
 
+            // MS2 reporter ions are kept separate from fragment ions
+            let (masses, intensities) = match level {
+                2 => (&spectrum.reporter_masses, &spectrum.reporter_intensities),
+                _ => (&spectrum.masses, &spectrum.intensities),
+            };
             let peaks = find_reporter_ions(
-                &spectrum.masses,
-                &spectrum.intensities,
+                masses,
+                intensities,
                 isobaric_labels.reporter_masses(),
                 isobaric_tolerance,
             )
