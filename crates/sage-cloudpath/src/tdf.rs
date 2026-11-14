@@ -325,7 +325,7 @@ impl PeakBuffer {
 
         // sort by mz ... bc binary searching on the mz space
         // for neighbors is the fastest way to find neighbors that I have tried.
-        self.peaks.sort_by(|a, b| a.mz.partial_cmp(&b.mz).unwrap());
+        self.peaks.sort_by(|a, b| a.mz.total_cmp(&b.mz));
 
         // The "order" is sorted by intensity
         // This will be used later during the centroiding (for details check that implementation)
@@ -489,8 +489,7 @@ impl PeakBuffer {
             }
         }
 
-        self.agg_buff
-            .sort_unstable_by(|a, b| a.mz.partial_cmp(&b.mz).unwrap());
+        self.agg_buff.sort_unstable_by(|a, b| a.mz.total_cmp(&b.mz));
         // println!("Centroiding: Start len: {}; end len: {};", arr_len, result.len());
         // Ultra data is usually start: 40k end 10k,
         // HT2 data is usually start 400k end 40k, limiting to 10k

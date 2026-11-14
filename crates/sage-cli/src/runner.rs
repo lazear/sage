@@ -1391,7 +1391,7 @@ impl Runner {
                     }) {
                         accuracies.push(feature.delta_mass);
                     }
-                    accuracies.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                    accuracies.sort_by(|a, b| a.total_cmp(b));
                     let mid = accuracies.len() / 2;
 
                     if accuracies.is_empty() {
@@ -1422,7 +1422,7 @@ impl Runner {
                     }) {
                         accuracies.push(feature.average_ppm);
                     }
-                    accuracies.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                    accuracies.sort_by(|a, b| a.total_cmp(b));
                     let mid = accuracies.len() / 2;
 
                     if accuracies.is_empty() {
@@ -1453,7 +1453,7 @@ impl Runner {
                     }) {
                         deviations.push(feature.delta_rt_model);
                     }
-                    deviations.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                    deviations.sort_by(|a, b| a.total_cmp(b));
                     let mid = deviations.len() / 2;
 
                     if deviations.is_empty() {
@@ -1484,7 +1484,7 @@ impl Runner {
                     }) {
                         deviations.push(feature.delta_ims_model);
                     }
-                    deviations.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                    deviations.sort_by(|a, b| a.total_cmp(b));
                     let mid = deviations.len() / 2;
 
                     if deviations.is_empty() {
