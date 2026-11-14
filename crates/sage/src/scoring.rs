@@ -267,9 +267,13 @@ impl<'db> Scorer<'db> {
             query.level, 2,
             "internal bug, trying to score a non-MS2 scan!"
         );
-        let precursor = query.precursors.first().unwrap_or_else(|| {
-            panic!("missing MS1 precursor for {}", query.id);
-        });
+        let precursor = match query.precursors.first() {
+            Some(precursor) => precursor,
+            None => {
+                log::error!("missing MS1 precursor for {}", query.id);
+                return;
+            }
+        };
         let hits = self.initial_hits(query, precursor);
 
         if prefilter_low_memory {
@@ -468,9 +472,13 @@ impl<'db> Scorer<'db> {
 
     /// Score a single [`ProcessedSpectrum`] against the database
     pub fn score_standard(&self, query: &ProcessedSpectrum) -> Vec<Feature> {
-        let precursor = query.precursors.first().unwrap_or_else(|| {
-            panic!("missing MS1 precursor for {}", query.id);
-        });
+        let precursor = match query.precursors.first() {
+            Some(precursor) => precursor,
+            None => {
+                log::error!("missing MS1 precursor for {}", query.id);
+                return Vec::new();
+            }
+        };
 
         let hits = self.initial_hits(query, precursor);
         let mut features = Vec::with_capacity(self.report_psms);
@@ -662,9 +670,13 @@ impl<'db> Scorer<'db> {
     /// Return multiple PSMs for each spectra - first is the best match, second PSM is the best match
     /// after all theoretical peaks assigned to the best match are removed, etc
     pub fn score_chimera_fast(&self, query: &ProcessedSpectrum) -> Vec<Feature> {
-        let precursor = query.precursors.first().unwrap_or_else(|| {
-            panic!("missing MS1 precursor for {}", query.id);
-        });
+        let precursor = match query.precursors.first() {
+            Some(precursor) => precursor,
+            None => {
+                log::error!("missing MS1 precursor for {}", query.id);
+                return Vec::new();
+            }
+        };
 
         let mut query = query.clone();
         let hits = self.initial_hits(&query, precursor);
