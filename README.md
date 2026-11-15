@@ -5,7 +5,7 @@
 [![Rust](https://github.com/lazear/sage/actions/workflows/rust.yml/badge.svg)](https://github.com/lazear/sage/actions/workflows/rust.yml) [![Anaconda-Server Badge](https://anaconda.org/bioconda/sage-proteomics/badges/version.svg)](https://anaconda.org/bioconda/sage-proteomics)
 
 
-For more information please read [the online documentation!](https://sage-docs.vercel.app/docs)
+For more information please read [the online documentation!](https://sage.lazear.org/docs)
 
 
 # Introduction
