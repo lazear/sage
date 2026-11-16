@@ -21,6 +21,7 @@ enum BinaryKind {
     Intensity,
     Mz,
     Noise,
+    Mobility,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -61,6 +62,7 @@ const ISO_WINDOW_LOWER: &[u8] = b"MS:1000828";
 const ISO_WINDOW_UPPER: &[u8] = b"MS:1000829";
 
 const INVERSE_ION_MOBILITY: &[u8] = b"MS:1002815";
+const INVERSE_ION_MOBILITY_ARRAY: &[u8] = b"MS:1003006";
 
 pub struct MzMLReader {
     ms_level: Option<u8>,
@@ -185,6 +187,14 @@ impl MzMLReader {
                             INTENSITY_ARRAY => binary_array = Some(BinaryKind::Intensity),
                             MZ_ARRAY => binary_array = Some(BinaryKind::Mz),
                             NOISE_ARRAY => binary_array = Some(BinaryKind::Noise),
+                            INVERSE_ION_MOBILITY_ARRAY if spectrum.ms_level == 1 => {
+                                if extract!(ev, b"unitAccession").as_ref() != b"MS:1002814" {
+                                    return Err(MzMLError::UnsupportedCV(
+                                        "inverse mobility array requires MS:1002814 units".into(),
+                                    ));
+                                }
+                                binary_array = Some(BinaryKind::Mobility);
+                            }
                             _ => {
                                 // Unknown CV - perhaps noise
                                 binary_array = None;
@@ -338,6 +348,7 @@ impl MzMLReader {
                             Some(BinaryKind::Noise) => {
                                 noise_array = array;
                             }
+                            Some(BinaryKind::Mobility) => spectrum.mobility = Some(array),
                             None => {}
                         }
 
@@ -362,6 +373,13 @@ impl MzMLReader {
                         }
                         (Some(State::Scan), b"scan") => Some(State::Spectrum),
                         (_, b"spectrum") => {
+                            if let Some(mobility) = &spectrum.mobility {
+                                if mobility.len() != spectrum.mz.len()
+                                    || mobility.len() != spectrum.intensity.len()
+                                {
+                                    return Err(MzMLError::Malformed);
+                                }
+                            }
                             let allow = self
                                 .ms_level
                                 .as_ref()
@@ -425,6 +443,50 @@ pub enum MzMLError {
 
 #[cfg(test)]
 mod test {
+    #[tokio::test]
+    async fn ms1_mobility_arrays() -> Result<(), MzMLError> {
+        let array = |accession: &str, values: &[f64], unit: &str| {
+            let bytes: Vec<_> = values
+                .iter()
+                .flat_map(|value| value.to_le_bytes())
+                .collect();
+            format!(
+                r#"<binaryDataArray><cvParam accession="{accession}" unitAccession="{unit}"/>
+                <cvParam accession="MS:1000523"/><cvParam accession="MS:1000576"/>
+                <binary>{}</binary></binaryDataArray>"#,
+                base64::encode(bytes)
+            )
+        };
+        let spectrum = |level, mobility: &[f64], unit| {
+            format!(
+                r#"<spectrum id="test"><cvParam accession="MS:1000511" value="{level}"/>{}{}{}</spectrum>"#,
+                array("MS:1000514", &[601.0, 501.0], "MS:1000040"),
+                array("MS:1000515", &[11.0, 22.0], "MS:1000131"),
+                array("MS:1003006", mobility, unit),
+            )
+        };
+        for level in [1, 2] {
+            let xml = spectrum(level, &[1.2, 0.9], "MS:1002814");
+            let spectra = MzMLReader::with_file_id(0).parse(xml.as_bytes()).await?;
+            assert_eq!(spectra.len(), 1);
+            assert_eq!(spectra[0].mz, vec![601.0, 501.0]);
+            assert_eq!(spectra[0].intensity, vec![11.0, 22.0]);
+            assert_eq!(spectra[0].mobility, (level == 1).then(|| vec![1.2, 0.9]));
+        }
+        for (mobility, unit) in [
+            (&[1.2][..], "MS:1002814"),
+            (&[1.2, 0.9][..], "UO:0000028"),
+            (&[1.2, 0.9][..], ""),
+        ] {
+            let xml = spectrum(1, mobility, unit);
+            assert!(MzMLReader::with_file_id(0)
+                .parse(xml.as_bytes())
+                .await
+                .is_err());
+        }
+        Ok(())
+    }
+
     use sage_core::{mass::Tolerance, spectrum::Representation};
 
     use super::{MzMLError, MzMLReader};
