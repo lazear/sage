@@ -55,6 +55,10 @@ pub struct ProcessedSpectrum {
     pub mobilities: Vec<f32>,
     /// Total ion current
     pub total_ion_current: f32,
+    /// MS2 TMT reporter ion masses
+    pub reporter_masses: Vec<f32>,
+    /// MS2 TMT reporter ion intensities, parallel to `reporter_masses`
+    pub reporter_intensities: Vec<f32>,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -351,11 +355,13 @@ impl SpectrumProcessor {
         }
     }
 
+    /// Returns (masses, intensities, charges) of fragment ions, and
+    /// (masses, intensities) of TMT reporter ions
     fn process_ms2(
         &self,
         should_deisotope: bool,
         spectrum: &RawSpectrum,
-    ) -> (Vec<f32>, Vec<f32>, Vec<u8>) {
+    ) -> ((Vec<f32>, Vec<f32>, Vec<u8>), (Vec<f32>, Vec<f32>)) {
         if spectrum.representation != Representation::Centroid {
             // Panic, because there's really nothing we can do with profile data
             panic!(
@@ -370,6 +376,17 @@ impl SpectrumProcessor {
             .first()
             .and_then(|p| p.charge)
             .unwrap_or(3);
+
+        // TMT reporter ions are split off so they do not compete with fragment ions for `take_top_n`
+        let max_reporter_idx: usize = spectrum
+            .mz
+            .partition_point(|&mz| mz <= self.min_deisotope_mz);
+        let reporter_masses = spectrum.mz[..max_reporter_idx]
+            .iter()
+            .map(|mz| mz - PROTON)
+            .collect::<Vec<_>>();
+        let reporter_intensities = spectrum.intensity[..max_reporter_idx].to_vec();
+        let reporters = (reporter_masses, reporter_intensities);
 
         if should_deisotope {
             let peaks = deisotope(
@@ -388,6 +405,7 @@ impl SpectrumProcessor {
             let mut indices = peaks
                 .iter()
                 .enumerate()
+                .skip(max_reporter_idx)
                 .filter_map(|(idx, peak)| peak.envelope.is_none().then_some(idx))
                 .collect::<Vec<_>>();
 
@@ -403,7 +421,7 @@ impl SpectrumProcessor {
                 selected_charges.push(charge);
             }
 
-            (masses, selected_intensities, selected_charges)
+            ((masses, selected_intensities, selected_charges), reporters)
         } else {
             let masses = spectrum
                 .mz
@@ -412,9 +430,9 @@ impl SpectrumProcessor {
                 .collect::<Vec<_>>();
             let intensities = spectrum.intensity.clone();
             let charges = vec![1; masses.len()];
-            let mut indices = (0..masses.len()).collect::<Vec<_>>();
+            let mut indices = (max_reporter_idx..masses.len()).collect::<Vec<_>>();
             retain_top_n_by_intensity(&mut indices, &masses, &intensities, self.take_top_n, false);
-            select_columns(indices, &masses, &intensities, &charges)
+            (select_columns(indices, &masses, &intensities, &charges), reporters)
         }
     }
 
@@ -424,6 +442,8 @@ impl SpectrumProcessor {
             debug_assert_eq!(spectrum.mz.len(), mobilities.len());
         }
 
+        let mut reporter_masses = Vec::new();
+        let mut reporter_intensities = Vec::new();
         let (masses, intensities, charges, mobilities) =
             if spectrum.ms_level == 1 && spectrum.mobility.is_some() {
                 let raw_mobilities = spectrum.mobility.as_ref().expect("checked above");
@@ -438,7 +458,11 @@ impl SpectrumProcessor {
                 sort_columns_by_mass(masses, intensities, charges, mobilities)
             } else {
                 let (masses, intensities, charges) = match spectrum.ms_level {
-                    2 => self.process_ms2(self.deisotope, &spectrum),
+                    2 => {
+                        let (fragments, reporters) = self.process_ms2(self.deisotope, &spectrum);
+                        (reporter_masses, reporter_intensities) = reporters;
+                        fragments
+                    }
                     _ => {
                         let masses = spectrum
                             .mz
@@ -467,6 +491,8 @@ impl SpectrumProcessor {
             charges,
             mobilities,
             total_ion_current,
+            reporter_masses,
+            reporter_intensities,
         }
     }
 }

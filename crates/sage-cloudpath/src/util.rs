@@ -60,7 +60,7 @@ fn is_bruker(path: &str) -> bool {
 pub fn read_spectra(
     url: &Url,
     file_id: usize,
-    sn: Option<u8>,
+    sn: Option<(u8, f32)>,
     bruker_processor: BrukerProcessingConfig,
     requires_ms1: bool,
 ) -> Result<Vec<RawSpectrum>, Error> {
@@ -75,7 +75,7 @@ pub fn read_spectra(
 pub fn read_mzml(
     url: &Url,
     file_id: usize,
-    signal_to_noise: Option<u8>,
+    signal_to_noise: Option<(u8, f32)>,
 ) -> Result<Vec<RawSpectrum>, Error> {
     read_and_execute(url, |bf| async move {
         Ok(crate::mzml::MzMLReader::with_file_id(file_id)
