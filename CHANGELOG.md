@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Support for named modifications using `{"mass": 15.9949, "name": "UniMod:35"}`
 - Radical z ions for ETD/ECD: set `database.ion_kinds` to `["c", "z_radical"]`. The existing `"z"` option retains the non-radical ion type.
+- Improved support for TMT searches by implementing adjustable `ppm_tolerance` in the quantification settings.
+- Added TMTpro-zero, -32, -34, -35 with detailed header strings for all plexes.
+- Warnings when TMT quantification cannot do what was configured: `sn` is enabled for a file that is not mzML.
 - IDPicker-based protein grouping with picked group FDR control (`protein_grouping` setting, enabled by default). Proteins are grouped using a bipartite graph greedy set cover approach, and protein group-level q-values are reported via target-decoy competition. New output columns: `protein_groups`, `num_protein_groups`, `protein_group_q`.
 - `protein_grouping_peptide_fdr` parameter to control the peptide FDR threshold used for confident peptides during protein grouping (default: 0.01)
 - Initial support for LFQ on data with ion mobility.
@@ -25,7 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CITATION.cff file
 
 ### Fixed
+- TMT reporter ions no longer compete with fragment ions for `max_peaks`. When `quant.tmt` is set, the reporter ion region is split off from MS2 spectra before peak selection, regardless of `tmt_settings.level`, and is excluded from fragment matching and from the total ion current used for `matched_intensity_pct`.
+- The reporter ion region is bounded by the largest reporter m/z rather than the last one listed, which matters for user-defined reporter lists that are not sorted.
+- Enabling `sn` for TMT quantification now only modifies spectrum intensities in the reporter ion region
 - Use neutral NH3 mass in c, x, and non-radical z fragment calculations.
+- Fixed deprecation warning for the `Eq` impl on `Digest`
 - Handle negative mass errors for .pin files
 - Extract precursor m/z from 'isolation window target m/z' if missing
 - Selected ion m/z of 0.0 was overwriting precursor.mz
@@ -38,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Track charges on deisotoped ions to correctly report fragment charges and m/z in matched fragment annotations
 
 ### Breaking Changes
+- TMT output column names now contain channel labels (e.g. `126`, `127N`, etc.) instead of enumerated strings (e.g. `tmt_1`, ...)
+- TMT reporter ions are matched at 10 ppm by default (previously fixed at 20 ppm). Set `quant.tmt_settings.ppm_tolerance` to change this.
 - Variable modifications must be specified as lists (e.g. `[15.9949]`), rather than single values (e.g. `15.9949`)
 - `precursor_ppm` field reports the non-absoluted average mass error, rather than the absoluted average mass error.
 - Don't deisotope reporter ion regions if MS2-based TMT/iTRAQ is used

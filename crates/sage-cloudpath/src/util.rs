@@ -60,11 +60,15 @@ fn is_bruker(path: &str) -> bool {
 pub fn read_spectra(
     url: &Url,
     file_id: usize,
-    sn: Option<u8>,
+    sn: Option<(u8, f32)>,
     bruker_processor: BrukerProcessingConfig,
     requires_ms1: bool,
 ) -> Result<Vec<RawSpectrum>, Error> {
-    match FileFormat::from(url.as_ref()) {
+    let format = FileFormat::from(url.as_ref());
+    if sn.is_some() && matches!(format, FileFormat::MGF | FileFormat::TDF) {
+        log::warn!("- {}: `sn` is only supported for mzML input, raw intensities will be reported", url);
+    }
+    match format {
         FileFormat::MzML => read_mzml(url, file_id, sn),
         FileFormat::MGF => read_mgf(url, file_id),
         FileFormat::TDF => read_tdf(url, file_id, bruker_processor, requires_ms1),
@@ -75,7 +79,7 @@ pub fn read_spectra(
 pub fn read_mzml(
     url: &Url,
     file_id: usize,
-    signal_to_noise: Option<u8>,
+    signal_to_noise: Option<(u8, f32)>,
 ) -> Result<Vec<RawSpectrum>, Error> {
     read_and_execute(url, |bf| async move {
         Ok(crate::mzml::MzMLReader::with_file_id(file_id)

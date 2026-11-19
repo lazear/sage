@@ -137,21 +137,44 @@ impl From<LfqOptions> for LfqSettings {
 pub struct TmtOptions {
     pub level: Option<u8>,
     pub sn: Option<bool>,
+    pub ppm_tolerance: Option<f32>,
 }
 
 #[derive(Copy, Clone, Serialize, Debug)]
 pub struct TmtSettings {
     pub level: u8,
     pub sn: bool,
+    pub ppm_tolerance: f32,
 }
 
 impl From<TmtOptions> for TmtSettings {
     fn from(value: TmtOptions) -> Self {
         let default = Self::default();
-        Self {
+        let settings = Self {
             level: value.level.unwrap_or(default.level),
             sn: value.sn.unwrap_or(default.sn),
+            ppm_tolerance: value.ppm_tolerance.unwrap_or(default.ppm_tolerance).abs(),
+        };
+        if settings.level == 1 {
+            log::error!(
+                "tmt_settings.level set at {}, TMT cannot be quantified at the MS1 level",
+                settings.level
+            );
         }
+        if settings.level != 2 && settings.level != 3 {
+            log::warn!(
+                "tmt_settings.level set at {}, is this correct?", 
+                settings.level
+            );
+        }
+        if settings.ppm_tolerance > 20.0 {
+            log::warn!(
+                "tmt_settings.ppm_tolerance set at {}, this is higher than expected",
+                settings.ppm_tolerance
+            );
+        }
+
+        settings
     }
 }
 
@@ -160,6 +183,7 @@ impl Default for TmtSettings {
         Self {
             level: 3,
             sn: false,
+            ppm_tolerance: 10.0,
         }
     }
 }

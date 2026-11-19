@@ -349,11 +349,10 @@ impl Runner {
             .tmt
             .as_ref()
             .map(|isobaric| {
-                let level = self.parameters.quant.tmt_settings.level;
-                if level != 2 && level != 3 {
-                    log::warn!("TMT quant level set at {}, is this correct?", level);
-                }
-                sage_core::tmt::quantify(&msn_spectra, isobaric, Tolerance::Ppm(-20.0, 20.0), level)
+                let settings = self.parameters.quant.tmt_settings;
+                let level = settings.level;
+                let tolerance = Tolerance::Ppm(-settings.ppm_tolerance, settings.ppm_tolerance);
+                sage_core::tmt::quantify(&msn_spectra, isobaric, tolerance, level)
             })
             .unwrap_or_default();
 
@@ -394,20 +393,23 @@ impl Runner {
         );
         let start = Instant::now();
 
-        let sn = self
+        let tmt_settings = &self.parameters.quant.tmt_settings;
+        let sn: Option<(u8, f32)> = self
             .parameters
             .quant
-            .tmt_settings
-            .sn
-            .then_some(self.parameters.quant.tmt_settings.level);
+            .tmt
+            .as_ref()
+            .filter(|_| tmt_settings.sn)
+            .and_then(|i| i.max_reporter_mass())
+            .map(|x| (tmt_settings.level, x * (1.0 + tmt_settings.ppm_tolerance * 1E-6)));
 
-        let min_deisotope_mz = match &self.parameters.quant.tmt {
-            Some(i) => match self.parameters.quant.tmt_settings.level {
-                2 => i.reporter_masses().last().map(|x| x * (1.0 + 20E-6)),
-                _ => None,
-            },
-            None => None,
-        };
+        let min_deisotope_mz = self
+            .parameters
+            .quant
+            .tmt
+            .as_ref()
+            .and_then(|i| i.max_reporter_mass())
+            .map(|x| x * (1.0 + tmt_settings.ppm_tolerance * 1E-6));
 
         let sp = SpectrumProcessor::new(
             self.parameters.max_peaks,
@@ -597,6 +599,33 @@ impl Runner {
             "discovered {} target protein groups (supported by proteotypic peptides only) at 1% FDR",
             q_protein_group
         );
+        if self.parameters.quant.tmt.is_some() {
+            let level = self.parameters.quant.tmt_settings.level;
+            let mut quantified = vec![false; filenames.len()];
+            for q in &outputs.quant {
+                quantified[q.file_id] = true;
+            }
+            let missing = filenames
+                .iter()
+                .zip(&quantified)
+                .filter(|(_, &quantified)| !quantified)
+                .map(|(filename, _)| filename.as_str())
+                .collect::<Vec<_>>();
+            if missing.len() == filenames.len() {
+                log::warn!(
+                    "`quant.tmt` is set, but no reporter ions were quantified at MS level {} in any file. Is `quant.tmt_settings.level` correct?",
+                    level
+                );
+            } else if !missing.is_empty() {
+                log::warn!(
+                    "no reporter ions were quantified at MS level {} in {} of {} files: {}",
+                    level,
+                    missing.len(),
+                    filenames.len(),
+                    missing.join(", ")
+                );
+            }
+        }
         log::trace!("writing outputs");
 
         // Write either a single parquet file, or multiple tsv files
