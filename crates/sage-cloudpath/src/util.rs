@@ -64,7 +64,11 @@ pub fn read_spectra(
     bruker_processor: BrukerProcessingConfig,
     requires_ms1: bool,
 ) -> Result<Vec<RawSpectrum>, Error> {
-    match FileFormat::from(url.as_ref()) {
+    let format = FileFormat::from(url.as_ref());
+    if sn.is_some() && matches!(format, FileFormat::MGF | FileFormat::TDF) {
+        log::warn!("- {}: `sn` is only supported for mzML input, raw intensities will be reported", url);
+    }
+    match format {
         FileFormat::MzML => read_mzml(url, file_id, sn),
         FileFormat::MGF => read_mgf(url, file_id),
         FileFormat::TDF => read_tdf(url, file_id, bruker_processor, requires_ms1),

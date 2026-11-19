@@ -133,7 +133,6 @@ impl From<LfqOptions> for LfqSettings {
     }
 }
 
-// Might implement isotropic impurity correction if needed.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct TmtOptions {
     pub level: Option<u8>,
@@ -145,7 +144,7 @@ pub struct TmtOptions {
 pub struct TmtSettings {
     pub level: u8,
     pub sn: bool,
-    pub ppm_tolerance:f32,
+    pub ppm_tolerance: f32,
 }
 
 impl From<TmtOptions> for TmtSettings {
@@ -154,7 +153,7 @@ impl From<TmtOptions> for TmtSettings {
         let settings = Self {
             level: value.level.unwrap_or(default.level),
             sn: value.sn.unwrap_or(default.sn),
-            ppm_tolerance: value.ppm_tolerance.unwrap_or(default.ppm_tolerance)
+            ppm_tolerance: value.ppm_tolerance.unwrap_or(default.ppm_tolerance).abs(),
         };
         if settings.level == 1 {
             log::error!(

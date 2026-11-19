@@ -778,4 +778,46 @@ mod test {
         assert!((processed.masses[0] - (812.0 - PROTON) * 2.0).abs() < 0.001);
         assert!((processed.peak_mz(0) - 812.0).abs() < 0.001);
     }
+
+    #[test]
+    fn process_ms2_reporter_ions_separated_from_fragment_ions() {
+        let processor = SpectrumProcessor::new(10, false, 134.15);
+        let spectrum = RawSpectrum {
+            ms_level: 2,
+            representation: Representation::Centroid,
+            mz: vec![126.127726, 131.13818, 200.0, 300.0],
+            intensity: vec![500.0, 400.0, 10.0, 20.0],
+            ..RawSpectrum::default_with_file_id(7)
+        };
+
+        let processed = processor.process(spectrum);
+
+        assert_eq!(processed.masses, vec![200.0 - PROTON, 300.0 - PROTON]);
+        assert_eq!(processed.intensities, vec![10.0, 20.0]);
+        assert_eq!(processed.total_ion_current, 30.0);
+        assert_eq!(
+            processed.reporter_masses,
+            vec![126.127726 - PROTON, 131.13818 - PROTON]
+        );
+        assert_eq!(processed.reporter_intensities, vec![500.0, 400.0]);
+    }
+
+    #[test]
+    fn process_ms2_reporter_ions_do_not_take_max_peaks() {
+        let spectrum = RawSpectrum {
+            ms_level: 2,
+            representation: Representation::Centroid,
+            mz: vec![126.127726, 127.124761, 200.0, 300.0, 400.0],
+            intensity: vec![1000.0, 900.0, 10.0, 30.0, 20.0],
+            ..RawSpectrum::default_with_file_id(7)
+        };
+
+        let without_tmt = SpectrumProcessor::new(2, true, 0.0).process(spectrum.clone());
+        let with_tmt = SpectrumProcessor::new(2, true, 134.15).process(spectrum);
+
+        assert_eq!(without_tmt.intensities, vec![1000.0, 900.0]);
+        assert_eq!(with_tmt.masses, vec![300.0 - PROTON, 400.0 - PROTON]);
+        assert_eq!(with_tmt.intensities, vec![30.0, 20.0]);
+        assert_eq!(with_tmt.reporter_intensities, vec![1000.0, 900.0]);
+    }
 }

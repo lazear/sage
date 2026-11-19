@@ -383,7 +383,6 @@ impl MzMLReader {
                                         .iter_mut()
                                         .zip(noise_array[..max_reporter_idx].iter())
                                         .for_each(|(int, noise)| *int /= noise);
-                                    noise_array.clear();
                                     spectra.push(spectrum);
                                 }
                                 (true, _) => {
@@ -392,6 +391,7 @@ impl MzMLReader {
                                 (false, _) => {}
                             }
                             spectrum = RawSpectrum::default_with_file_id(self.file_id);
+                            noise_array.clear();
                             None
                         }
                         _ => state,
